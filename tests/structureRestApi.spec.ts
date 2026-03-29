@@ -154,7 +154,7 @@ describe('useStructureRestApi — table-like usage', () => {
 
         it('returns undefined when the API returns undefined', async () => {
             const c = makeComposable();
-            const result = await c.fetchTarget(apiResolve(undefined), 99);
+            const result = await c.fetchTarget(apiResolve(), 99);
             expect(result).toBeUndefined();
         });
 
@@ -228,7 +228,7 @@ describe('useStructureRestApi — table-like usage', () => {
 
         it('returns undefined when the API returns undefined', async () => {
             const c = makeComposable();
-            const result = await c.createTarget(apiResolve(undefined));
+            const result = await c.createTarget(apiResolve());
             expect(result).toBeUndefined();
         });
     });
@@ -262,7 +262,7 @@ describe('useStructureRestApi — table-like usage', () => {
         it('removes the item from itemDictionary immediately', async () => {
             const c = makeComposable();
             await c.fetchAll(apiResolve([...USERS]));
-            await c.deleteTarget(apiResolve(undefined), 1);
+            await c.deleteTarget(apiResolve(), 1);
             expect(c.getRecord(1)).toBeUndefined();
             expect(c.itemList.value).toHaveLength(2);
         });

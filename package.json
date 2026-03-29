@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc",
     "test": "jest --config jest.config.cjs --passWithNoTests",
-    "test:target": "jest --config jest.config.cjs /tests/getColorBrightness.spec.ts",
+    "test:target": "clear && jest --config jest.config.cjs /tests/structureRestApi.search.spec.ts",
     "lint": "eslint \"*/**/*.{ts,js,json}\"",
     "lint:fix": "eslint \"*/**/*.{ts,js,json}\" --fix",
     "docs:dev": "vitepress dev docs --port 8080",

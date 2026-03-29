@@ -81,7 +81,7 @@ describe('useStructureRestApi — pagination', () => {
             c.pageCurrent.value = 2;
             const ids = c.pageItemList.value.map(p => p.id);
             expect(ids[0]).toBe(11);
-            expect(ids[ids.length - 1]).toBe(20);
+            expect(ids.at(-1)).toBe(20);
         });
 
         it('returns remaining items on the last page', async () => {
@@ -136,8 +136,8 @@ describe('useStructureRestApi — pagination', () => {
                 collected.push(...c.pageItemList.value);
             }
             expect(collected).toHaveLength(products.length);
-            const ids = collected.map(i => i.id).sort((a, b) => a - b);
-            expect(ids).toEqual(products.map(p => p.id).sort((a, b) => a - b));
+            const ids = collected.map(i => i.id).toSorted((a, b) => a - b);
+            expect(ids).toEqual(products.map(p => p.id).toSorted((a, b) => a - b));
         });
     });
 
@@ -150,6 +150,7 @@ describe('useStructureRestApi — pagination', () => {
          * lastUpdateKey so the TTL is tracked independently per page.
          * Items accumulate in itemDictionary across pages.
          */
+        // eslint-disable-next-line unicorn/consistent-function-scoping
         function pageKey(page: number) {
             return `products-page-${page}`;
         }
