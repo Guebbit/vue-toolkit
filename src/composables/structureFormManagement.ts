@@ -117,6 +117,7 @@ export const useStructureFormManagement = <
       errors[field]!.push(issue.message)
     }
     formErrors.value = errors
+
     return false
   }
 
