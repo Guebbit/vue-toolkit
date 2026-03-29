@@ -2,11 +2,18 @@
   "name": "@guebbit/vue-toolkit",
   "version": "1.0.0",
   "license": "AGPLv3.0",
+  "type": "module",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
   "files": [
     "dist",
-    "types",
     "README.md",
     "LICENSE",
     "CHANGELOG"
@@ -14,8 +21,8 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc",
-    "test": "jest",
-    "test:target": "jest /tests/getColorBrightness.spec.ts",
+    "test": "jest --config jest.config.cjs --passWithNoTests",
+    "test:target": "jest --config jest.config.cjs /tests/getColorBrightness.spec.ts",
     "lint": "eslint \"*/**/*.{ts,js,json}\"",
     "lint:fix": "eslint \"*/**/*.{ts,js,json}\" --fix",
     "docs:dev": "vitepress dev docs --port 8080",
@@ -23,11 +30,16 @@
     "docs:preview": "vitepress preview docs",
     "update:all": "npx npm-check-updates -u",
     "complete": "npm run build && npm run test && npm run lint && npm run docs:build",
-    "publish:public": "npm run prepublish && npm publish --access public"
+    "publish:public": "npm run complete && npm publish --access public"
+  },
+  "peerDependencies": {
+    "pinia": ">=2.0.0",
+    "vue": ">=3.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
+    "@eslint/js": "^9.0.0",
     "@types/eslint": "^9.6.1",
     "@types/jest": "^30.0.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
@@ -39,25 +51,24 @@
     "eslint-plugin-cypress": "^6.2.1",
     "eslint-plugin-oxlint": "^1.57.0",
     "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-unicorn": "^64.0.0",
     "eslint-plugin-vue": "^10.8.0",
     "husky": "^9.1.7",
     "jest": "^30.3.0",
+    "pinia": "^3.0.4",
     "prettier": "^3.8.1",
     "ts-jest": "^29.4.6",
     "typescript": "^5.9.3",
-    "vitepress": "^1.6.4"
+    "typescript-eslint": "^8.57.2",
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.31"
   },
   "husky": {
     "hooks": {
-      "pre-commit": "npm run prepublish"
+      "pre-commit": "npm run complete"
     }
   },
   "dependencies": {
-    "@eslint/js": "^10.0.1",
-    "eslint-plugin-unicorn": "^64.0.0",
-    "pinia": "^3.0.4",
-    "typescript-eslint": "^8.57.2",
-    "vue": "^3.5.31",
     "zod": "^4.3.6"
   }
 }
