@@ -1,29 +1,19 @@
 import { computed, ref } from 'vue'
-
-
-/**
- * Minimal interface for a Zod-like schema.
- * Compatible with zod v3 and v4 (duck-typed, no direct zod import required).
- */
-interface IFormSchema<T> {
-  safeParse(data: unknown):
-    | { success: true; data: T }
-    | { success: false; error: { issues: Array<{ path: (string | number | symbol)[]; message: string }> } }
-}
+import { type ZodType } from 'zod'
 
 /**
  * Form management composable.
  * Handles reactive form state, optional Zod schema validation and submission flow.
  *
  * @param initialData - Initial values for the form fields
- * @param schema      - Optional Zod-compatible schema used for validation
+ * @param schema      - Optional Zod schema used for validation
  */
 export const useStructureFormManagement = <
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   T extends Record<string, any> = Record<string, any>
 >(
   initialData: T = {} as T,
-  schema?: IFormSchema<T>,
+  schema?: ZodType<T>,
 ) => {
 
   /**
