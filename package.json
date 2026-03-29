@@ -1,0 +1,63 @@
+{
+  "name": "@guebbit/vue-toolkit",
+  "version": "1.0.0",
+  "license": "AGPLv3.0",
+  "main": "dist/index.js",
+  "types": "dist/types/index.d.ts",
+  "files": [
+    "dist",
+    "types",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "test:target": "jest /tests/getColorBrightness.spec.ts",
+    "lint": "eslint \"*/**/*.{ts,js,json}\"",
+    "lint:fix": "eslint \"*/**/*.{ts,js,json}\" --fix",
+    "docs:dev": "vitepress dev docs --port 8080",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "prepublish": "npm run build && npm run test && npm run lint && npm run docs:build",
+    "publish:public": "npm run prepublish && npm publish --access public"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.1.0",
+    "@commitlint/config-conventional": "^20.0.0",
+    "@types/eslint": "^9.6.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.10.1",
+    "@typescript-eslint/eslint-plugin": "^8.46.4",
+    "@typescript-eslint/parser": "^8.46.4",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-filenames": "^1.3.2",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
+    "jsdom": "^27.2.0",
+    "prettier": "^3.6.2",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitepress": "^1.6.4"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run prepublish"
+    }
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint-plugin-unicorn": "^62.0.0",
+    "pinia": "^3.0.4",
+    "typescript-eslint": "^8.46.4",
+    "vue": "^3.5.24",
+    "zod": "^4.1.12"
+  }
+}
