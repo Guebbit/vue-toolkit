@@ -582,8 +582,7 @@ export const useStructureRestApi = <
 
         // Remove expired entries
         const validEntries = Object.entries(lastUpdate[ELastUpdateKeywords.ONLINE])
-
-            .filter(([_, ttl]) => Date.now() - ttl < TTL);
+          .filter(([_, ttl]) => ttl < Date.now());
 
         // If there are too many valid entries, sort descending (newest first) so later the oldest will be trimmed
         if (validEntries.length > MAX_SEARCHES)
