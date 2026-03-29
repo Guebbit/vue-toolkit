@@ -228,7 +228,7 @@ export const useStructureRestApi = <
         if (getLastUpdate(key, branch)) {
             return true;
         }
-        editLastUpdate(Date.now());
+        editLastUpdate(Date.now(), key, branch);
         return false;
     };
 
@@ -583,7 +583,7 @@ export const useStructureRestApi = <
         // Remove expired entries
         const validEntries = Object.entries(lastUpdate[ELastUpdateKeywords.ONLINE])
 
-            .filter(([_, ttl]) => ttl < Date.now());
+            .filter(([_, ttl]) => Date.now() - ttl < TTL);
 
         // If there are too many valid entries, sort descending (newest first) so later the oldest will be trimmed
         if (validEntries.length > MAX_SEARCHES)
