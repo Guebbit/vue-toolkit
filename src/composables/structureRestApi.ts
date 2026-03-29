@@ -90,8 +90,6 @@ export interface IStructureRestApi {
     setLoading?: (key?: string, value?: boolean) => void
 }
 
-const uniqueId = () => Math.random().toString(36).slice(2);
-
 export const useStructureRestApi = <
     // type of item
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -103,7 +101,7 @@ export const useStructureRestApi = <
     P extends string | number = string | number,
 > ({
        identifiers = "id",
-       loadingKey = uniqueId(),
+       loadingKey = crypto.randomUUID(),
        TTL = 3_600_000,     // 1 hour
        delimiter = "|",
        getLoading,
@@ -584,7 +582,7 @@ export const useStructureRestApi = <
 
         // Remove expired entries
         const validEntries = Object.entries(lastUpdate[ELastUpdateKeywords.ONLINE])
-             
+
             .filter(([_, ttl]) => ttl < Date.now());
 
         // If there are too many valid entries, sort descending (newest first) so later the oldest will be trimmed
@@ -698,7 +696,7 @@ export const useStructureRestApi = <
         }: Omit<IFetchSettings, "forced" | "merge"> = {},
         fetchLike = true
     ): Promise<T | undefined> => {
-        const temporaryId = uniqueId();
+        const temporaryId = crypto.randomUUID();
         // Create temporary item with temporary id for instantaneity
         if (dummyData)
             editRecord(dummyData, temporaryId as K, true);

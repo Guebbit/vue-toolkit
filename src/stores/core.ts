@@ -35,17 +35,11 @@ export const useCoreStore = defineStore('core', () => {
     () => Object.values(loadings.value).some(Boolean)
   )
 
-  /**
-   * Manage all dialogs
-   */
-  const dialogs = ref({} as Record<string, boolean>)
-
   return {
     loadings,
     isLoading,
     resetLoadings,
     setLoading,
     getLoading,
-    dialogs,
   }
 })
