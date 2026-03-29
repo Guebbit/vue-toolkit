@@ -93,7 +93,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
   const removeMessage = (_id: string) =>
     history.value = history.value.filter(({ id }) => id !== _id);
 
-  
+
 
   // ________________ DIALOGS ________________
 
