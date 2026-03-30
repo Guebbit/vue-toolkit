@@ -86,7 +86,7 @@ export interface IStructureRestApi {
   TTL?: number,
   // Delimiter for multiple identifiers
   delimiter?: string
-  getLoading?: (key?: string, value?: boolean) => void
+  getLoading?: (key?: string) => boolean
   setLoading?: (key?: string, value?: boolean) => void
 }
 

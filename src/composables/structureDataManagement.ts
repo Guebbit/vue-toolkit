@@ -22,7 +22,7 @@ export const useStructureDataManagement = <
    * @param itemData
    * @param customIdentifiers - if specified, it will create a key using these identifiers instead of the default ones
    */
-     
+
   const createIdentifier = <C = T>(itemData: C, customIdentifiers?: string | string[]): K => {
       const _identifiers = customIdentifiers ?? identifiers;
       if (Array.isArray(_identifiers))
@@ -67,7 +67,8 @@ export const useStructureDataManagement = <
    */
   const getRecord = (..._arguments: (K | undefined)[]): T | undefined => {
     const id = _arguments.join(delimiter);
-    return Object.prototype.hasOwnProperty.call(itemDictionary.value, id) ? (itemDictionary.value as Record<K, T>)[id as K] : undefined;
+    // Important to directly access the dictionary to avoid reactivity issues
+    return itemDictionary.value[id as K];
   }
 
   /**
@@ -154,7 +155,7 @@ export const useStructureDataManagement = <
    * @param id
    */
   const deleteRecord = (id: K) =>
-     
+
     getRecord(id) && delete (itemDictionary.value as Record<K, T>)[id];
 
   /**
@@ -168,9 +169,7 @@ export const useStructureDataManagement = <
    *  - List mode: Show in modal or operations that require the details (example items in a table)
    *  - Target mode: a detail page or a form to edit the selected item (example item in a dedicated detail page)
    */
-  const selectedRecord = computed<T | undefined>(() =>
-    selectedIdentifier.value && (itemDictionary.value as Record<K, T>)[selectedIdentifier.value]
-  );
+  const selectedRecord = computed<T | undefined>(() => getRecord(selectedIdentifier.value))
 
   /**
    * ---------------------------------- OFFLINE PAGINATION ------------------------------------

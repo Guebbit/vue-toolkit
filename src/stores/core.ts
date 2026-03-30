@@ -16,7 +16,7 @@ export const useCoreStore = defineStore('core', () => {
    * @param key
    * @param value
    */
-  const setLoading = (key: string | symbol, value: boolean) => loadings.value[key] = value;
+  const setLoading = (key = "", value = false) => loadings.value[key] = value;
 
   /**
    * Reset all loadings
@@ -26,7 +26,7 @@ export const useCoreStore = defineStore('core', () => {
   /**
    * Check if there is a specific loading
    */
-  const getLoading = (key: string | symbol) => loadings.value[key];
+  const getLoading = (key = "") => loadings.value[key];
 
   /**
    * Check if there are any loadings
