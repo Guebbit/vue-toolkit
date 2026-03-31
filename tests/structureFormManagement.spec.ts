@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { useStructureFormManagement } from '../src/composables/structureFormManagement';
+import { useStructureFormValidation } from '../src/composables/structureFormValidation';
 
 interface ILoginForm {
     email: string;
@@ -13,11 +13,11 @@ const loginSchema = z.object({
 
 const INITIAL_LOGIN: ILoginForm = { email: '', password: '' };
 
-describe('useStructureFormManagement', () => {
-    let composable: ReturnType<typeof useStructureFormManagement<ILoginForm>>;
+describe('useStructureFormValidation', () => {
+    let composable: ReturnType<typeof useStructureFormValidation<ILoginForm>>;
 
     beforeEach(() => {
-        composable = useStructureFormManagement<ILoginForm>(INITIAL_LOGIN, loginSchema);
+        composable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema);
     });
 
     // ─── form reactive ref ────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ describe('useStructureFormManagement', () => {
 
     describe('validate (without schema)', () => {
         it('always returns true when no schema is provided', () => {
-            const noSchemaComposable = useStructureFormManagement<ILoginForm>(INITIAL_LOGIN);
+            const noSchemaComposable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN);
             const ok = noSchemaComposable.validate();
             expect(ok).toBe(true);
             expect(noSchemaComposable.formErrors.value).toEqual({});

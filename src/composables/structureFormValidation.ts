@@ -8,7 +8,7 @@ import { type ZodType } from 'zod';
  * @param initialData - Initial values for the form fields
  * @param schema      - Optional Zod schema used for validation
  */
-export const useStructureFormManagement = <
+export const useStructureFormValidation = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     T extends Record<string, any> = Record<string, any>
 >(

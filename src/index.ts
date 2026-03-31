@@ -2,4 +2,4 @@ export { useCoreStore } from './stores/core';
 export { useNotificationsStore } from './stores/notifications';
 export { useStructureDataManagement } from './composables/structureDataManagement';
 export { useStructureRestApi } from './composables/structureRestApi';
-export { useStructureFormManagement } from './composables/structureFormManagement';
+export { useStructureFormValidation } from './composables/structureFormValidation';
