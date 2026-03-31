@@ -1,5 +1,6 @@
-coverage/
-coverage-merged/
-dist/
-node_modules/
-types/
+dist
+node_modules
+types
+.dev
+.husky
+docs

@@ -37,7 +37,7 @@ function apiResolve<T>(data: T): () => Promise<T> {
 function buildProducts(count: number, startId = 1): IProduct[] {
     return Array.from({ length: count }, (_, i) => ({
         id: startId + i,
-        title: `Product ${startId + i}`,
+        title: `Product ${startId + i}`
     }));
 }
 
@@ -46,7 +46,6 @@ function buildProducts(count: number, startId = 1): IProduct[] {
 // ---------------------------------------------------------------------------
 
 describe('useStructureRestApi — pagination', () => {
-
     // -----------------------------------------------------------------------
     // Client-side (offline) pagination
     // -----------------------------------------------------------------------
@@ -79,7 +78,7 @@ describe('useStructureRestApi — pagination', () => {
             await c.fetchAll(apiResolve(buildProducts(25)));
             c.pageSize.value = 10;
             c.pageCurrent.value = 2;
-            const ids = c.pageItemList.value.map(p => p.id);
+            const ids = c.pageItemList.value.map((p) => p.id);
             expect(ids[0]).toBe(11);
             expect(ids.at(-1)).toBe(20);
         });
@@ -136,8 +135,8 @@ describe('useStructureRestApi — pagination', () => {
                 collected.push(...c.pageItemList.value);
             }
             expect(collected).toHaveLength(products.length);
-            const ids = collected.map(i => i.id).toSorted((a, b) => a - b);
-            expect(ids).toEqual(products.map(p => p.id).toSorted((a, b) => a - b));
+            const ids = collected.map((i) => i.id).toSorted((a, b) => a - b);
+            expect(ids).toEqual(products.map((p) => p.id).toSorted((a, b) => a - b));
         });
     });
 
@@ -174,9 +173,9 @@ describe('useStructureRestApi — pagination', () => {
         it('does not re-fetch the same page within TTL', async () => {
             const c = makeComposable();
             const page1 = buildProducts(10, 1);
-            const firstCall  = jest.fn().mockResolvedValue(page1);
+            const firstCall = jest.fn().mockResolvedValue(page1);
             const secondCall = jest.fn().mockResolvedValue(page1);
-            await c.fetchAll(firstCall,  { lastUpdateKey: pageKey(1) });
+            await c.fetchAll(firstCall, { lastUpdateKey: pageKey(1) });
             await c.fetchAll(secondCall, { lastUpdateKey: pageKey(1) });
             expect(firstCall).toHaveBeenCalledTimes(1);
             expect(secondCall).not.toHaveBeenCalled();
@@ -185,9 +184,9 @@ describe('useStructureRestApi — pagination', () => {
         it('re-fetches the same page when TTL has expired', async () => {
             const c = makeComposable(0);
             const page1 = buildProducts(10, 1);
-            const firstCall  = jest.fn().mockResolvedValue(page1);
+            const firstCall = jest.fn().mockResolvedValue(page1);
             const secondCall = jest.fn().mockResolvedValue(page1);
-            await c.fetchAll(firstCall,  { lastUpdateKey: pageKey(1) });
+            await c.fetchAll(firstCall, { lastUpdateKey: pageKey(1) });
             await c.fetchAll(secondCall, { lastUpdateKey: pageKey(1) });
             expect(firstCall).toHaveBeenCalledTimes(1);
             expect(secondCall).toHaveBeenCalledTimes(1);
@@ -196,9 +195,9 @@ describe('useStructureRestApi — pagination', () => {
         it('forced:true always re-fetches the page', async () => {
             const c = makeComposable();
             const page1 = buildProducts(10, 1);
-            const firstCall  = jest.fn().mockResolvedValue(page1);
+            const firstCall = jest.fn().mockResolvedValue(page1);
             const secondCall = jest.fn().mockResolvedValue(page1);
-            await c.fetchAll(firstCall,  { lastUpdateKey: pageKey(1) });
+            await c.fetchAll(firstCall, { lastUpdateKey: pageKey(1) });
             await c.fetchAll(secondCall, { lastUpdateKey: pageKey(1), forced: true });
             expect(secondCall).toHaveBeenCalledTimes(1);
         });
@@ -226,7 +225,7 @@ describe('useStructureRestApi — pagination', () => {
 
         it('keeps items for different parents separate', async () => {
             const c = makeComposable();
-            await c.fetchByParent(apiResolve(buildProducts(3, 1)),  'category-1' as never);
+            await c.fetchByParent(apiResolve(buildProducts(3, 1)), 'category-1' as never);
             await c.fetchByParent(apiResolve(buildProducts(4, 10)), 'category-2' as never);
             expect(c.getListByParent('category-1' as never)).toHaveLength(3);
             expect(c.getListByParent('category-2' as never)).toHaveLength(4);
@@ -234,9 +233,9 @@ describe('useStructureRestApi — pagination', () => {
 
         it('does not re-fetch within TTL for the same parent', async () => {
             const c = makeComposable();
-            const firstCall  = jest.fn().mockResolvedValue(buildProducts(3, 1));
+            const firstCall = jest.fn().mockResolvedValue(buildProducts(3, 1));
             const secondCall = jest.fn().mockResolvedValue(buildProducts(3, 1));
-            await c.fetchByParent(firstCall,  'category-1' as never);
+            await c.fetchByParent(firstCall, 'category-1' as never);
             await c.fetchByParent(secondCall, 'category-1' as never);
             expect(secondCall).not.toHaveBeenCalled();
         });

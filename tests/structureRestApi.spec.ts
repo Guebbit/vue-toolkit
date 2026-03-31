@@ -43,8 +43,8 @@ function apiReject(message = 'network error'): () => Promise<never> {
 
 const USERS: IUser[] = [
     { id: 1, name: 'Alice', email: 'alice@example.com' },
-    { id: 2, name: 'Bob',   email: 'bob@example.com' },
-    { id: 3, name: 'Carol', email: 'carol@example.com' },
+    { id: 2, name: 'Bob', email: 'bob@example.com' },
+    { id: 3, name: 'Carol', email: 'carol@example.com' }
 ];
 
 // ---------------------------------------------------------------------------
@@ -52,7 +52,6 @@ const USERS: IUser[] = [
 // ---------------------------------------------------------------------------
 
 describe('useStructureRestApi — table-like usage', () => {
-
     // -----------------------------------------------------------------------
     // fetchAll
     // -----------------------------------------------------------------------
@@ -111,7 +110,9 @@ describe('useStructureRestApi — table-like usage', () => {
         it('re-throws on API error and keeps itemList as-is', async () => {
             const c = makeComposable();
             await c.fetchAll(apiResolve([USERS[0]]));
-            await expect(c.fetchAll(apiReject(), { forced: true })).rejects.toThrow('network error');
+            await expect(c.fetchAll(apiReject(), { forced: true })).rejects.toThrow(
+                'network error'
+            );
             // pre-existing record from the first call should still be there
             expect(c.getRecord(1)).toEqual(USERS[0]);
         });
@@ -212,11 +213,11 @@ describe('useStructureRestApi — table-like usage', () => {
         it('removes dummy data on success and replaces with real item', async () => {
             const c = makeComposable();
             const dummy: IUser = { id: -1, name: 'Loading...', email: '' };
-            const real: IUser  = { id: 4, name: 'Dave', email: 'dave@example.com' };
+            const real: IUser = { id: 4, name: 'Dave', email: 'dave@example.com' };
             await c.createTarget(apiResolve(real), dummy);
             expect(c.getRecord(4)).toEqual(real);
             // The dummy record (with its temp uuid key) should be gone
-            expect(c.itemList.value.some(u => u.name === 'Loading...')).toBe(false);
+            expect(c.itemList.value.some((u) => u.name === 'Loading...')).toBe(false);
         });
 
         it('rolls back dummy data on API error', async () => {
@@ -248,9 +249,7 @@ describe('useStructureRestApi — table-like usage', () => {
         it('rolls back to old data on API error', async () => {
             const c = makeComposable();
             await c.fetchAll(apiResolve([...USERS]));
-            await expect(
-                c.updateTarget(apiReject(), { name: 'Broken' }, 1)
-            ).rejects.toThrow();
+            await expect(c.updateTarget(apiReject(), { name: 'Broken' }, 1)).rejects.toThrow();
             expect(c.getRecord(1)?.name).toBe('Alice');
         });
     });
@@ -319,8 +318,8 @@ describe('useStructureRestApi — table-like usage', () => {
             // The API should be called only for id 2
             expect(apiCall).toHaveBeenCalledTimes(1);
             // Both items should be returned
-            expect(result.some(u => u?.id === 1)).toBe(true);
-            expect(result.some(u => u?.id === 2)).toBe(true);
+            expect(result.some((u) => u?.id === 1)).toBe(true);
+            expect(result.some((u) => u?.id === 2)).toBe(true);
         });
     });
 });

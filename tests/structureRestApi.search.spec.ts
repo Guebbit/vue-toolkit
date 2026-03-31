@@ -45,30 +45,26 @@ function buildArticles(count: number, category = 'tech', startId = 1): IArticle[
     return Array.from({ length: count }, (_, i) => ({
         id: startId + i,
         title: `Article ${startId + i}`,
-        category,
+        category
     }));
 }
 
-const TECH_ARTICLES   = buildArticles(5, 'tech', 1);
-const SPORT_ARTICLES  = buildArticles(3, 'sport', 100);
-const TECH_PAGE2      = buildArticles(5, 'tech', 6);
+const TECH_ARTICLES = buildArticles(5, 'tech', 1);
+const SPORT_ARTICLES = buildArticles(3, 'sport', 100);
+const TECH_PAGE2 = buildArticles(5, 'tech', 6);
 
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
 
 describe('useStructureRestApi — search', () => {
-
     // -----------------------------------------------------------------------
     // Basic search
     // -----------------------------------------------------------------------
     describe('fetchSearch — basic results', () => {
         it('returns items matching the filter', async () => {
             const c = makeComposable();
-            const result = await c.fetchSearch(
-                apiResolve(TECH_ARTICLES),
-                { category: 'tech' }
-            );
+            const result = await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' });
             expect(result).toHaveLength(5);
         });
 
@@ -86,7 +82,7 @@ describe('useStructureRestApi — search', () => {
 
         it('returns items for different filter values independently', async () => {
             const c = makeComposable();
-            await c.fetchSearch(apiResolve(TECH_ARTICLES),  { category: 'tech' });
+            await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' });
             await c.fetchSearch(apiResolve(SPORT_ARTICLES), { category: 'sport' });
             expect(c.getRecord(1)).toEqual(TECH_ARTICLES[0]);
             expect(c.getRecord(100)).toEqual(SPORT_ARTICLES[0]);
@@ -132,19 +128,19 @@ describe('useStructureRestApi — search', () => {
     describe('fetchSearch — TTL caching', () => {
         it('does NOT call the API again for the same query within TTL', async () => {
             const c = makeComposable();
-            const firstCall  = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const firstCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             const secondCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
-            await c.fetchSearch(firstCall,  { category: 'tech' }, 1);
+            await c.fetchSearch(firstCall, { category: 'tech' }, 1);
             await c.fetchSearch(secondCall, { category: 'tech' }, 1);
             expect(firstCall).toHaveBeenCalledTimes(1);
             expect(secondCall).not.toHaveBeenCalled();
         });
 
         it('calls the API again when the TTL has expired', async () => {
-            const c = makeComposable(0);   // TTL = 0 ⇒ always expired
-            const firstCall  = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const c = makeComposable(0); // TTL = 0 ⇒ always expired
+            const firstCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             const secondCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
-            await c.fetchSearch(firstCall,  { category: 'tech' }, 1);
+            await c.fetchSearch(firstCall, { category: 'tech' }, 1);
             await c.fetchSearch(secondCall, { category: 'tech' }, 1);
             expect(firstCall).toHaveBeenCalledTimes(1);
             expect(secondCall).toHaveBeenCalledTimes(1);
@@ -152,19 +148,19 @@ describe('useStructureRestApi — search', () => {
 
         it('calls the API again when forced: true', async () => {
             const c = makeComposable();
-            const firstCall  = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const firstCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             const secondCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
-            await c.fetchSearch(firstCall,  { category: 'tech' }, 1);
+            await c.fetchSearch(firstCall, { category: 'tech' }, 1);
             await c.fetchSearch(secondCall, { category: 'tech' }, 1, { forced: true });
             expect(secondCall).toHaveBeenCalledTimes(1);
         });
 
         it('caches different filter queries separately', async () => {
             const c = makeComposable();
-            const techCall  = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const techCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             const sportCall = jest.fn().mockResolvedValue(SPORT_ARTICLES);
             // First search
-            await c.fetchSearch(techCall,  { category: 'tech' },  1);
+            await c.fetchSearch(techCall, { category: 'tech' }, 1);
             // Different filter → should NOT be served from cache
             await c.fetchSearch(sportCall, { category: 'sport' }, 1);
             expect(techCall).toHaveBeenCalledTimes(1);
@@ -183,7 +179,11 @@ describe('useStructureRestApi — search', () => {
 
         it('returns cached items for a subsequent page-1 call within TTL', async () => {
             const c = makeComposable();
-            await c.fetchSearch(jest.fn().mockResolvedValue(TECH_ARTICLES), { category: 'tech' }, 1);
+            await c.fetchSearch(
+                jest.fn().mockResolvedValue(TECH_ARTICLES),
+                { category: 'tech' },
+                1
+            );
             const cachedCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             await c.fetchSearch(cachedCall, { category: 'tech' }, 1);
             expect(cachedCall).not.toHaveBeenCalled();
@@ -211,13 +211,13 @@ describe('useStructureRestApi — search', () => {
         it('returns the correct page from a multi-page search', async () => {
             const c = makeComposable();
             await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1);
-            await c.fetchSearch(apiResolve(TECH_PAGE2),    { category: 'tech' }, 2);
+            await c.fetchSearch(apiResolve(TECH_PAGE2), { category: 'tech' }, 2);
 
             const page1 = c.searchGet({ category: 'tech' }, 1);
             const page2 = c.searchGet({ category: 'tech' }, 2);
 
-            expect(page1.map(a => a.id)).toEqual(TECH_ARTICLES.map(a => a.id));
-            expect(page2.map(a => a.id)).toEqual(TECH_PAGE2.map(a => a.id));
+            expect(page1.map((a) => a.id)).toEqual(TECH_ARTICLES.map((a) => a.id));
+            expect(page2.map((a) => a.id)).toEqual(TECH_PAGE2.map((a) => a.id));
         });
 
         it('accepts a pre-serialised string key', async () => {
@@ -241,7 +241,7 @@ describe('useStructureRestApi — search', () => {
 
         it('contains an entry for each unique query after searches', async () => {
             const c = makeComposable();
-            await c.fetchSearch(apiResolve(TECH_ARTICLES),  { category: 'tech' },  1);
+            await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1);
             await c.fetchSearch(apiResolve(SPORT_ARTICLES), { category: 'sport' }, 1);
             expect(Object.keys(c.searchCached.value)).toHaveLength(2);
         });
@@ -251,7 +251,7 @@ describe('useStructureRestApi — search', () => {
             await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1);
             const key = c.searchKeyGen({ category: 'tech' });
             const page1Ids = c.searchCached.value[key]?.[1] ?? [];
-            expect(page1Ids).toEqual(TECH_ARTICLES.map(a => a.id));
+            expect(page1Ids).toEqual(TECH_ARTICLES.map((a) => a.id));
         });
     });
 
@@ -261,17 +261,15 @@ describe('useStructureRestApi — search', () => {
     describe('fetchSearch — error handling', () => {
         it('re-throws API errors', async () => {
             const c = makeComposable();
-            await expect(
-                c.fetchSearch(apiReject(), { category: 'tech' }, 1)
-            ).rejects.toThrow('server error');
+            await expect(c.fetchSearch(apiReject(), { category: 'tech' }, 1)).rejects.toThrow(
+                'server error'
+            );
         });
 
         it('allows a retry after a failed search (TTL is reset on error)', async () => {
             const c = makeComposable();
             // First call fails
-            await expect(
-                c.fetchSearch(apiReject(), { category: 'tech' }, 1)
-            ).rejects.toThrow();
+            await expect(c.fetchSearch(apiReject(), { category: 'tech' }, 1)).rejects.toThrow();
 
             // Second call should succeed (error must have cleared the TTL entry)
             const retryCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
@@ -281,9 +279,7 @@ describe('useStructureRestApi — search', () => {
 
         it('does not cache results from a failed search', async () => {
             const c = makeComposable();
-            await expect(
-                c.fetchSearch(apiReject(), { category: 'tech' }, 1)
-            ).rejects.toThrow();
+            await expect(c.fetchSearch(apiReject(), { category: 'tech' }, 1)).rejects.toThrow();
             const cached = c.searchGet({ category: 'tech' }, 1);
             expect(cached).toEqual([]);
         });
@@ -307,7 +303,9 @@ describe('useStructureRestApi — search', () => {
             expect(narrowCall).toHaveBeenCalledTimes(1);
 
             // User clears and re-types "t" → served from cache
-            const cachedBroadCall = jest.fn().mockResolvedValue([...TECH_ARTICLES, ...SPORT_ARTICLES]);
+            const cachedBroadCall = jest
+                .fn()
+                .mockResolvedValue([...TECH_ARTICLES, ...SPORT_ARTICLES]);
             await c.fetchSearch(cachedBroadCall, { q: 't' }, 1);
             expect(cachedBroadCall).not.toHaveBeenCalled();
         });
@@ -318,7 +316,7 @@ describe('useStructureRestApi — search', () => {
 
             // Fetch pages 1 through 3
             await c.fetchSearch(apiResolve(TECH_ARTICLES), filters, 1);
-            await c.fetchSearch(apiResolve(TECH_PAGE2),    filters, 2);
+            await c.fetchSearch(apiResolve(TECH_PAGE2), filters, 2);
             await c.fetchSearch(apiResolve(buildArticles(2, 'tech', 11)), filters, 3);
 
             // All items should be in the dictionary
