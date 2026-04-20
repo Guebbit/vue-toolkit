@@ -1,9 +1,10 @@
-import { type IRef } from './reactivity';
+import { REF_SYMBOL, type IRef } from './reactivity';
 
 type StoreSetupResult = Record<string, unknown>;
+const storeRegistry = new Map<string, StoreSetupResult>();
 
 const isRefLike = (value: unknown): value is IRef<unknown> =>
-    typeof value === 'object' && value !== null && 'value' in value;
+    typeof value === 'object' && value !== null && REF_SYMBOL in value;
 
 const unwrapStore = <T extends StoreSetupResult>(store: T): T => {
     const unwrappedStore = {} as T;
@@ -37,8 +38,15 @@ const unwrapStore = <T extends StoreSetupResult>(store: T): T => {
 };
 
 export const defineStore = <T extends StoreSetupResult>(
-    _name: string,
+    name: string,
     setup: () => T
 ): (() => T) => {
-    return () => unwrapStore(setup());
+    return () => {
+        if (!storeRegistry.has(name)) storeRegistry.set(name, unwrapStore(setup()));
+        return storeRegistry.get(name)! as T;
+    };
+};
+
+export const resetStores = () => {
+    storeRegistry.clear();
 };

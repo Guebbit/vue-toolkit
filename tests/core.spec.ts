@@ -1,6 +1,11 @@
 import { useCoreStore } from '../src/stores/core';
+import { resetStores } from '../src/utils/store';
 
 describe('useCoreStore', () => {
+    beforeEach(() => {
+        resetStores();
+    });
+
     it('starts with no loadings', () => {
         const store = useCoreStore();
         expect(store.isLoading).toBe(false);

@@ -1,6 +1,11 @@
 import { useNotificationsStore, IToastType } from '../src/stores/notifications';
+import { resetStores } from '../src/utils/store';
 
 describe('useNotificationsStore', () => {
+    beforeEach(() => {
+        resetStores();
+    });
+
     it('starts with empty history and messages', () => {
         const store = useNotificationsStore();
         expect(store.history).toHaveLength(0);
