@@ -1,3 +1,4 @@
+import { type QueryClient, type QueryKey } from '@tanstack/vue-query';
 import { computed, ref } from 'vue';
 
 export const useStructureDataManagement = <
@@ -15,6 +16,11 @@ export const useStructureDataManagement = <
     // Delimiter for multiple identifiers
     delimiter = '|'
 ) => {
+    /**
+     * Upgrade note:
+     * Core dictionary/pagination relationships remain local-state driven for compatibility.
+     * Optional TanStack Query sync helpers are exposed for advanced cache hydration scenarios.
+     */
     /**
      *
      * @param itemData
@@ -38,6 +44,46 @@ export const useStructureDataManagement = <
      * Dictionary of items (to be filled)
      */
     const itemDictionary = ref({} as Record<K, T>);
+
+    const normalizeRecords = (records: (T | undefined)[] | Record<K, T>): Record<K, T> => {
+        if (!Array.isArray(records)) return records;
+        const result = {} as Record<K, T>;
+        for (let i = 0, len = records.length; i < len; i++) {
+            const item = records[i];
+            if (!item) continue;
+            result[createIdentifier(item)] = item;
+        }
+        return result;
+    };
+
+    const syncFromQueryData = (
+        records?: (T | undefined)[] | Record<K, T>,
+        merge = true
+    ): Record<K, T> => {
+        if (!records) return itemDictionary.value;
+        const normalized = normalizeRecords(records);
+        if (!merge) return setRecords(normalized);
+        itemDictionary.value = { ...itemDictionary.value, ...normalized };
+        return itemDictionary.value;
+    };
+
+    const syncFromQueryClient = (
+        queryClient: Pick<QueryClient, 'getQueryData'>,
+        queryKey: QueryKey,
+        merge = true
+    ): Record<K, T> => {
+        const queryData = queryClient.getQueryData<(T | undefined)[] | Record<K, T>>(queryKey);
+        return syncFromQueryData(queryData, merge);
+    };
+
+    const syncToQueryClient = (
+        queryClient: Pick<QueryClient, 'setQueryData'>,
+        queryKey: QueryKey
+    ): Record<K, T> => {
+        const snapshot = { ...itemDictionary.value };
+        queryClient.setQueryData(queryKey, snapshot);
+        return snapshot;
+    };
 
     /**
      * List of items
@@ -282,6 +328,10 @@ export const useStructureDataManagement = <
         removeFromParent,
         removeDuplicateChildren,
         getRecordsByParent,
-        getListByParent
+        getListByParent,
+        // TanStack Query integration helpers
+        syncFromQueryData,
+        syncFromQueryClient,
+        syncToQueryClient
     };
 };

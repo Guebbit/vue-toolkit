@@ -1,3 +1,4 @@
+import { QueryClient } from '@tanstack/vue-query';
 import { useStructureDataManagement } from '../src/composables/structureDataManagement';
 
 interface ITestItem {
@@ -125,6 +126,33 @@ describe('useStructureDataManagement', () => {
             composable.removeFromParent('parent-1' as never, 1 as never);
             const list = composable.getListByParent('parent-1' as never);
             expect(list).toHaveLength(0);
+        });
+    });
+
+    describe('TanStack Query integration helpers', () => {
+        it('hydrates records from query data arrays', () => {
+            composable.syncFromQueryData([
+                { id: 1, name: 'Alice' },
+                { id: 2, name: 'Bob' }
+            ]);
+            expect(composable.itemList.value).toHaveLength(2);
+            expect(composable.getRecord(1 as never)?.name).toBe('Alice');
+        });
+
+        it('hydrates records from a QueryClient cache entry', () => {
+            const queryClient = new QueryClient();
+            queryClient.setQueryData(['users'], [{ id: 3, name: 'Charlie' }]);
+            composable.syncFromQueryClient(queryClient, ['users']);
+            expect(composable.getRecord(3 as never)?.name).toBe('Charlie');
+        });
+
+        it('writes dictionary snapshot back to QueryClient cache', () => {
+            const queryClient = new QueryClient();
+            composable.addRecord({ id: 4, name: 'Diana' });
+            composable.syncToQueryClient(queryClient, ['users']);
+            const expected = {} as Record<string, { id: number; name: string }>;
+            expected['4'] = { id: 4, name: 'Diana' };
+            expect(queryClient.getQueryData(['users'])).toEqual(expected);
         });
     });
 });
