@@ -1,11 +1,6 @@
-import { createPinia, setActivePinia } from 'pinia';
 import { useNotificationsStore, IToastType } from '../src/stores/notifications';
 
 describe('useNotificationsStore', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-    });
-
     it('starts with empty history and messages', () => {
         const store = useNotificationsStore();
         expect(store.history).toHaveLength(0);

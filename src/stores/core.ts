@@ -1,5 +1,5 @@
-import { ref, computed } from 'vue';
-import { defineStore } from 'pinia';
+import { computed, ref } from '../utils/reactivity';
+import { defineStore } from '../utils/store';
 
 export const useCoreStore = defineStore('core', () => {
     /**

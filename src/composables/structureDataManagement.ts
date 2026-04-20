@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref } from '../utils/reactivity';
 
 export const useStructureDataManagement = <
     // type of item

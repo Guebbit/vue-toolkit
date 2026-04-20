@@ -1,11 +1,6 @@
-import { createPinia, setActivePinia } from 'pinia';
 import { useCoreStore } from '../src/stores/core';
 
 describe('useCoreStore', () => {
-    beforeEach(() => {
-        setActivePinia(createPinia());
-    });
-
     it('starts with no loadings', () => {
         const store = useCoreStore();
         expect(store.isLoading).toBe(false);
