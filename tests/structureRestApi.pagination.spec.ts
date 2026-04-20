@@ -212,6 +212,103 @@ describe('useStructureRestApi — pagination', () => {
     });
 
     // -----------------------------------------------------------------------
+    // fetchPaginate — server-driven pagination without filters
+    // -----------------------------------------------------------------------
+    describe('fetchPaginate — server-driven pagination', () => {
+        it('returns items for the requested page', async () => {
+            const c = makeComposable();
+            const result = await c.fetchPaginate(apiResolve(buildProducts(10, 1)), 1, 10);
+            expect(result).toHaveLength(10);
+        });
+
+        it('stores returned items in the dictionary', async () => {
+            const c = makeComposable();
+            await c.fetchPaginate(apiResolve(buildProducts(10, 1)), 1, 10);
+            expect(c.getRecord(1)).toBeDefined();
+            expect(c.getRecord(10)).toBeDefined();
+        });
+
+        it('caches page 1 and page 2 independently', async () => {
+            const c = makeComposable();
+            const page1Call = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            const page2Call = jest.fn().mockResolvedValue(buildProducts(10, 11));
+            await c.fetchPaginate(page1Call, 1, 10);
+            await c.fetchPaginate(page2Call, 2, 10);
+            expect(page1Call).toHaveBeenCalledTimes(1);
+            expect(page2Call).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not re-fetch the same page within TTL', async () => {
+            const c = makeComposable();
+            const firstCall = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            const secondCall = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            await c.fetchPaginate(firstCall, 1, 10);
+            await c.fetchPaginate(secondCall, 1, 10);
+            expect(firstCall).toHaveBeenCalledTimes(1);
+            expect(secondCall).not.toHaveBeenCalled();
+        });
+
+        it('re-fetches after TTL has expired', async () => {
+            const c = makeComposable(0);
+            const firstCall = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            const secondCall = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            await c.fetchPaginate(firstCall, 1, 10);
+            await c.fetchPaginate(secondCall, 1, 10);
+            expect(firstCall).toHaveBeenCalledTimes(1);
+            expect(secondCall).toHaveBeenCalledTimes(1);
+        });
+
+        it('forced:true bypasses the cache', async () => {
+            const c = makeComposable();
+            const firstCall = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            const secondCall = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            await c.fetchPaginate(firstCall, 1, 10);
+            await c.fetchPaginate(secondCall, 1, 10, { forced: true });
+            expect(secondCall).toHaveBeenCalledTimes(1);
+        });
+
+        it('different pageSize values produce separate cache entries', async () => {
+            const c = makeComposable();
+            const call10 = jest.fn().mockResolvedValue(buildProducts(10, 1));
+            const call20 = jest.fn().mockResolvedValue(buildProducts(20, 1));
+            await c.fetchPaginate(call10, 1, 10);
+            await c.fetchPaginate(call20, 1, 20);
+            expect(call10).toHaveBeenCalledTimes(1);
+            expect(call20).toHaveBeenCalledTimes(1);
+        });
+
+        it('handles an empty page without error', async () => {
+            const c = makeComposable();
+            const result = await c.fetchPaginate(apiResolve([]), 1, 10);
+            expect(result).toEqual([]);
+        });
+
+        it('accumulates items from multiple pages in the dictionary', async () => {
+            const c = makeComposable();
+            await c.fetchPaginate(apiResolve(buildProducts(10, 1)), 1, 10);
+            await c.fetchPaginate(apiResolve(buildProducts(10, 11)), 2, 10);
+            expect(c.itemList.value).toHaveLength(20);
+        });
+
+        it('stores the total when apiCall returns a [items, total] tuple', async () => {
+            const c = makeComposable();
+            const products = buildProducts(10, 1);
+            await c.fetchPaginate(apiResolve([products, 150] as [IProduct[], number]), 1, 10);
+            // fetchPaginate delegates to fetchSearch with empty filters
+            expect(c.searchGetTotal({}, 10)).toBe(150);
+        });
+
+        it('searchGet with empty filters retrieves the cached page', async () => {
+            const c = makeComposable();
+            const products = buildProducts(10, 1);
+            await c.fetchPaginate(apiResolve(products), 1, 10);
+            const cached = c.searchGet({}, 1, 10);
+            expect(cached).toHaveLength(10);
+            expect(cached[0]?.id).toBe(1);
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // fetchByParent with pagination-like patterns
     // -----------------------------------------------------------------------
     describe('fetchByParent — parent-scoped item listing', () => {

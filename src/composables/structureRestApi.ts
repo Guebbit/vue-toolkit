@@ -7,6 +7,12 @@ import { useStructureDataManagement } from '../index';
  */
 
 /**
+ * fetchSearch apiCall can return either a plain array or a tuple [items, total].
+ * Both shapes are handled transparently — existing callers returning a plain array keep working.
+ */
+export type SearchApiResult<T> = (T | undefined)[] | [(T | undefined)[], number];
+
+/**
  * Fetch settings customization
  * If they are NOT set, default behavior will be used
  */
@@ -51,6 +57,12 @@ export interface IFetchSettings {
      * Change the key used for loading management
      */
     loadingKey?: string;
+
+    /**
+     * When true, skip updating the per-item TARGET TTL after saving fetched records.
+     * Use when the fetch returns partial data that should not reset the item's own cache validity.
+     */
+    mismatch?: boolean;
 }
 
 /**
@@ -314,17 +326,18 @@ export const useStructureRestApi = <
      * @param merge
      * @param lastUpdateKey
      * @param loadingKey
-     * @param mismatch
+     * @param mismatch - see IFetchSettings
      */
     const fetchAll = (
         apiCall: () => Promise<(T | undefined)[]>,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {},
-        /**
-         * When the fetchAll and fetchTarget api calls single items are different:
-         * they don't have to be in sync nor the fetchAll must overwrite the fetchTarget item.
-         * Moreover, instead of fully replacing old data, it will be merged
-         */
-        mismatch = false
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            mismatch = false
+        }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
         // If TTL is not expired, the current stored data is still valid
         // If the TTL name is provided: it becomes a GENERIC TTL check
@@ -341,10 +354,13 @@ export const useStructureRestApi = <
         // request
         return apiCall()
             .then((items = [] as (T | undefined)[]) => {
-                const now = Date.now();
                 return saveRecords(items, merge, (item) => {
                     if (!mismatch)
-                        editLastUpdate(now, createIdentifier(item), ELastUpdateKeywords.TARGET);
+                        editLastUpdate(
+                            Date.now(),
+                            createIdentifier(item),
+                            ELastUpdateKeywords.TARGET
+                        );
                 });
             })
             .catch((error: unknown) => {
@@ -367,16 +383,19 @@ export const useStructureRestApi = <
      * @param merge
      * @param lastUpdateKey
      * @param loadingKey
-     * @param mismatch
+     * @param mismatch - see IFetchSettings
      */
     const fetchByParent = (
         apiCall: () => Promise<(T | undefined)[]>,
         parentId: P,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {},
-        /**
-         * Similar reasoning as fetchAll mismatch
-         */
-        mismatch = false
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            mismatch = false
+        }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
         // If TTL is not expired, the current stored data is still valid
         if (!forced && checkAndEditLastUpdate(lastUpdateKey + parentId, ELastUpdateKeywords.PARENT))
@@ -387,8 +406,6 @@ export const useStructureRestApi = <
         // request
         return apiCall()
             .then((items = [] as (T | undefined)[]) => {
-                const now = Date.now();
-
                 for (let i = 0, len = items.length; i < len; i++) {
                     if (!items[i]) continue;
                     addToParent(parentId, createIdentifier(items[i]!) as string);
@@ -400,7 +417,7 @@ export const useStructureRestApi = <
                     // If no mismatch, we can update the target's lastUpdate too
                     if (!mismatch)
                         editLastUpdate(
-                            now,
+                            Date.now(),
                             createIdentifier(items[i]!),
                             ELastUpdateKeywords.TARGET
                         );
@@ -511,11 +528,14 @@ export const useStructureRestApi = <
         // request
         return apiCall()
             .then((items = [] as (T | undefined)[]) => {
-                const now = Date.now();
                 // return all requested items, even the already cached ones
                 return [
                     ...saveRecords(items, merge, (item) => {
-                        editLastUpdate(now, createIdentifier(item), ELastUpdateKeywords.TARGET);
+                        editLastUpdate(
+                            Date.now(),
+                            createIdentifier(item),
+                            ELastUpdateKeywords.TARGET
+                        );
                     }),
                     ...cachedItems
                 ];
@@ -536,6 +556,12 @@ export const useStructureRestApi = <
     const searchCached = ref<ISearchCache<K>>({});
 
     /**
+     * Server-reported total count of matching items, keyed by cacheKey (same key as searchCached).
+     * A value is only present when the apiCall returned the enriched { items, total } shape.
+     */
+    const searchTotals = ref<Record<string, number>>({});
+
+    /**
      * Create a stable and always-the-same key from an object
      * @param object
      */
@@ -544,15 +570,41 @@ export const useStructureRestApi = <
         JSON.stringify(object, Object.keys(object).toSorted());
 
     /**
-     * Get search page based on key and page number
+     * Get search page based on key, pageSize and page number
      * @param key - stringified search parameters
      * @param page - page
+     * @param pageSize - page size (must match the value used in fetchSearch)
      */
-    const searchGet = (key: string | object, page = 1) =>
-        getRecords(searchCached.value[typeof key === 'string' ? key : searchKeyGen(key)]?.[page]);
+    const searchGet = (key: string | object, page = 1, pageSize = 10) => {
+        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
+        return getRecords(searchCached.value[searchKey + ':' + pageSize]?.[page]);
+    };
+
+    /**
+     * Return the server-reported total for a given search, or undefined if never received.
+     * Pass the same filters and pageSize used in fetchSearch.
+     */
+    const searchGetTotal = (key: string | object, pageSize = 10): number | undefined => {
+        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
+        return searchTotals.value[searchKey + ':' + pageSize];
+    };
+
+    /**
+     * Manually set the total for a given search (e.g. when the total comes from a separate API call).
+     * fetchSearch sets this automatically when apiCall returns the { items, total } shape.
+     */
+    const searchSetTotal = (key: string | object, total: number, pageSize = 10): void => {
+        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
+        searchTotals.value[searchKey + ':' + pageSize] = total;
+    };
 
     /**
      * I clean up all expired searches OR, if they are {MAX_SEARCHES}+, the old ones (too many resources on a minor feature)
+     * Also prunes the searchCached entries whose keys are no longer referenced by any active TTL key.
+     * TTL keys have the format: lastUpdateKey + cacheKey + ":" + page, where cacheKey = searchKey + ":" + pageSize.
+     * We detect active cache keys by checking if any TTL key contains `cacheKey + ":"` as a substring.
+     * This is safe because cacheKey ends with ":N" (a number) and we look for ":N:", which cannot match ":N0:" etc.
+     * Assumes lastUpdateKey does not itself contain the cacheKey pattern (it's normally a plain string identifier).
      */
     const searchCleanup = () => {
         const MAX_SEARCHES = 50;
@@ -569,6 +621,15 @@ export const useStructureRestApi = <
         lastUpdate[ELastUpdateKeywords.ONLINE] = Object.fromEntries(
             validEntries.slice(0, MAX_SEARCHES)
         );
+
+        // Prune searchCached and searchTotals: remove entries no longer referenced by any active TTL key
+        const activeTTLKeys = Object.keys(lastUpdate[ELastUpdateKeywords.ONLINE]);
+        for (const cacheKey of Object.keys(searchCached.value)) {
+            if (!activeTTLKeys.some((ttlKey) => ttlKey.includes(cacheKey + ':'))) {
+                delete searchCached.value[cacheKey];
+                delete searchTotals.value[cacheKey];
+            }
+        }
     };
 
     /**
@@ -577,16 +638,19 @@ export const useStructureRestApi = <
      * caching and optimizing need many extra steps.
      *
      * We will cache the items like normal BUT the TTL will be checked on the stringified search parameters.
-     * In searchCached we will store the search by the same key and divided in an array of pages were every page contain an array of id of items
-     * NOTE: I don't care about page size, I just save for every page all items that are returned from the server.
+     * In searchCached we will store the search divided in pages, where every page contains an array of item ids.
+     *
+     * Cache key structure: searchKey of filters + ":" + pageSize  (e.g. '{"q":"test"}:20')
+     * TTL key structure: lastUpdateKey + cacheKey + ":" + page
+     * Both page and pageSize must be part of the cache key because changing either one returns different items.
+     * pageSize defaults to 0 (unknown/irrelevant) — pass it explicitly if the API accepts it.
      *
      * WARNING: If a fetch request is cached, the promise chain WILL NOT BE APPLIED
      *
      * @param apiCall
      * @param filters - search parameters
-     * @param page - WARNING, THIS FUNCTION ONLY
-     *               It's not the pagination filter but just for info
-     *               because I can't know how the page parameter is handled
+     * @param page - page number (used as cache dimension, not injected into apiCall automatically)
+     * @param pageSize - page size used ONLY for caching purposes (if pageSize change, the cache is invalid)
      * @param forced
      * @param loading
      * @param merge
@@ -595,22 +659,26 @@ export const useStructureRestApi = <
      * @param mismatch
      */
     const fetchSearch = <F = object>(
-        apiCall: () => Promise<(T | undefined)[]>,
+        apiCall: () => Promise<SearchApiResult<T>>,
         filters: F = {} as F,
         page = 1,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {},
-        /**
-         * Similar reasoning as fetchAll mismatch
-         */
-        mismatch = false
+        // Could be set in the filters directly but it could be forgotten so it's better to say it explicitly
+        pageSize = 10,
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            mismatch = false
+        }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
-        // Create search key using all the filter parameters
-        const searchKey = searchKeyGen(filters as object);
-        const searchTTLkey = lastUpdateKey + searchKey + page;
-
+        // cacheKey groups all pages for the same (filters, pageSize) combination
+        const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
+        const searchTTLkey = lastUpdateKey + searchKey + ':' + page;
         // Instead of regular checkAndEditLastUpdate, I clean up all expired searches and check if the ID is still present
         searchCleanup();
-        // TTL is monodimensional so the page will be added to the key (TTL ONLY)
+        // TTL is monodimensional so page and pageSize are added to the key (TTL ONLY)
         if (!forced && searchTTLkey in lastUpdate[ELastUpdateKeywords.ONLINE])
             return Promise.resolve(getRecords(searchCached.value[searchKey]?.[page]));
         // Then I manually save the TTL (since I'm not using checkAndEditLastUpdate shortcut)
@@ -620,8 +688,13 @@ export const useStructureRestApi = <
 
         // request
         return apiCall()
-            .then((items = [] as (T | undefined)[]) => {
-                const now = Date.now();
+            .then((result) => {
+                // Support both plain T[] and [T[], total] tuple shapes
+                const isTuple = Array.isArray(result[0]);
+                const items = (isTuple ? result[0] : result) as (T | undefined)[];
+                if (isTuple)
+                    searchTotals.value[searchKey] =
+                        (result as [(T | undefined)[], number?])[1] ?? 0;
 
                 // Empty array to be filled with items ids
                 if (!(searchKey in searchCached.value)) searchCached.value[searchKey] = [];
@@ -631,7 +704,11 @@ export const useStructureRestApi = <
                     searchCached.value[searchKey]![page]!.push(createIdentifier(item));
 
                     if (!mismatch)
-                        editLastUpdate(now, createIdentifier(item), ELastUpdateKeywords.TARGET);
+                        editLastUpdate(
+                            Date.now(),
+                            createIdentifier(item),
+                            ELastUpdateKeywords.TARGET
+                        );
                 });
 
                 return items;
@@ -643,6 +720,22 @@ export const useStructureRestApi = <
             })
             .finally(() => loading && stopLoading(loadingKey));
     };
+
+    /**
+     * fetchAll with pagination.
+     * It works exactly as a fetchSearch without filters
+     *
+     * @param apiCall
+     * @param page
+     * @param pageSize
+     * @param settings
+     */
+    const fetchPaginate = <F = object>(
+        apiCall: () => Promise<SearchApiResult<T>>,
+        page = 1,
+        pageSize = 10,
+        settings: IFetchSettings = {}
+    ) => fetchSearch(apiCall, {}, page, pageSize, settings);
 
     /**
      * dummyData: Create data immediately and then update it later
@@ -831,10 +924,14 @@ export const useStructureRestApi = <
         fetchTarget,
         fetchMultiple,
         searchCached,
+        searchTotals,
         searchKeyGen,
         searchGet,
+        searchGetTotal,
+        searchSetTotal,
         searchCleanup,
         fetchSearch,
+        fetchPaginate,
         createTarget,
         updateTarget,
         deleteTarget

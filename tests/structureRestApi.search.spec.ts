@@ -151,7 +151,7 @@ describe('useStructureRestApi — search', () => {
             const firstCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             const secondCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
             await c.fetchSearch(firstCall, { category: 'tech' }, 1);
-            await c.fetchSearch(secondCall, { category: 'tech' }, 1, { forced: true });
+            await c.fetchSearch(secondCall, { category: 'tech' }, 1, 0, { forced: true });
             expect(secondCall).toHaveBeenCalledTimes(1);
         });
 
@@ -249,8 +249,9 @@ describe('useStructureRestApi — search', () => {
         it('stores the correct item ids under the right page', async () => {
             const c = makeComposable();
             await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1);
-            const key = c.searchKeyGen({ category: 'tech' });
-            const page1Ids = c.searchCached.value[key]?.[1] ?? [];
+            // cacheKey = searchKey + ':' + pageSize; pageSize defaults to 10
+            const cacheKey = c.searchKeyGen({ category: 'tech' }) + ':10';
+            const page1Ids = c.searchCached.value[cacheKey]?.[1] ?? [];
             expect(page1Ids).toEqual(TECH_ARTICLES.map((a) => a.id));
         });
     });
@@ -282,6 +283,118 @@ describe('useStructureRestApi — search', () => {
             await expect(c.fetchSearch(apiReject(), { category: 'tech' }, 1)).rejects.toThrow();
             const cached = c.searchGet({ category: 'tech' }, 1);
             expect(cached).toEqual([]);
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // pageSize as a cache dimension
+    // -----------------------------------------------------------------------
+    describe('fetchSearch — pageSize cache dimension', () => {
+        it('different pageSize values produce separate cache entries', async () => {
+            const c = makeComposable();
+            const call10 = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const call20 = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            await c.fetchSearch(call10, { category: 'tech' }, 1, 10);
+            await c.fetchSearch(call20, { category: 'tech' }, 1, 20);
+            expect(call10).toHaveBeenCalledTimes(1);
+            expect(call20).toHaveBeenCalledTimes(1);
+        });
+
+        it('same (filters, page, pageSize) hits cache within TTL', async () => {
+            const c = makeComposable();
+            const firstCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const secondCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            await c.fetchSearch(firstCall, { category: 'tech' }, 1, 10);
+            await c.fetchSearch(secondCall, { category: 'tech' }, 1, 10);
+            expect(firstCall).toHaveBeenCalledTimes(1);
+            expect(secondCall).not.toHaveBeenCalled();
+        });
+
+        it('pageSize=10 (default) and pageSize=20 are independent cache entries', async () => {
+            const c = makeComposable();
+            const defaultCall = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            const sized20Call = jest.fn().mockResolvedValue(TECH_ARTICLES);
+            await c.fetchSearch(defaultCall, { category: 'tech' }, 1);
+            await c.fetchSearch(sized20Call, { category: 'tech' }, 1, 20);
+            expect(defaultCall).toHaveBeenCalledTimes(1);
+            expect(sized20Call).toHaveBeenCalledTimes(1);
+        });
+
+        it('searchGet with matching pageSize returns the correct items', async () => {
+            const c = makeComposable();
+            await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1, 10);
+            await c.fetchSearch(apiResolve(SPORT_ARTICLES), { category: 'tech' }, 1, 20);
+            const result10 = c.searchGet({ category: 'tech' }, 1, 10);
+            const result20 = c.searchGet({ category: 'tech' }, 1, 20);
+            expect(result10.map((a) => a.id)).toEqual(TECH_ARTICLES.map((a) => a.id));
+            expect(result20.map((a) => a.id)).toEqual(SPORT_ARTICLES.map((a) => a.id));
+        });
+
+        it('searchGet with mismatched pageSize returns empty', async () => {
+            const c = makeComposable();
+            await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1, 10);
+            expect(c.searchGet({ category: 'tech' }, 1, 99)).toEqual([]);
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // searchTotals — server-reported total count
+    // -----------------------------------------------------------------------
+    describe('searchTotals — server-reported total count', () => {
+        it('searchGetTotal returns undefined when apiCall returned a plain array', async () => {
+            const c = makeComposable();
+            await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1, 10);
+            expect(c.searchGetTotal({ category: 'tech' }, 10)).toBeUndefined();
+        });
+
+        it('stores the total when apiCall returns a [items, total] tuple', async () => {
+            const c = makeComposable();
+            await c.fetchSearch(
+                apiResolve([TECH_ARTICLES, 42] as [typeof TECH_ARTICLES, number]),
+                { category: 'tech' },
+                1,
+                10
+            );
+            expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(42);
+        });
+
+        it('different (filters, pageSize) pairs have independent totals', async () => {
+            const c = makeComposable();
+            await c.fetchSearch(
+                apiResolve([TECH_ARTICLES, 42] as [typeof TECH_ARTICLES, number]),
+                { category: 'tech' },
+                1,
+                10
+            );
+            await c.fetchSearch(
+                apiResolve([SPORT_ARTICLES, 7] as [typeof SPORT_ARTICLES, number]),
+                { category: 'sport' },
+                1,
+                10
+            );
+            expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(42);
+            expect(c.searchGetTotal({ category: 'sport' }, 10)).toBe(7);
+        });
+
+        it('searchSetTotal stores a value that searchGetTotal retrieves', () => {
+            const c = makeComposable();
+            c.searchSetTotal({ category: 'tech' }, 99, 10);
+            expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(99);
+        });
+
+        it('searchSetTotal is scoped to pageSize — different pageSize is independent', () => {
+            const c = makeComposable();
+            c.searchSetTotal({ category: 'tech' }, 99, 10);
+            expect(c.searchGetTotal({ category: 'tech' }, 20)).toBeUndefined();
+        });
+
+        it('plain-array response does not overwrite a manually set total', async () => {
+            const c = makeComposable();
+            c.searchSetTotal({ category: 'tech' }, 99, 10);
+            await c.fetchSearch(apiResolve(TECH_ARTICLES), { category: 'tech' }, 1, 10, {
+                forced: true
+            });
+            expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(99);
         });
     });
 
