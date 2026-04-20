@@ -693,8 +693,11 @@ export const useStructureRestApi = <
                 const isTuple = Array.isArray(result[0]);
                 const items = (isTuple ? result[0] : result) as (T | undefined)[];
                 if (isTuple)
-                    searchTotals.value[searchKey] =
-                        (result as [(T | undefined)[], number?])[1] ?? 0;
+                    searchSetTotal(
+                        filters as object,
+                        (result as [(T | undefined)[], number?])[1] ?? 0,
+                        pageSize
+                    );
 
                 // Empty array to be filled with items ids
                 if (!(searchKey in searchCached.value)) searchCached.value[searchKey] = [];
