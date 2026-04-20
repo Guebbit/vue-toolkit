@@ -54,7 +54,7 @@ export const useStructureDataManagement = <
     /**
      * Empty the items dictionary
      */
-    const resetRecords = () => (itemDictionary.value = {});
+    const resetRecords = () => (itemDictionary.value = {} as Record<K, T>);
 
     /**
      * Get record from object dictionary using identifier

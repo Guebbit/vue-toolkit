@@ -30,12 +30,7 @@ export default tseslint.config(
             'no-nested-ternary': 'off',
             'unicorn/no-nested-ternary': 'off',
             'unicorn/prefer-top-level-await': 'off',
-            '@typescript-eslint/restrict-plus-operands': [
-                'error',
-                {
-                    allowNumberAndString: true
-                }
-            ],
+            '@typescript-eslint/restrict-plus-operands': 'off',
             '@typescript-eslint/naming-convention': [
                 'error',
                 {

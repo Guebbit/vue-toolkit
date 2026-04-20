@@ -347,7 +347,7 @@ export const useStructureRestApi = <
                 ? checkAndEditLastUpdate(lastUpdateKey)
                 : checkAndEditLastUpdate('', ELastUpdateKeywords.ALL))
         )
-            return Promise.resolve(itemDictionary.value);
+            return Promise.resolve(itemList.value);
 
         if (loading) startLoading(loadingKey);
 
