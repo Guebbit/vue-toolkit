@@ -1,3 +1,4 @@
+import { QueryClient, type QueryKey } from '@tanstack/vue-query';
 import { computed, ref } from 'vue';
 import { useStructureDataManagement } from '../index';
 
@@ -105,6 +106,22 @@ export const useStructureRestApi = <
     setLoading
 }: IStructureRestApi = {}) => {
     /**
+     * TanStack Query powers fetch/cache orchestration.
+     * Compatibility note:
+     *  - Public method names/signatures are kept.
+     *  - `lastUpdate*` helpers are still exposed for backward compatibility.
+     *  - The internal cache source-of-truth is now query keys + staleTime.
+     */
+    const queryClient = new QueryClient({
+        defaultOptions: {
+            queries: {
+                retry: false,
+                gcTime: Number.POSITIVE_INFINITY
+            }
+        }
+    });
+
+    /**
      * Inherited
      */
     const {
@@ -152,6 +169,45 @@ export const useStructureRestApi = <
     // Check if it's loading
     const _loading = ref(false);
     const loading = computed(() => (getLoading ? getLoading(loadingKey) : _loading.value));
+
+    const resolveTTL = (customTTL?: number) => customTTL ?? TTL;
+    const toQueryKey = (...parts: (string | number)[]): QueryKey => [
+        'useStructureRestApi',
+        String(loadingKey),
+        ...parts
+    ];
+
+    const getFreshQueryData = <F>(queryKey: QueryKey, staleTime: number): F | undefined => {
+        const queryState = queryClient.getQueryState<F>(queryKey);
+        if (!queryState || typeof queryState.dataUpdatedAt !== 'number') return;
+        if (Date.now() - queryState.dataUpdatedAt >= staleTime) return;
+        return queryClient.getQueryData<F>(queryKey);
+    };
+
+    const restoreQuerySnapshots = <F>(snapshots: [QueryKey, F | undefined][]) => {
+        for (const [queryKey, data] of snapshots) queryClient.setQueryData(queryKey, data);
+    };
+
+    const undefinedQueryValue = Symbol('useStructureRestApiUndefinedQueryValue');
+    const fetchWithQueryCache = <F>({
+        queryKey,
+        staleTime,
+        queryFn
+    }: {
+        queryKey: QueryKey;
+        staleTime: number;
+        queryFn: () => Promise<F>;
+    }): Promise<F | undefined> =>
+        queryClient
+            .fetchQuery<F | typeof undefinedQueryValue>({
+                queryKey,
+                staleTime,
+                queryFn: async () => {
+                    const response = await queryFn();
+                    return response === undefined ? undefinedQueryValue : response;
+                }
+            })
+            .then((response) => (response === undefinedQueryValue ? undefined : response));
 
     /**
      *
@@ -280,21 +336,28 @@ export const useStructureRestApi = <
             forced,
             loading = true,
             lastUpdateKey = '',
-            loadingKey
+            loadingKey,
+            TTL: customTTL
         }: Omit<IFetchSettings, 'merge'> = {}
     ): Promise<F | undefined> => {
-        // If TTL is not expired, the current stored data is still valid
-        // If no TTL name is provided, we ignore the TTL altogether
-        if (!forced && lastUpdateKey && checkAndEditLastUpdate(lastUpdateKey))
-            // WARNING: We don't know what kind of data was about to be fetched, so it will be empty
+        const staleTime = resolveTTL(customTTL);
+        const queryKey = toQueryKey('any', lastUpdateKey || ELastUpdateKeywords.GENERIC);
+        const cached = !forced && lastUpdateKey ? getFreshQueryData<F>(queryKey, staleTime) : undefined;
+
+        // Preserve previous behavior for fetchAny cache fast-path:
+        // return undefined because this generic method does not know what to return.
+        if (cached !== undefined)
             // eslint-disable-next-line unicorn/no-useless-undefined
             return Promise.resolve(undefined);
 
-        //
         if (loading) startLoading(loadingKey);
 
         // actual request
-        return asyncCall()
+        return fetchWithQueryCache({
+                queryKey,
+                staleTime: forced ? 0 : staleTime,
+                queryFn: asyncCall
+            })
             .catch((error) => {
                 // Reset TTL in case of error
                 if (lastUpdateKey) editLastUpdate(0, lastUpdateKey);
@@ -318,7 +381,14 @@ export const useStructureRestApi = <
      */
     const fetchAll = (
         apiCall: () => Promise<(T | undefined)[]>,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {},
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            TTL: customTTL
+        }: IFetchSettings = {},
         /**
          * When the fetchAll and fetchTarget api calls single items are different:
          * they don't have to be in sync nor the fetchAll must overwrite the fetchTarget item.
@@ -326,20 +396,21 @@ export const useStructureRestApi = <
          */
         mismatch = false
     ): Promise<(T | undefined)[]> => {
-        // If TTL is not expired, the current stored data is still valid
+        const staleTime = resolveTTL(customTTL);
+        const queryKey = toQueryKey('all', lastUpdateKey || ELastUpdateKeywords.ALL);
+
         // If the TTL name is provided: it becomes a GENERIC TTL check
-        if (
-            !forced &&
-            (lastUpdateKey
-                ? checkAndEditLastUpdate(lastUpdateKey)
-                : checkAndEditLastUpdate('', ELastUpdateKeywords.ALL))
-        )
+        if (!forced && getFreshQueryData<(T | undefined)[]>(queryKey, staleTime))
             return Promise.resolve(itemDictionary.value);
 
         if (loading) startLoading(loadingKey);
 
         // request
-        return apiCall()
+        return fetchWithQueryCache({
+                queryKey,
+                staleTime: forced ? 0 : staleTime,
+                queryFn: apiCall
+            })
             .then((items = [] as (T | undefined)[]) => {
                 const now = Date.now();
                 return saveRecords(items, merge, (item) => {
@@ -372,20 +443,37 @@ export const useStructureRestApi = <
     const fetchByParent = (
         apiCall: () => Promise<(T | undefined)[]>,
         parentId: P,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {},
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            TTL: customTTL
+        }: IFetchSettings = {},
         /**
          * Similar reasoning as fetchAll mismatch
          */
         mismatch = false
     ): Promise<(T | undefined)[]> => {
-        // If TTL is not expired, the current stored data is still valid
-        if (!forced && checkAndEditLastUpdate(lastUpdateKey + parentId, ELastUpdateKeywords.PARENT))
+        const staleTime = resolveTTL(customTTL);
+        const parentQueryKey = toQueryKey(
+            'parent',
+            String(lastUpdateKey || ELastUpdateKeywords.PARENT),
+            String(parentId)
+        );
+
+        if (!forced && getFreshQueryData<(T | undefined)[]>(parentQueryKey, staleTime))
             return Promise.resolve(getListByParent(parentId));
 
         if (loading) startLoading(loadingKey);
 
         // request
-        return apiCall()
+        return fetchWithQueryCache({
+                queryKey: parentQueryKey,
+                staleTime: forced ? 0 : staleTime,
+                queryFn: apiCall
+            })
             .then((items = [] as (T | undefined)[]) => {
                 const now = Date.now();
 
@@ -432,17 +520,33 @@ export const useStructureRestApi = <
     const fetchTarget = (
         apiCall: () => Promise<T | undefined>,
         id?: K,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {}
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            TTL: customTTL
+        }: IFetchSettings = {}
     ): Promise<T | undefined> => {
-        // If TTL is not expired, the current stored data is still valid
-        // (if id is not provided, we must force through the request)
-        if (id && !forced && checkAndEditLastUpdate(lastUpdateKey + id, ELastUpdateKeywords.TARGET))
+        const staleTime = resolveTTL(customTTL);
+        const targetQueryKey = toQueryKey(
+            'target',
+            String(lastUpdateKey || ELastUpdateKeywords.TARGET),
+            String(id ?? '')
+        );
+
+        if (id && !forced && getFreshQueryData<T | undefined>(targetQueryKey, staleTime))
             return Promise.resolve(getRecord(id));
 
         if (loading) startLoading(loadingKey);
 
         // request
-        return apiCall()
+        return fetchWithQueryCache({
+                queryKey: targetQueryKey,
+                staleTime: forced ? 0 : staleTime,
+                queryFn: apiCall
+            })
             .then(
                 (item: T | undefined) =>
                     saveRecords([item], merge, (item) => {
@@ -477,10 +581,18 @@ export const useStructureRestApi = <
     const fetchMultiple = (
         apiCall: () => Promise<(T | undefined)[]>,
         ids?: K[],
-        { forced, loading = true, merge, loadingKey, lastUpdateKey = '' }: IFetchSettings = {}
+        {
+            forced,
+            loading = true,
+            merge,
+            loadingKey,
+            lastUpdateKey = '',
+            TTL: customTTL
+        }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
         // nothing to search
         if (!ids || ids.length === 0) return Promise.resolve([]);
+        const staleTime = resolveTTL(customTTL);
 
         let i: number;
 
@@ -492,10 +604,13 @@ export const useStructureRestApi = <
         const cachedIds: K[] = [];
 
         // Check which ids are expired and in need of fetch
-        // REMEMBER: checkAndEditLastUpdate will set Date.now() to lastUpdate if "false",
-        //  because all expired Ids will be renew just after this
         for (const id of ids) {
-            if (forced || !checkAndEditLastUpdate(lastUpdateKey + id, ELastUpdateKeywords.TARGET))
+            const targetQueryKey = toQueryKey(
+                'target',
+                String(lastUpdateKey || ELastUpdateKeywords.TARGET),
+                String(id)
+            );
+            if (forced || !getFreshQueryData<T | undefined>(targetQueryKey, staleTime))
                 expiredIds.push(id);
             else cachedIds.push(id);
         }
@@ -506,10 +621,20 @@ export const useStructureRestApi = <
         // If no ids are expired, no need to make a fetch
         if (expiredIds.length === 0) return Promise.resolve(cachedItems);
 
+        const multipleQueryKey = toQueryKey(
+            'multiple',
+            String(lastUpdateKey || ELastUpdateKeywords.TARGET),
+            expiredIds.join(delimiter)
+        );
+
         if (loading) startLoading(loadingKey);
 
         // request
-        return apiCall()
+        return fetchWithQueryCache({
+                queryKey: multipleQueryKey,
+                staleTime: forced ? 0 : staleTime,
+                queryFn: apiCall
+            })
             .then((items = [] as (T | undefined)[]) => {
                 const now = Date.now();
                 // return all requested items, even the already cached ones
@@ -598,28 +723,48 @@ export const useStructureRestApi = <
         apiCall: () => Promise<(T | undefined)[]>,
         filters: F = {} as F,
         page = 1,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {},
+        {
+            forced,
+            loading = true,
+            merge,
+            lastUpdateKey = '',
+            loadingKey,
+            TTL: customTTL
+        }: IFetchSettings = {},
         /**
          * Similar reasoning as fetchAll mismatch
          */
         mismatch = false
     ): Promise<(T | undefined)[]> => {
+        const staleTime = resolveTTL(customTTL);
         // Create search key using all the filter parameters
         const searchKey = searchKeyGen(filters as object);
         const searchTTLkey = lastUpdateKey + searchKey + page;
+        const searchQueryKey = toQueryKey(
+            'search',
+            String(lastUpdateKey || ELastUpdateKeywords.ONLINE),
+            searchKey,
+            page
+        );
+
+        const cachedSearchData = forced
+            ? undefined
+            : getFreshQueryData<(T | undefined)[]>(searchQueryKey, staleTime);
+        if (cachedSearchData) return Promise.resolve(getRecords(searchCached.value[searchKey]?.[page]));
 
         // Instead of regular checkAndEditLastUpdate, I clean up all expired searches and check if the ID is still present
         searchCleanup();
-        // TTL is monodimensional so the page will be added to the key (TTL ONLY)
-        if (!forced && searchTTLkey in lastUpdate[ELastUpdateKeywords.ONLINE])
-            return Promise.resolve(getRecords(searchCached.value[searchKey]?.[page]));
         // Then I manually save the TTL (since I'm not using checkAndEditLastUpdate shortcut)
         lastUpdate[ELastUpdateKeywords.ONLINE][searchTTLkey] = Date.now();
 
         if (loading) startLoading(loadingKey);
 
         // request
-        return apiCall()
+        return fetchWithQueryCache({
+                queryKey: searchQueryKey,
+                staleTime: forced ? 0 : staleTime,
+                queryFn: apiCall
+            })
             .then((items = [] as (T | undefined)[]) => {
                 const now = Date.now();
 
@@ -666,8 +811,24 @@ export const useStructureRestApi = <
         fetchLike = true
     ): Promise<T | undefined> => {
         const temporaryId = crypto.randomUUID();
+        const allQueriesSnapshot = queryClient.getQueriesData<(T | undefined)[]>({
+            queryKey: toQueryKey('all')
+        });
+        const targetQueriesSnapshot = queryClient.getQueriesData<T | undefined>({
+            queryKey: toQueryKey('target')
+        });
+
+        void queryClient.cancelQueries({ queryKey: toQueryKey('all') });
+        void queryClient.cancelQueries({ queryKey: toQueryKey('target') });
+
         // Create temporary item with temporary id for instantaneity
-        if (dummyData) editRecord(dummyData, temporaryId as K, true);
+        if (dummyData) {
+            editRecord(dummyData, temporaryId as K, true);
+            queryClient.setQueriesData<(T | undefined)[]>(
+                { queryKey: toQueryKey('all') },
+                (previous = []) => [...previous, dummyData]
+            );
+        }
         if (loading) startLoading(loadingKey);
         // request
         return apiCall()
@@ -679,6 +840,18 @@ export const useStructureRestApi = <
                 if (dummyData) deleteRecord(temporaryId as K);
 
                 addRecord(item);
+                queryClient.setQueriesData<(T | undefined)[]>(
+                    { queryKey: toQueryKey('all') },
+                    (previous = []) => {
+                        const withoutDummy = dummyData
+                            ? previous.filter(
+                                  (entry) => !entry || createIdentifier(entry) !== (temporaryId as K)
+                              )
+                            : previous;
+                        return [...withoutDummy, item];
+                    }
+                );
+                queryClient.setQueryData(toQueryKey('target', String(id)), item);
 
                 // If it can be treated as a fetchTarget
                 if (fetchLike)
@@ -688,6 +861,8 @@ export const useStructureRestApi = <
             .catch((error: unknown) => {
                 // rollback
                 deleteRecord(temporaryId as K);
+                restoreQuerySnapshots(allQueriesSnapshot);
+                restoreQuerySnapshots(targetQueriesSnapshot);
                 throw error;
             })
             .finally(() => loading && stopLoading(loadingKey));
@@ -723,9 +898,32 @@ export const useStructureRestApi = <
     ): Promise<F | (T | undefined)[]> => {
         // to be used in case of error and revert is needed
         const oldItemData = getRecord(id);
+        const allQueriesSnapshot = queryClient.getQueriesData<(T | undefined)[]>({
+            queryKey: toQueryKey('all')
+        });
+        const targetQueriesSnapshot = queryClient.getQueriesData<T | undefined>({
+            queryKey: toQueryKey('target')
+        });
+
+        void queryClient.cancelQueries({ queryKey: toQueryKey('all') });
+        void queryClient.cancelQueries({ queryKey: toQueryKey('target') });
 
         // for instantaneity, but can be inconsistent
         editRecord(itemData, id, true);
+        if (id !== undefined) {
+            queryClient.setQueryData<T | undefined>(toQueryKey('target', String(id)), (previous) =>
+                previous ? ({ ...previous, ...itemData } as T) : previous
+            );
+            queryClient.setQueriesData<(T | undefined)[]>(
+                { queryKey: toQueryKey('all') },
+                (previous = []) =>
+                    previous.map((entry) =>
+                        entry && createIdentifier(entry) === id
+                            ? ({ ...entry, ...itemData } as T)
+                            : entry
+                    )
+            );
+        }
 
         if (loading) startLoading(loadingKey);
 
@@ -747,6 +945,8 @@ export const useStructureRestApi = <
                 .catch((error: unknown) => {
                     // Rollback in case of error
                     if (oldItemData) editRecord(oldItemData, id);
+                    restoreQuerySnapshots(allQueriesSnapshot);
+                    restoreQuerySnapshots(targetQueriesSnapshot);
                     throw error;
                 })
                 .finally(() => loading && stopLoading(loadingKey))
@@ -768,12 +968,30 @@ export const useStructureRestApi = <
     ): Promise<F> => {
         // in case revert is needed
         const oldItemData = getRecord(id);
+        const allQueriesSnapshot = queryClient.getQueriesData<(T | undefined)[]>({
+            queryKey: toQueryKey('all')
+        });
+        const targetQueriesSnapshot = queryClient.getQueriesData<T | undefined>({
+            queryKey: toQueryKey('target')
+        });
+
+        void queryClient.cancelQueries({ queryKey: toQueryKey('all') });
+        void queryClient.cancelQueries({ queryKey: toQueryKey('target') });
+
         deleteRecord(id);
+        queryClient.setQueriesData<(T | undefined)[]>(
+            { queryKey: toQueryKey('all') },
+            (previous = []) => previous.filter((entry) => entry && createIdentifier(entry) !== id)
+        );
+        queryClient.setQueryData(toQueryKey('target', String(id)), undefined);
+
         if (loading) startLoading(loadingKey);
         return apiCall()
             .catch((error: unknown) => {
                 // Rollback in case of error
                 if (oldItemData) addRecord(oldItemData);
+                restoreQuerySnapshots(allQueriesSnapshot);
+                restoreQuerySnapshots(targetQueriesSnapshot);
                 throw error;
             })
             .finally(() => loading && stopLoading(loadingKey));
