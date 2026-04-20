@@ -107,6 +107,26 @@ describe('useStructureRestApi — table-like usage', () => {
             expect(secondCall).toHaveBeenCalledTimes(1);
         });
 
+        it('supports per-request TTL override', async () => {
+            const c = makeComposable();
+            const firstCall = jest.fn().mockResolvedValue([...USERS]);
+            const secondCall = jest.fn().mockResolvedValue([...USERS]);
+            await c.fetchAll(firstCall);
+            await c.fetchAll(secondCall, { TTL: 0 });
+            expect(secondCall).toHaveBeenCalledTimes(1);
+        });
+
+        it('deduplicates concurrent fetchAll calls with the same cache key', async () => {
+            const c = makeComposable();
+            const sharedCall = jest
+                .fn()
+                .mockImplementation(
+                    () => new Promise<IUser[]>((resolve) => setTimeout(() => resolve([...USERS]), 10))
+                );
+            await Promise.all([c.fetchAll(sharedCall), c.fetchAll(sharedCall)]);
+            expect(sharedCall).toHaveBeenCalledTimes(1);
+        });
+
         it('re-throws on API error and keeps itemList as-is', async () => {
             const c = makeComposable();
             await c.fetchAll(apiResolve([USERS[0]]));
