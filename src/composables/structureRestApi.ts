@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue';
+import type { QueryClient } from '@tanstack/query-core';
 import { useStructureDataManagement } from '../index';
 
 /**
@@ -97,6 +98,21 @@ export interface IStructureRestApi {
     delimiter?: string;
     getLoading?: (key?: string) => boolean;
     setLoading?: (key?: string, value?: boolean) => void;
+    /**
+     * Optional TanStack QueryClient for server-state cache management.
+     * When provided, fetchAll and fetchTarget delegate TTL / freshness decisions
+     * to the QueryClient (via fetchQuery + staleTime) instead of the built-in
+     * lastUpdate mechanism.
+     *
+     * Install @tanstack/query-core (or @tanstack/vue-query) and pass a QueryClient
+     * instance to opt in to this mode:
+     *
+     * @example
+     * import { QueryClient } from '@tanstack/query-core';
+     * const queryClient = new QueryClient();
+     * const api = useStructureRestApi({ queryClient });
+     */
+    queryClient?: QueryClient;
 }
 
 export const useStructureRestApi = <
@@ -114,11 +130,14 @@ export const useStructureRestApi = <
     TTL = 3_600_000, // 1 hour
     delimiter = '|',
     getLoading,
-    setLoading
+    setLoading,
+    queryClient
 }: IStructureRestApi = {}) => {
-    /**
-     * Inherited
-     */
+    // Stable namespace for all TanStack query keys originating from this composable instance.
+    // Must be captured before any inner function shadows `loadingKey`.
+    const composableKey = loadingKey;
+
+    // ─── §1 – DATA MANAGEMENT (delegated to useStructureDataManagement) ─────────
     const {
         createIdentifier,
         identifier: identifierKey,
@@ -151,9 +170,7 @@ export const useStructureRestApi = <
         getListByParent
     } = useStructureDataManagement<T, K, P>(identifiers, delimiter);
 
-    /**
-     * loadings
-     */
+    // ─── §2 – LOADING STATE ──────────────────────────────────────────────────────
     // loading mutators
     const startLoading = (postfix = '') =>
         loadingKey && setLoading ? setLoading(loadingKey + postfix, true) : (_loading.value = true);
@@ -165,9 +182,11 @@ export const useStructureRestApi = <
     const _loading = ref(false);
     const loading = computed(() => (getLoading ? getLoading(loadingKey) : _loading.value));
 
-    /**
-     *
-     */
+    // ─── §3 – TTL / CACHE MANAGEMENT ────────────────────────────────────────────
+    // Built-in TTL store. When queryClient is provided, TanStack Query manages
+    // freshness instead — lastUpdate is still maintained for callers that inspect it
+    // directly (e.g. via getLastUpdate / editLastUpdate), but it no longer drives
+    // the cache-hit decision for fetch operations that have a queryClient backing.
     const lastUpdate = {
         [ELastUpdateKeywords.ALL]: 0,
         [ELastUpdateKeywords.TARGET]: {} as Record<K, number>,
@@ -254,6 +273,8 @@ export const useStructureRestApi = <
         return false;
     };
 
+    // ─── §4 – FETCH HELPERS ──────────────────────────────────────────────────────
+
     /**
      * Common save items routine on various fetches
      *
@@ -324,6 +345,7 @@ export const useStructureRestApi = <
      * @param forced
      * @param loading
      * @param merge
+     * @param TTL - per-request staleTime override (TanStack path only; falls back to composable TTL)
      * @param lastUpdateKey
      * @param loadingKey
      * @param mismatch - see IFetchSettings
@@ -334,35 +356,68 @@ export const useStructureRestApi = <
             forced,
             loading = true,
             merge,
+            TTL: fetchTTL,
             lastUpdateKey = '',
             loadingKey,
             mismatch = false
         }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
-        // If TTL is not expired, the current stored data is still valid
-        // If the TTL name is provided: it becomes a GENERIC TTL check
+        // ── TanStack Query-backed path ───────────────────────────────────────────
+        // Delegates stale/fresh decisions to the QueryClient; staleTime maps to TTL.
+        // The queryKey mirrors the built-in TTL namespace: composableKey scopes to this
+        // instance, 'fetchAll' scopes to the list operation, and lastUpdateKey lets
+        // callers partition the cache (e.g. per page) — intentionally matching the
+        // non-TanStack path where checkAndEditLastUpdate uses lastUpdateKey as the key.
+        if (queryClient) {
+            const queryKey = [composableKey, 'fetchAll', lastUpdateKey] as const;
+            if (loading) startLoading(loadingKey);
+            return queryClient
+                .fetchQuery({
+                    queryKey,
+                    queryFn: apiCall,
+                    staleTime: forced ? 0 : (fetchTTL ?? TTL)
+                })
+                .then((items = [] as (T | undefined)[]) =>
+                    saveRecords(items, merge, (item) => {
+                        if (!mismatch)
+                            editLastUpdate(
+                                Date.now(),
+                                createIdentifier(item),
+                                ELastUpdateKeywords.TARGET
+                            );
+                    })
+                )
+                .catch((error: unknown) => {
+                    throw error;
+                })
+                .finally(() => loading && stopLoading(loadingKey));
+        }
+
+        // ── Built-in TTL path (default) ──────────────────────────────────────────
+        // If TTL is not expired, the current stored data is still valid.
+        // If the TTL name is provided: it becomes a GENERIC TTL check.
         if (
             !forced &&
             (lastUpdateKey
                 ? checkAndEditLastUpdate(lastUpdateKey)
                 : checkAndEditLastUpdate('', ELastUpdateKeywords.ALL))
         )
-            return Promise.resolve(itemDictionary.value);
+            return Promise.resolve(itemList.value);
 
         if (loading) startLoading(loadingKey);
 
         // request
         return apiCall()
-            .then((items = [] as (T | undefined)[]) => {
-                return saveRecords(items, merge, (item) => {
+            .then((items = [] as (T | undefined)[]) =>
+                saveRecords(items, merge, (item) => {
                     if (!mismatch)
                         editLastUpdate(
                             Date.now(),
                             createIdentifier(item),
                             ELastUpdateKeywords.TARGET
                         );
-                });
-            })
+                })
+            )
             .catch((error: unknown) => {
                 // Reset TTL in case of error
                 editLastUpdate(0, lastUpdateKey, ELastUpdateKeywords.ALL);
@@ -443,15 +498,52 @@ export const useStructureRestApi = <
      * @param forced
      * @param loading
      * @param merge
+     * @param TTL - per-request staleTime override (TanStack path only; falls back to composable TTL)
      * @param lastUpdateKey
      * @param loadingKey
      */
     const fetchTarget = (
         apiCall: () => Promise<T | undefined>,
         id?: K,
-        { forced, loading = true, merge, lastUpdateKey = '', loadingKey }: IFetchSettings = {}
+        {
+            forced,
+            loading = true,
+            merge,
+            TTL: fetchTTL,
+            lastUpdateKey = '',
+            loadingKey
+        }: IFetchSettings = {}
     ): Promise<T | undefined> => {
-        // If TTL is not expired, the current stored data is still valid
+        // ── TanStack Query-backed path ───────────────────────────────────────────
+        if (queryClient) {
+            // Use array query-key segments so that lastUpdateKey and id remain unambiguous
+            // — string concatenation (e.g. 'user' + 123 === 'user1' + 23) is avoided.
+            // staleTime = 0 when forced or id is unknown so the fetch is never skipped.
+            const queryKey = [composableKey, 'fetchTarget', lastUpdateKey, String(id ?? '')] as const;
+            if (loading) startLoading(loadingKey);
+            return queryClient
+                .fetchQuery({
+                    queryKey,
+                    queryFn: apiCall,
+                    staleTime: forced || !id ? 0 : (fetchTTL ?? TTL)
+                })
+                .then((item: T | undefined) =>
+                    saveRecords([item], merge, (saved) => {
+                        editLastUpdate(
+                            Date.now(),
+                            lastUpdateKey + createIdentifier(saved),
+                            ELastUpdateKeywords.TARGET
+                        );
+                    })[0]
+                )
+                .catch((error: unknown) => {
+                    throw error;
+                })
+                .finally(() => loading && stopLoading(loadingKey));
+        }
+
+        // ── Built-in TTL path (default) ──────────────────────────────────────────
+        // If TTL is not expired, the current stored data is still valid.
         // (if id is not provided, we must force through the request)
         if (id && !forced && checkAndEditLastUpdate(lastUpdateKey + id, ELastUpdateKeywords.TARGET))
             return Promise.resolve(getRecord(id));
@@ -478,6 +570,8 @@ export const useStructureRestApi = <
             })
             .finally(() => loading && stopLoading(loadingKey));
     };
+
+    // ─── §5 – COLLECTION FETCHES ─────────────────────────────────────────────────
 
     /**
      * Fetch target but with multiple ids
@@ -548,6 +642,8 @@ export const useStructureRestApi = <
             })
             .finally(() => loading && stopLoading(loadingKey));
     };
+
+    // ─── §6 – SEARCH / PAGINATION ────────────────────────────────────────────────
 
     /**
      * Cached items ID divided per page, itemDictionary will hold the item data.
@@ -739,6 +835,8 @@ export const useStructureRestApi = <
         pageSize = 10,
         settings: IFetchSettings = {}
     ) => fetchSearch(apiCall, {}, page, pageSize, settings);
+
+    // ─── §7 – MUTATIONS (CREATE / UPDATE / DELETE) ───────────────────────────────
 
     /**
      * dummyData: Create data immediately and then update it later

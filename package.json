@@ -35,13 +35,20 @@
         "publish:public": "npm run complete && npm publish --access public"
     },
     "peerDependencies": {
+        "@tanstack/query-core": ">=5.0.0",
         "pinia": ">=2.0.0",
         "vue": ">=3.0.0"
+    },
+    "peerDependenciesMeta": {
+        "@tanstack/query-core": {
+            "optional": true
+        }
     },
     "devDependencies": {
         "@commitlint/cli": "^20.5.0",
         "@commitlint/config-conventional": "^20.5.0",
         "@eslint/js": "^9.0.0",
+        "@tanstack/query-core": "^5.100.6",
         "@types/eslint": "^9.6.1",
         "@types/jest": "^30.0.0",
         "@typescript-eslint/eslint-plugin": "^8.57.2",
