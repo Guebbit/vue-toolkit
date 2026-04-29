@@ -87,6 +87,16 @@ describe('useStructureRestApi — table-like usage', () => {
             expect(secondCall).not.toHaveBeenCalled();
         });
 
+        it('returns an array (not a dictionary) from the cache on a TTL hit', async () => {
+            // Regression: the cached path previously returned itemDictionary.value (an object)
+            // instead of itemList.value (an array).
+            const c = makeComposable();
+            await c.fetchAll(apiResolve([...USERS]));
+            const result = await c.fetchAll(apiResolve([...USERS])); // served from cache
+            expect(Array.isArray(result)).toBe(true);
+            expect(result).toHaveLength(3);
+        });
+
         it('calls the API again when TTL has expired', async () => {
             // Use TTL = 0 so every call is considered expired
             const c = makeComposable(0);
@@ -320,6 +330,120 @@ describe('useStructureRestApi — table-like usage', () => {
             // Both items should be returned
             expect(result.some((u) => u?.id === 1)).toBe(true);
             expect(result.some((u) => u?.id === 2)).toBe(true);
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// TanStack Query-backed integration
+// ---------------------------------------------------------------------------
+
+import { QueryClient } from '@tanstack/query-core';
+
+/** Build a composable backed by a fresh TanStack QueryClient. */
+function makeQueryComposable(staleTime = 3_600_000) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return useStructureRestApi<IUser, number>({ identifiers: 'id', TTL: staleTime, queryClient });
+}
+
+describe('useStructureRestApi — TanStack Query-backed', () => {
+    describe('fetchAll via QueryClient', () => {
+        it('populates itemList after a successful fetch', async () => {
+            const c = makeQueryComposable();
+            await c.fetchAll(apiResolve([...USERS]));
+            expect(c.itemList.value).toHaveLength(3);
+        });
+
+        it('stores each item in itemDictionary by id', async () => {
+            const c = makeQueryComposable();
+            await c.fetchAll(apiResolve([...USERS]));
+            expect(c.getRecord(1)).toEqual(USERS[0]);
+            expect(c.getRecord(2)).toEqual(USERS[1]);
+            expect(c.getRecord(3)).toEqual(USERS[2]);
+        });
+
+        it('does NOT call the API again when staleTime is still valid', async () => {
+            const c = makeQueryComposable();
+            const firstCall = jest.fn().mockResolvedValue([...USERS]);
+            const secondCall = jest.fn().mockResolvedValue([...USERS]);
+            await c.fetchAll(firstCall);
+            await c.fetchAll(secondCall);
+            expect(firstCall).toHaveBeenCalledTimes(1);
+            expect(secondCall).not.toHaveBeenCalled();
+        });
+
+        it('calls the API again when staleTime is 0 (always stale)', async () => {
+            const c = makeQueryComposable(0);
+            const firstCall = jest.fn().mockResolvedValue([...USERS]);
+            const secondCall = jest.fn().mockResolvedValue([...USERS]);
+            await c.fetchAll(firstCall);
+            await c.fetchAll(secondCall);
+            expect(firstCall).toHaveBeenCalledTimes(1);
+            expect(secondCall).toHaveBeenCalledTimes(1);
+        });
+
+        it('bypasses cache when forced: true', async () => {
+            const c = makeQueryComposable();
+            const firstCall = jest.fn().mockResolvedValue([...USERS]);
+            const secondCall = jest.fn().mockResolvedValue([...USERS]);
+            await c.fetchAll(firstCall);
+            await c.fetchAll(secondCall, { forced: true });
+            expect(secondCall).toHaveBeenCalledTimes(1);
+        });
+
+        it('returns an array (not a dictionary) from the TanStack cache on a stale-time hit', async () => {
+            const c = makeQueryComposable();
+            await c.fetchAll(apiResolve([...USERS]));
+            const result = await c.fetchAll(apiResolve([...USERS])); // served from TanStack cache
+            expect(Array.isArray(result)).toBe(true);
+            expect(result).toHaveLength(3);
+        });
+
+        it('re-throws on API error', async () => {
+            const c = makeQueryComposable();
+            await expect(c.fetchAll(apiReject())).rejects.toThrow('network error');
+        });
+    });
+
+    describe('fetchTarget via QueryClient', () => {
+        it('fetches and stores a single item', async () => {
+            const c = makeQueryComposable();
+            const result = await c.fetchTarget(apiResolve(USERS[0]), 1);
+            expect(result).toEqual(USERS[0]);
+            expect(c.getRecord(1)).toEqual(USERS[0]);
+        });
+
+        it('returns cached item within staleTime without calling the API again', async () => {
+            const c = makeQueryComposable();
+            const firstCall = jest.fn().mockResolvedValue(USERS[0]);
+            const secondCall = jest.fn().mockResolvedValue(USERS[0]);
+            await c.fetchTarget(firstCall, 1);
+            await c.fetchTarget(secondCall, 1);
+            expect(secondCall).not.toHaveBeenCalled();
+        });
+
+        it('re-fetches when forced: true', async () => {
+            const c = makeQueryComposable();
+            const firstCall = jest.fn().mockResolvedValue(USERS[0]);
+            const secondCall = jest.fn().mockResolvedValue({ ...USERS[0], name: 'Alice V2' });
+            await c.fetchTarget(firstCall, 1);
+            await c.fetchTarget(secondCall, 1, { forced: true });
+            expect(c.getRecord(1)?.name).toBe('Alice V2');
+        });
+
+        it('re-throws on API error', async () => {
+            const c = makeQueryComposable();
+            await expect(c.fetchTarget(apiReject(), 1)).rejects.toThrow('network error');
+        });
+
+        it('per-request TTL override (IFetchSettings.TTL) bypasses staleTime when set to 0', async () => {
+            const c = makeQueryComposable(3_600_000); // 1 hour default
+            const firstCall = jest.fn().mockResolvedValue(USERS[0]);
+            const secondCall = jest.fn().mockResolvedValue({ ...USERS[0], name: 'Alice V2' });
+            await c.fetchTarget(firstCall, 1);
+            // Override staleTime to 0 for this specific call — should always refetch
+            await c.fetchTarget(secondCall, 1, { TTL: 0 });
+            expect(secondCall).toHaveBeenCalledTimes(1);
         });
     });
 });
