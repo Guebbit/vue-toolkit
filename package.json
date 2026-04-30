@@ -71,6 +71,7 @@
         }
     },
     "dependencies": {
+        "@tanstack/query-core": "^5.100.6",
         "zod": "^4.3.6"
     }
 }
