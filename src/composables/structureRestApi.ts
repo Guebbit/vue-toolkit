@@ -419,7 +419,7 @@ export const useStructureRestApi = <
         return _queryClient
             .fetchQuery<WrappedTarget>({
                 queryKey,
-                queryFn: () => apiCall().then(item => ({ data: item })),
+                queryFn: () => apiCall().then((item) => ({ data: item })),
                 staleTime
             })
             .then(({ data: item }: WrappedTarget) => {
@@ -591,19 +591,6 @@ export const useStructureRestApi = <
         }
     };
 
-    /**
-     * Fetch items as a search.
-     * TanStack Query is used for per-(filters, page, pageSize) cache management.
-     * The searchCached ref tracks which item ids belong to each page (for searchGet).
-     *
-     * Cache key structure: searchKey of filters + ":" + pageSize  (e.g. '{"q":"test"}:20')
-     * Query key: [loadingKey, 'search', lastUpdateKey, cacheKey, page]
-     *
-     * We will cache the items like normal BUT the TTL will be checked on the stringified search parameters.
-     * In searchCached we will store the search divided in pages, where every page contains an array of item ids.
-     *
-     * Cache key structure: searchKey of filters + ":" + pageSize  (e.g. '{"q":"test"}:20')
-     * TTL key structure: lastUpdateKey + cacheKey + ":" + page
     /**
      * Fetch items as a search.
      * TanStack Query is used for per-(filters, page, pageSize) cache management.
