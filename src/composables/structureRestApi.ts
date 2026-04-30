@@ -291,10 +291,19 @@ export const useStructureRestApi = <
         return _queryClient
             .fetchQuery({ queryKey, queryFn: apiCall, staleTime })
             .then((items: (T | undefined)[] = []) =>
-                saveRecords(items, merge, mismatch ? undefined : (item: T) => {
-                    // Keep per-item target caches in sync
-                    _queryClient.setQueryData([loadingKey, 'target', '', createIdentifier(item)], item);
-                })
+                saveRecords(
+                    items,
+                    merge,
+                    mismatch
+                        ? undefined
+                        : (item: T) => {
+                              // Keep per-item target caches in sync
+                              _queryClient.setQueryData(
+                                  [loadingKey, 'target', '', createIdentifier(item)],
+                                  item
+                              );
+                          }
+                )
             )
             .catch((error: unknown) => {
                 _queryClient.removeQueries({ queryKey, exact: true });
@@ -569,8 +578,10 @@ export const useStructureRestApi = <
             for (const pageString of Object.keys(pageMap ?? {})) {
                 const page = Number(pageString);
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                if (_queryClient.getQueryState([loadingKey, 'search', '', cacheKey, page] as any)
-                        ?.dataUpdatedAt) {
+                if (
+                    _queryClient.getQueryState([loadingKey, 'search', '', cacheKey, page] as any)
+                        ?.dataUpdatedAt
+                ) {
                     hasActivePage = true;
                     break;
                 }
