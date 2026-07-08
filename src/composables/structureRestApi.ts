@@ -129,6 +129,9 @@ export const useStructureRestApi = <
         deleteRecord,
         selectedIdentifier,
         selectedRecord,
+        lastInsertedIdentifier,
+        lastInsertedIdentifiers,
+        lastInsertedRecord,
 
         // Pagination
         pageCurrent,
@@ -190,10 +193,13 @@ export const useStructureRestApi = <
     };
 
     /**
-     * Common save items routine on various fetches
+     * Common save routine shared by all fetch* methods: writes each fetched
+     * item into the local store (addRecord/editRecord) and, when supplied,
+     * runs onSave per item to let the caller do extra bookkeeping
+     * (e.g. syncing the per-item TanStack target cache).
      *
      * @param items
-     * @param merge
+     * @param merge - true: editRecord (merge fields into existing item), false: addRecord (replace)
      * @param onSave - customized single item operations
      */
     function saveRecords(items: (T | undefined)[] = [], merge = false, onSave?: (item: T) => void) {
@@ -236,21 +242,26 @@ export const useStructureRestApi = <
             return asyncCall().finally(() => loading && stopLoading(lk));
         }
 
-        const staleTime = customTTL ?? TTL;
+        // Namespaced by loadingKey + lastUpdateKey so unrelated fetchAny calls don't share a cache slot
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const queryKey: any[] = [loadingKey, 'any', lastUpdateKey];
 
+        // forced: drop the existing entry first so fetchQuery can't treat it as still fresh
         if (forced) _queryClient.removeQueries({ queryKey, exact: true });
 
         if (loading) startLoading(lk);
 
-        return _queryClient
-            .fetchQuery({ queryKey, queryFn: asyncCall, staleTime })
-            .catch((error: unknown) => {
-                _queryClient.removeQueries({ queryKey, exact: true });
-                throw error;
-            })
-            .finally(() => loading && stopLoading(lk));
+        return (
+            _queryClient
+                // fetchQuery returns the cached value if it's within staleTime, otherwise
+                // it awaits asyncCall(), caches the resolved value under queryKey and returns it
+                .fetchQuery({ queryKey, queryFn: asyncCall, staleTime: customTTL ?? TTL })
+                .catch((error: unknown) => {
+                    _queryClient.removeQueries({ queryKey, exact: true });
+                    throw error;
+                })
+                .finally(() => loading && stopLoading(lk))
+        );
     };
 
     /**
@@ -279,7 +290,7 @@ export const useStructureRestApi = <
             TTL: customTTL
         }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
-        const staleTime = customTTL ?? TTL;
+        // One cache slot per (loadingKey, lastUpdateKey) — every "all" fetch with the same pair shares it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const queryKey: any[] = [loadingKey, 'all', lastUpdateKey];
 
@@ -288,16 +299,20 @@ export const useStructureRestApi = <
 
         if (loading) startLoading(lk);
 
+        // Skips apiCall entirely if queryKey is still within staleTime, returning the cached list instead
         return _queryClient
-            .fetchQuery({ queryKey, queryFn: apiCall, staleTime })
+            .fetchQuery({ queryKey, queryFn: apiCall, staleTime: customTTL ?? TTL })
             .then((items: (T | undefined)[] = []) =>
+                // Store each fetched item locally; also seed its own "target" query
+                // cache entry so a later fetchTarget(id) call sees it as fresh —
+                // unless mismatch, since these items may carry only partial fields
                 saveRecords(
                     items,
                     merge,
                     mismatch
                         ? undefined
                         : (item: T) => {
-                              // Keep per-item target caches in sync
+                              // Seed/refresh the target cache entry for this single item
                               _queryClient.setQueryData(
                                   [loadingKey, 'target', '', createIdentifier(item)],
                                   item
@@ -339,16 +354,18 @@ export const useStructureRestApi = <
             TTL: customTTL
         }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
-        const staleTime = customTTL ?? TTL;
+        // parentId is folded into the key so each parent gets its own cache slot
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const queryKey: any[] = [loadingKey, 'parent', lastUpdateKey + String(parentId)];
 
+        // forced: drop the entry so fetchQuery below can't reuse it
         if (forced) _queryClient.removeQueries({ queryKey, exact: true });
 
         if (loading) startLoading(lk);
 
+        // Returns the cached array as-is when fresh, otherwise awaits apiCall() and caches the result
         return _queryClient
-            .fetchQuery({ queryKey, queryFn: apiCall, staleTime })
+            .fetchQuery({ queryKey, queryFn: apiCall, staleTime: customTTL ?? TTL })
             .then((items: (T | undefined)[] = []) => {
                 for (let i = 0, len = items.length; i < len; i++) {
                     if (!items[i]) continue;
@@ -402,8 +419,6 @@ export const useStructureRestApi = <
             TTL: customTTL
         }: IFetchSettings = {}
     ): Promise<T | undefined> => {
-        const staleTime = customTTL ?? TTL;
-
         // Without an id we cannot build a stable query key — always execute
         if (id === undefined) {
             if (loading) startLoading(lk);
@@ -415,9 +430,11 @@ export const useStructureRestApi = <
                 .finally(() => loading && stopLoading(lk));
         }
 
+        // One cache slot per item id, so each target is freshness-tracked independently
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const queryKey: any[] = [loadingKey, 'target', lastUpdateKey, id];
 
+        // forced: drop the entry so fetchQuery below can't reuse it
         if (forced) _queryClient.removeQueries({ queryKey, exact: true });
 
         if (loading) startLoading(lk);
@@ -425,11 +442,14 @@ export const useStructureRestApi = <
         // TanStack Query v5 disallows undefined as a queryFn return value.
         // Wrap: undefined → { data: undefined }, unwrap in .then()
         type WrappedTarget = { data: T | undefined };
+        // Returns the cached { data } when fresh; otherwise calls apiCall(), wraps
+        // its result and caches it under queryKey for the next fetchTarget(id) call
         return _queryClient
             .fetchQuery<WrappedTarget>({
                 queryKey,
+                // Wrap the resolved item so a legitimate `undefined` result isn't mistaken for "no cache entry"
                 queryFn: () => apiCall().then((item) => ({ data: item })),
-                staleTime
+                staleTime: customTTL ?? TTL
             })
             .then(({ data: item }: WrappedTarget) => {
                 if (!item) return;
@@ -472,15 +492,15 @@ export const useStructureRestApi = <
         // nothing to search
         if (!ids || ids.length === 0) return Promise.resolve([]);
 
-        const staleTime = customTTL ?? TTL;
-
+        // ids whose target cache entry is missing/stale and must be re-fetched
         const expiredIds: K[] = [];
+        // ids whose target cache entry is still fresh — served without a network call
         const cachedIds: K[] = [];
 
         // Check which ids are stale and need a network fetch
         for (const id of ids) {
             const targetKey = [loadingKey, 'target', lastUpdateKey, id];
-            if (!forced && isQueryFresh(targetKey, staleTime)) cachedIds.push(id);
+            if (!forced && isQueryFresh(targetKey, customTTL ?? TTL)) cachedIds.push(id);
             else expiredIds.push(id);
         }
 
@@ -495,10 +515,12 @@ export const useStructureRestApi = <
         // request
         return apiCall()
             .then((items: (T | undefined)[] = []) => [
-                ...saveRecords(items, merge, (item: T) => {
-                    const id = createIdentifier(item);
-                    _queryClient.setQueryData([loadingKey, 'target', lastUpdateKey, id], item);
-                }),
+                ...saveRecords(items, merge, (item: T) =>
+                    _queryClient.setQueryData(
+                        [loadingKey, 'target', lastUpdateKey, createIdentifier(item)],
+                        item
+                    )
+                ),
                 ...cachedItems
             ])
             .catch((error: unknown) => {
@@ -568,17 +590,21 @@ export const useStructureRestApi = <
      * Keeps at most MAX_SEARCHES entries to bound memory usage.
      */
     const searchCleanup = () => {
+        // Upper bound on distinct (filters, pageSize) combinations kept around
         const MAX_SEARCHES = 50;
 
+        // cacheKeys that still have at least one page backed by a live TanStack entry
         const activeKeys: string[] = [];
 
         for (const cacheKey of Object.keys(searchCached.value)) {
             const pageMap = searchCached.value[cacheKey];
+            // true as soon as one page of this cacheKey is still tracked by TanStack
             let hasActivePage = false;
             for (const pageString of Object.keys(pageMap ?? {})) {
                 const page = Number(pageString);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
                 if (
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     _queryClient.getQueryState([loadingKey, 'search', '', cacheKey, page] as any)
                         ?.dataUpdatedAt
                 ) {
@@ -638,7 +664,6 @@ export const useStructureRestApi = <
             TTL: customTTL
         }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
-        const staleTime = customTTL ?? TTL;
         // cacheKey groups all pages for the same (filters, pageSize) combination
         const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -647,12 +672,13 @@ export const useStructureRestApi = <
         // Prune stale searchCached entries before each search
         searchCleanup();
 
+        // forced: drop the entry so fetchQuery below can't reuse it
         if (forced) _queryClient.removeQueries({ queryKey, exact: true });
 
         if (loading) startLoading(lk);
 
         return _queryClient
-            .fetchQuery({ queryKey, queryFn: apiCall, staleTime })
+            .fetchQuery({ queryKey, queryFn: apiCall, staleTime: customTTL ?? TTL })
             .then((result: SearchApiResult<T>) => {
                 // Support both plain T[] and [T[], total] tuple shapes
                 const isTuple = Array.isArray(result[0]);
@@ -799,14 +825,18 @@ export const useStructureRestApi = <
                         else addRecord(data as T);
                     }
 
-                    // Refresh per-item target cache
-                    if (fetchLike || fetchAgain) {
-                        const targetId = id ?? createIdentifier(data as T);
+                    // Refresh per-item target cache — fall back to createIdentifier(data)
+                    // when id wasn't passed in (e.g. it was inferred from the response)
+                    if (fetchLike || fetchAgain)
                         _queryClient.setQueryData(
-                            [loadingKey, 'target', lastUpdateKey, targetId],
+                            [
+                                loadingKey,
+                                'target',
+                                lastUpdateKey,
+                                id ?? createIdentifier(data as T)
+                            ],
                             data
                         );
-                    }
 
                     return data;
                 })
@@ -843,6 +873,7 @@ export const useStructureRestApi = <
                 // Rollback in case of error
                 if (oldItemData) {
                     addRecord(oldItemData);
+                    // Restore the target cache entry removed optimistically above
                     _queryClient.setQueryData([loadingKey, 'target', '', id], oldItemData);
                 }
                 throw error;
@@ -855,6 +886,9 @@ export const useStructureRestApi = <
         createIdentifier,
         identifierKey,
         loadingKey,
+
+        // TanStack QueryClient — exposed so consumers (and tests) can clear/unmount it
+        queryClient: _queryClient,
 
         // core structure
         itemDictionary,
@@ -870,6 +904,9 @@ export const useStructureRestApi = <
         deleteRecord,
         selectedIdentifier,
         selectedRecord,
+        lastInsertedIdentifier,
+        lastInsertedIdentifiers,
+        lastInsertedRecord,
 
         // Pagination
         pageCurrent,

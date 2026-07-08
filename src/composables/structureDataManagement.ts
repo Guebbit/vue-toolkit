@@ -1,5 +1,13 @@
 import { computed, ref } from 'vue';
 
+/**
+ * Generates a random fallback value, used to fill in a missing identifier field.
+ */
+const generateFallbackValue = () =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export const useStructureDataManagement = <
     // type of item
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,6 +24,28 @@ export const useStructureDataManagement = <
     delimiter = '|'
 ) => {
     /**
+     * Fills the given (missing) identifier field(s) directly on itemData with a random fallback
+     * value, so the generated id is:
+     *  - readable back from the item itself (e.g. item.id) after insertion
+     *  - stable across repeated calls (createIdentifier is called more than once per item, e.g.
+     *    once by the caller and again internally by addRecord/editRecord)
+     *
+     * @param itemData
+     * @param missingKeys - identifier field name(s) to fill in
+     */
+    const fillMissingIdentifiers = <C>(itemData: C, missingKeys: string[]): void => {
+        if (typeof itemData !== 'object' || itemData === undefined || itemData === null) return;
+        const fallback = generateFallbackValue();
+        for (const key of missingKeys) (itemData as Record<string, unknown>)[key] = fallback;
+        // eslint-disable-next-line no-console
+        console.warn(
+            'structureDataManagement - item is missing its identifier, generating a temporary fallback id',
+            fallback,
+            itemData
+        );
+    };
+
+    /**
      *
      * @param itemData
      * @param customIdentifiers - if specified, it will create a key using these identifiers instead of the default ones
@@ -23,9 +53,21 @@ export const useStructureDataManagement = <
 
     const createIdentifier = <C = T>(itemData: C, customIdentifiers?: string | string[]): K => {
         const _identifiers = customIdentifiers ?? identifiers;
-        if (Array.isArray(_identifiers))
-            return _identifiers.map((key) => itemData[key as keyof C]).join(delimiter) as K;
-        return itemData[identifier as keyof C] as K;
+        if (Array.isArray(_identifiers)) {
+            const values = _identifiers.map((key) => itemData[key as keyof C]);
+            const missingKeys = _identifiers.filter((_key, index) => values[index] == undefined);
+            if (missingKeys.length > 0) {
+                fillMissingIdentifiers(itemData, missingKeys);
+                return _identifiers.map((key) => itemData[key as keyof C]).join(delimiter) as K;
+            }
+            return values.join(delimiter) as K;
+        }
+        const value = itemData[identifier as keyof C];
+        if (value === undefined || value === null) {
+            fillMissingIdentifiers(itemData, [identifier]);
+            return itemData[identifier as keyof C] as K;
+        }
+        return value as K;
     };
 
     /**
@@ -61,11 +103,9 @@ export const useStructureDataManagement = <
      *
      * @param _arguments
      */
-    const getRecord = (..._arguments: (K | undefined)[]): T | undefined => {
-        const id = _arguments.join(delimiter);
+    const getRecord = (..._arguments: (K | undefined)[]): T | undefined =>
         // Important to directly access the dictionary to avoid reactivity issues
-        return itemDictionary.value[id as K];
-    };
+        itemDictionary.value[_arguments.join(delimiter) as K];
 
     /**
      * Multiple getRecord
@@ -78,13 +118,36 @@ export const useStructureDataManagement = <
             .filter(Boolean) as T[];
 
     /**
+     * Id of the most recently inserted (newly created, not merely updated) record.
+     * Mirrors e.g. Laravel's lastInsertId() — read this right after an add/create
+     * call when the id isn't available any other way (auto-generated fallback ids, deep call chains, ...).
+     */
+    const lastInsertedIdentifier = ref<K>();
+
+    /**
+     * Ids inserted by the most recent batch call (addRecords/editRecords).
+     * Reset at the start of each batch call.
+     */
+    const lastInsertedIdentifiers = ref<K[]>([]);
+
+    /**
+     * Record for @{lastInsertedIdentifier}
+     */
+    const lastInsertedRecord = computed<T | undefined>(() =>
+        getRecord(lastInsertedIdentifier.value)
+    );
+
+    /**
      * Add item to the dictionary.
      * If item already present, it will be overwritten
      *
      * @param itemData
      */
-    const addRecord = (itemData: T) =>
-        ((itemDictionary.value as Record<K, T>)[createIdentifier(itemData)] = itemData);
+    const addRecord = (itemData: T) => {
+        const id = createIdentifier(itemData);
+        lastInsertedIdentifier.value = id;
+        return ((itemDictionary.value as Record<K, T>)[id] = itemData);
+    };
 
     /**
      * Add a list of items to the dictionary.
@@ -92,10 +155,13 @@ export const useStructureDataManagement = <
      * @param itemsArray
      */
     const addRecords = (itemsArray: (T | undefined)[]) => {
+        const ids: K[] = [];
         for (let i = 0, len = itemsArray.length; i < len; i++) {
             if (!itemsArray[i]) continue;
             addRecord(itemsArray[i]!);
+            ids.push(lastInsertedIdentifier.value as K);
         }
+        lastInsertedIdentifiers.value = ids;
     };
 
     /**
@@ -107,15 +173,24 @@ export const useStructureDataManagement = <
      * @param data
      * @param id - WARNING: needed createIdentifier if identifiers is array
      * @param create - if true it will be added if not present
+     * @returns the record's id if this call created a new record, undefined if it only updated an existing one
      */
-    const editRecord = (data: Partial<T> = {}, id?: K | K[], create = true) => {
-        // If not specified, it will be inferred
-        const _inferredId = id ?? (data[identifier as keyof T] as K | K[]);
+    const editRecord = (data: Partial<T> = {}, id?: K | K[], create = true): K | undefined => {
+        // if NOT forced to create and NOT given an id: error (avoid inferring/generating a fallback id for nothing)
+        if (!create && !id) {
+            // eslint-disable-next-line no-console
+            console.error('storeDataStructure - data not found', data);
+            return;
+        }
+
+        // If not specified, it will be inferred (using the same fallback-id logic as createIdentifier)
         // if multiple identifiers, then they need to be joined\translated
-        const _id = Array.isArray(_inferredId) ? (_inferredId.join(delimiter) as K) : _inferredId;
+        const _id = (Array.isArray(id) ? (id.join(delimiter) as K) : id) ?? createIdentifier(data);
+
+        const isNew = !Object.prototype.hasOwnProperty.call(itemDictionary.value, _id);
 
         // if NOT forced to create and NOT found: error
-        if (!create && (!id || !Object.prototype.hasOwnProperty.call(itemDictionary.value, _id))) {
+        if (!create && isNew) {
             // eslint-disable-next-line no-console
             console.error('storeDataStructure - data not found', data);
             return;
@@ -126,6 +201,10 @@ export const useStructureDataManagement = <
             ...(itemDictionary.value as Record<K, T>)[_id],
             ...data
         };
+
+        if (!isNew) return;
+        lastInsertedIdentifier.value = _id;
+        return _id;
     };
 
     /**
@@ -134,10 +213,13 @@ export const useStructureDataManagement = <
      * @param itemsArray
      */
     const editRecords = (itemsArray: (T | undefined)[]) => {
+        const ids: K[] = [];
         for (let i = 0, len = itemsArray.length; i < len; i++) {
             if (!itemsArray[i]) continue;
-            editRecord(itemsArray[i]);
+            const insertedId = editRecord(itemsArray[i]);
+            if (insertedId !== undefined) ids.push(insertedId);
         }
+        lastInsertedIdentifiers.value = ids;
     };
 
     /**
@@ -268,6 +350,9 @@ export const useStructureDataManagement = <
         deleteRecord,
         selectedIdentifier,
         selectedRecord,
+        lastInsertedIdentifier,
+        lastInsertedIdentifiers,
+        lastInsertedRecord,
 
         // Pagination
         pageCurrent,

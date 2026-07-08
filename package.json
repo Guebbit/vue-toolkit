@@ -22,7 +22,7 @@
     "scripts": {
         "build": "tsc",
         "test": "jest --config jest.config.cjs --passWithNoTests",
-        "test:target": "clear && jest --config jest.config.cjs /tests/structureRestApi.search.spec.ts",
+        "test:target": "clear && jest --config jest.config.cjs tests/structureRestApi",
         "lint": "eslint \"*/**/*.{ts,js,json}\"",
         "lint:fix": "eslint \"*/**/*.{ts,js,json}\" --fix",
         "prettier": "npx prettier .",
@@ -31,7 +31,8 @@
         "docs:build": "vitepress build docs",
         "docs:preview": "vitepress preview docs",
         "update:all": "npx npm-check-updates -u",
-        "complete": "npm run build && npm run test && npm run lint:fix && npm run prettier:fix && npm run docs:build",
+        "complete": "npm run lint:fix && npm run prettier:fix && npm run build && npm run test && npm run docs:build",
+        "complete:check": "npm run lint && npm run prettier && npm run build && npm run test && npm run docs:build",
         "publish:public": "npm run complete && npm publish --access public"
     },
     "peerDependencies": {
