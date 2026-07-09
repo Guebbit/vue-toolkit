@@ -1,6 +1,9 @@
 {
     "compilerOptions": {
         "strict": true,
+        // Skip type-checking of dependency .d.ts files (e.g. @tanstack/vue-query's
+        // bundled types reference vitest). Does not affect checking of our own source.
+        "skipLibCheck": true,
         "target": "ES2023",
         "module": "ESNext",
         "moduleResolution": "bundler",

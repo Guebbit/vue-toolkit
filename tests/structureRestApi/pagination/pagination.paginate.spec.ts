@@ -53,7 +53,11 @@ describe('PAGINATION · fetchPaginate', () => {
 
     it('records the tuple total under empty filters', async () => {
         const c = make();
-        await c.fetchPaginate(apiResolve([buildProducts(10, 1), 150] as [IProduct[], number]), 1, 10);
+        await c.fetchPaginate(
+            apiResolve([buildProducts(10, 1), 150] as [IProduct[], number]),
+            1,
+            10
+        );
         expect(c.searchGetTotal({}, 10)).toBe(150);
     });
 

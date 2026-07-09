@@ -18,9 +18,9 @@ const make = () => makeComposable<IProduct, number>();
 describe('UNIT · fetchPaginate', () => {
     it('resolves with the page items', async () => {
         const c = make();
-        await expect(c.fetchPaginate(apiResolve(buildProducts(10, 1)), 1, 10)).resolves.toHaveLength(
-            10
-        );
+        await expect(
+            c.fetchPaginate(apiResolve(buildProducts(10, 1)), 1, 10)
+        ).resolves.toHaveLength(10);
     });
 
     it('stores the returned items', async () => {
@@ -40,7 +40,11 @@ describe('UNIT · fetchPaginate', () => {
 
     it('records the tuple total under empty filters', async () => {
         const c = make();
-        await c.fetchPaginate(apiResolve([buildProducts(10, 1), 250] as [IProduct[], number]), 1, 10);
+        await c.fetchPaginate(
+            apiResolve([buildProducts(10, 1), 250] as [IProduct[], number]),
+            1,
+            10
+        );
         expect(c.searchGetTotal({}, 10)).toBe(250);
     });
 

@@ -1,26 +1,26 @@
 /**
- * STRICT — assert the VALUE that is served, not merely that the network was skipped.
+ * VALUE — assert the VALUE that is served, not merely that the network was skipped.
  *
  * The rest of the suite mostly checks `expect(mock).not.toHaveBeenCalled()`. That
  * proves plumbing, not correctness: a cache that returned garbage would pass. These
  * tests pin the actual data returned/stored on both cache hits and refetches.
  *
- * The last test is EXPECTED TO FAIL: it exposes the `{ data }` wrapping bug, where a
- * fetchTarget served from a *seeding* fetch resolves `undefined` instead of the item.
- * Note the contrast with "warm from a prior fetchTarget", which DOES work — proving
- * the bug is specific to the seeding paths, not fetchTarget's own cache.
+ * The last test covers what used to be the `{ data }` wrapping bug: a fetchTarget
+ * served from a *seeding* fetch (list/search/parent/create/update) must resolve the
+ * item, just like one served from fetchTarget's own cache. Both now go through the
+ * same `{ data }` shape (seedTarget), so both work.
  */
 
-import { makeComposable, clearAllInstances } from '../_helpers/harness';
-import { apiResolve } from '../_helpers/fakeApi';
-import { USERS, type IUser } from '../_helpers/fixtures';
+import { makeComposable, clearAllInstances } from './_helpers/harness';
+import { apiResolve } from './_helpers/fakeApi';
+import { USERS, type IUser } from './_helpers/fixtures';
 
 afterEach(clearAllInstances);
 
 const make = () => makeComposable<IUser, number>();
 const v = (role: string): IUser => ({ id: 1, name: 'Alice', email: 'a@x.com', role });
 
-describe('STRICT · value served on a cache hit', () => {
+describe('VALUE · served on a cache hit', () => {
     it('fetchAll: a cache hit serves the ORIGINAL value (a differing later response is never applied)', async () => {
         const c = make();
         await c.fetchAll(apiResolve([v('v1')]));
@@ -66,10 +66,7 @@ describe('STRICT · value served on a cache hit', () => {
         expect(c.searchGet({ q: 'a' }, 1)).toEqual([USERS[0], USERS[1], USERS[2]]);
     });
 
-    // -------------------------------------------------------------------------
-    // EXPECTED TO FAIL — the { data } wrapping bug (seeding path).
-    // -------------------------------------------------------------------------
-    it('EXPECTED FAIL — fetchTarget (warm from a list fetch) must resolve the seeded item', async () => {
+    it('fetchTarget (warm from a list fetch) resolves the seeded item', async () => {
         const c = make();
         await c.fetchAll(apiResolve([...USERS]));
         await expect(c.fetchTarget(apiResolve(USERS[0]), 1)).resolves.toEqual(USERS[0]);

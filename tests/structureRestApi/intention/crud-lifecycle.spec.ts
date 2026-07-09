@@ -29,7 +29,11 @@ describe('INTENTION · CRUD lifecycle', () => {
         expect(server.calls.get).toBe(0);
 
         // 3. Edit it — one PUT, optimistic + confirmed
-        await c.updateTarget(server.update(1, { name: 'User 1 edited' }), { name: 'User 1 edited' }, 1);
+        await c.updateTarget(
+            server.update(1, { name: 'User 1 edited' }),
+            { name: 'User 1 edited' },
+            1
+        );
         expect(server.calls.update).toBe(1);
         expect(c.getRecord(1)?.name).toBe('User 1 edited');
 
@@ -38,7 +42,9 @@ describe('INTENTION · CRUD lifecycle', () => {
         expect(server.calls.get).toBe(0);
 
         // 4. Create a new one — one POST, appears locally
-        const created = await c.createTarget(server.create({ name: 'User 4', email: 'user4@example.com' }));
+        const created = await c.createTarget(
+            server.create({ name: 'User 4', email: 'user4@example.com' })
+        );
         expect(server.calls.create).toBe(1);
         expect(created?.id).toBe(4);
         expect(c.itemList.value).toHaveLength(4);

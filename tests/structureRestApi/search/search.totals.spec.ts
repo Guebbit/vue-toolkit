@@ -26,14 +26,29 @@ describe('SEARCH · totals', () => {
 
     it('a [items, total] tuple records the total', async () => {
         const c = make();
-        await c.fetchSearch(apiResolve([TECH, 42] as [IArticle[], number]), { category: 'tech' }, 1, 10);
+        await c.fetchSearch(
+            apiResolve([TECH, 42] as [IArticle[], number]),
+            { category: 'tech' },
+            1,
+            10
+        );
         expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(42);
     });
 
     it('totals are independent per (filters, pageSize)', async () => {
         const c = make();
-        await c.fetchSearch(apiResolve([TECH, 42] as [IArticle[], number]), { category: 'tech' }, 1, 10);
-        await c.fetchSearch(apiResolve([SPORT, 7] as [IArticle[], number]), { category: 'sport' }, 1, 10);
+        await c.fetchSearch(
+            apiResolve([TECH, 42] as [IArticle[], number]),
+            { category: 'tech' },
+            1,
+            10
+        );
+        await c.fetchSearch(
+            apiResolve([SPORT, 7] as [IArticle[], number]),
+            { category: 'sport' },
+            1,
+            10
+        );
         expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(42);
         expect(c.searchGetTotal({ category: 'sport' }, 10)).toBe(7);
     });
@@ -55,9 +70,15 @@ describe('SEARCH · totals', () => {
     it('a tuple response DOES overwrite a manually set total', async () => {
         const c = make();
         c.searchSetTotal({ category: 'tech' }, 99, 10);
-        await c.fetchSearch(apiResolve([TECH, 5] as [IArticle[], number]), { category: 'tech' }, 1, 10, {
-            forced: true
-        });
+        await c.fetchSearch(
+            apiResolve([TECH, 5] as [IArticle[], number]),
+            { category: 'tech' },
+            1,
+            10,
+            {
+                forced: true
+            }
+        );
         expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(5);
     });
 });

@@ -31,7 +31,9 @@ describe('UNIT · searchKeyGen', () => {
 
     it('differs for different values', () => {
         const c = make();
-        expect(c.searchKeyGen({ category: 'tech' })).not.toBe(c.searchKeyGen({ category: 'sport' }));
+        expect(c.searchKeyGen({ category: 'tech' })).not.toBe(
+            c.searchKeyGen({ category: 'sport' })
+        );
     });
 
     it('differs for different properties', () => {

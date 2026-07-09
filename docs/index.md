@@ -3,23 +3,22 @@
 layout: home
 
 hero:
-  name: "js-toolkit"
-  text: "javascript tools library free as in freedom"
-  tagline: My great project tagline
-  actions:
-    - theme: brand
-      text: Markdown Examples
-      link: /markdown-examples
-    - theme: alt
-      text: API Examples
-      link: /api-examples
+    name: '@guebbit/vue-toolkit'
+    text: 'Composables for CRUD screens'
+    tagline: Caching, optimistic updates, and rollback — without hand-rolling any of it.
+    actions:
+        - theme: brand
+          text: Getting Started
+          link: /guide/getting-started
+        - theme: alt
+          text: useStructureRestApi
+          link: /composables/structure-rest-api
 
 features:
-  - title: Feature A
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature B
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature C
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
+    - title: Optimistic updates, automatic rollback
+      details: Update or delete a record and the UI changes immediately. If the request fails, the previous value comes back on its own — no manual rollback code.
+    - title: Stable cache keys, none of them yours to write
+      details: Filters, pages, and identifiers are normalized into cache keys for you — equal filters in any key order hit the same cache bucket automatically.
+    - title: Scope-aware teardown
+      details: Composables tear themselves down when their owning component or effect scope goes away. No forgotten cleanup, no leaked query-cache entries.
 ---
-

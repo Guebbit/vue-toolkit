@@ -1,6 +1,10 @@
-import { computed, ref } from 'vue';
+import { computed, getCurrentScope, onScopeDispose, reactive, ref, toRaw } from 'vue';
 import { QueryClient } from '@tanstack/query-core';
-import { useStructureDataManagement } from '../index';
+// vue-query's QueryClient subclasses the core one; we instantiate it (Vue-integrated
+// foundation for future reactive layers) but keep the core type for the external param
+// so either a core or a vue-query client can be injected.
+import { QueryClient as VueQueryClient } from '@tanstack/vue-query';
+import { generateFallbackValue, useStructureDataManagement } from '../index';
 
 /**
  * Ideas:
@@ -12,6 +16,31 @@ import { useStructureDataManagement } from '../index';
  * Both shapes are handled transparently — existing callers returning a plain array keep working.
  */
 export type SearchApiResult<T> = (T | undefined)[] | [(T | undefined)[], number];
+
+/**
+ * Recursively rebuild a value with every object's keys in sorted order, so that
+ * JSON.stringify of the result is a stable cache key regardless of key insertion order.
+ *
+ * Do NOT go back to `JSON.stringify(obj, Object.keys(obj).toSorted())`: an array replacer
+ * is an allow-list applied at EVERY depth, so it silently strips nested keys and makes
+ * {sort:{by:'a'}} and {sort:{by:'b'}} collide on the same key.
+ *
+ * Conventions:
+ *  - arrays keep their order (order is meaningful in a filter, e.g. sort priority)
+ *  - `undefined` values are dropped, so {a: undefined} and {} share a key (an unset
+ *    filter and an absent filter mean the same thing)
+ *  - Date becomes its ISO string (JSON.stringify would do it anyway, done here for clarity)
+ */
+export const stableNormalize = (value: unknown): unknown => {
+    if (!value || typeof value !== 'object') return value;
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) return value.map((item) => stableNormalize(item));
+    const source = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(source).toSorted())
+        if (source[key] !== undefined) normalized[key] = stableNormalize(source[key]);
+    return normalized;
+};
 
 /**
  * Fetch settings customization
@@ -64,6 +93,21 @@ export interface IFetchSettings {
      * Use when the fetch returns partial data that should not reset the item's own cache validity.
      */
     mismatch?: boolean;
+
+    /**
+     * createTarget/updateTarget only: populate the per-item target cache as if this
+     * record had just been fetched via fetchTarget, so a later fetchTarget(id) is a
+     * cache hit instead of an extra request.
+     */
+    fetchLike?: boolean;
+
+    /**
+     * updateTarget only: after the request resolves, apply its response as the
+     * record's new data (addRecord/editRecord + reseed the target cache). Turn off
+     * when the apiCall's response shouldn't be trusted as the record's full state
+     * (e.g. it returns just an acknowledgement, not the updated item).
+     */
+    fetchAgain?: boolean;
 }
 
 /**
@@ -82,6 +126,26 @@ export interface IStructureRestApi {
     loadingKey?: string;
     // Time To Live (staleTime) for the various fetches, in milliseconds
     TTL?: number;
+    /**
+     * Hard upper bound on itemDictionary size. When a fetched batch would push the
+     * dictionary past it, the WHOLE client store is wiped before the batch is stored
+     * (see resetAll). 0 disables it.
+     *
+     * This is a critical-mass backstop, NOT a cache policy. Records are never dropped
+     * for being old: stale data is useful data — it keeps the list on screen while the
+     * fresh copy downloads. A record is garbage only when nothing points at it, and age
+     * says nothing about that. So there is no TTL on the dictionary and no eviction tied
+     * to query-cache expiry; the store is thrown away only when it grows absurd.
+     * (searchCached applies the same idea from the other end: it is capped at
+     * MAX_SEARCHES = 50 buckets rather than expired by age.)
+     *
+     * WARNING: a wipe empties `itemList` / `pageItemList` / `selectedRecord`. Harmless
+     * for a server-paginated UI (the incoming batch is stored right after, so the page
+     * being rendered is intact), VISIBLE for an infinite-scroll UI that renders itemList
+     * directly — there the list collapses to the last batch. Set 0 and prune manually
+     * if that matters. At the default 100k (~20MB of plain records) it should never fire.
+     */
+    maxRecords?: number;
     // Delimiter for multiple identifiers
     delimiter?: string;
     getLoading?: (key?: string) => boolean;
@@ -104,12 +168,13 @@ export const useStructureRestApi = <
     P extends string | number = string | number
 >({
     identifiers = 'id',
-    loadingKey = crypto.randomUUID(),
+    loadingKey = generateFallbackValue(),
     TTL = 3_600_000, // 1 hour
+    maxRecords = 100_000,
     delimiter = '|',
     getLoading,
     setLoading,
-    queryClient: queryClientOption
+    queryClient: queryClientExternal
 }: IStructureRestApi = {}) => {
     /**
      * Inherited
@@ -151,35 +216,99 @@ export const useStructureRestApi = <
 
     /**
      * loadings
+     *
+     * Loading is ref-counted, not a boolean: overlapping requests on the same key
+     * would otherwise clear each other's loading state (the first to resolve wins).
+     * The external setLoading/getLoading store keeps its boolean contract — it's only
+     * told about the 0 -> 1 and 1 -> 0 transitions.
      */
+    // In-flight requests per full loading key (loadingKey + postfix).
+    // reactive() (not a plain Map) so the _pending computed below can track it.
+    // A key is deleted rather than left at 0, so "is anything pending" is just "is it non-empty".
+    const _pendingByKey = reactive(new Map<string, number>());
+    // In-flight requests across every postfix — the internal fallback flag
+    const _pending = computed(() => _pendingByKey.size > 0);
+
     // loading mutators
-    const startLoading = (postfix = '') =>
-        loadingKey && setLoading ? setLoading(loadingKey + postfix, true) : (_loading.value = true);
-    const stopLoading = (postfix = '') =>
-        loadingKey && setLoading
-            ? setLoading(loadingKey + postfix, false)
-            : (_loading.value = false);
+    const startLoading = (postfix = '') => {
+        const key = loadingKey + postfix;
+        const pending = (_pendingByKey.get(key) ?? 0) + 1;
+        _pendingByKey.set(key, pending);
+        // The external store keeps a boolean contract: only tell it about the 0 -> 1 edge
+        if (pending === 1 && loadingKey && setLoading) setLoading(key, true);
+    };
+    const stopLoading = (postfix = '') => {
+        const key = loadingKey + postfix;
+        const pending = _pendingByKey.get(key) ?? 0;
+        // Never go negative: an unmatched stopLoading must not clear a real in-flight request
+        if (pending === 0) return;
+        if (pending > 1) {
+            _pendingByKey.set(key, pending - 1);
+            return;
+        }
+        _pendingByKey.delete(key);
+        if (loadingKey && setLoading) setLoading(key, false);
+    };
     // Check if it's loading
-    const _loading = ref(false);
-    const loading = computed(() => (getLoading ? getLoading(loadingKey) : _loading.value));
+    const loading = computed(() => (getLoading ? getLoading(loadingKey) : _pending.value));
 
     /**
-     * TanStack QueryClient — sole cache, freshness and revalidation engine.
+     * TanStack QueryClient — freshness, request de-duplication and revalidation engine.
      * A new instance is created per composable unless an external one is provided.
+     *
+     * OWNERSHIP (do not blur these two):
+     *  - `itemDictionary` owns WHAT TO RENDER. It is the client store: synchronous,
+     *    reactive, and the only thing consumers read (getRecord / itemList / ...).
+     *    Its lifetime is the owning scope's; prune it with `resetRecords()`.
+     *  - this cache owns WHEN TO FETCH: is an entry stale, is a request already in
+     *    flight, should it retry. Nothing renders from it.
+     *
+     * Consequence: an entry garbage-collected after `gcTime` only means "we forgot
+     * that this item was fresh" — the next read refetches it. It must NEVER evict the
+     * item from the dictionary: with no query observers (nothing here calls useQuery)
+     * every entry is gc-eligible from birth, so doing so would delete data out from
+     * under a component that is still rendering it.
+     *
+     * This split is also what gives stale-while-revalidate for free: an expired TTL
+     * leaves the item in the dictionary, so `getRecord` keeps serving the old value
+     * for the whole flight of the refetch, and `saveRecords` swaps in the new one.
      */
     const _queryClient: QueryClient =
-        queryClientOption ??
-        new QueryClient({
+        queryClientExternal ??
+        new VueQueryClient({
             defaultOptions: {
                 queries: {
                     retry: false,
-                    // Keep unused cache entries in memory for at least as long as the TTL
+                    // Outlive the TTL, else an entry could be collected while still fresh
                     gcTime: Math.max(TTL, 5 * 60 * 1000),
                     // Never perform real network-status checks; always trust the queryFn result
                     networkMode: 'always'
                 }
             }
         });
+
+    /**
+     * Tear down this composable: for a client we created, clear it (removing every
+     * query and cancelling the background gc timers) so nothing leaks after the
+     * owner (component, store, service) is gone.
+     *
+     * Auto-wired to the current Vue effect scope (component `setup`, Pinia setup
+     * store, `effectScope`) so it runs on teardown for free. When there is no active
+     * scope (plain/standalone usage) nothing is registered and no warning is emitted;
+     * call `destroy()` yourself in that case.
+     *
+     * The dictionary and the search indexes are reset too: their lifetime is the
+     * lifetime of this composable. This is teardown, NOT gc — the query cache's gc
+     * timers must never evict dictionary items (see the ownership note above
+     * `_queryClient`); only the owning scope going away may.
+     *
+     * @param forced - also clear an externally-provided queryClient (normally left alone)
+     */
+    const destroy = (forced = false): void => {
+        if (forced || !queryClientExternal) _queryClient.clear();
+        resetAll();
+    };
+    if (getCurrentScope()) onScopeDispose(destroy);
 
     /**
      * Returns true when the TanStack cache entry for the given key is still
@@ -193,16 +322,50 @@ export const useStructureRestApi = <
     };
 
     /**
+     * The per-item "target" cache is the single, consistent representation read by
+     * fetchTarget. Its value is ALWAYS wrapped as { data } so a legitimately
+     * `undefined` item stays distinguishable from a missing entry (TanStack Query v5
+     * forbids caching a bare `undefined`). Every producer — fetchAll/fetchSearch/
+     * fetchByParent/fetchMultiple/createTarget/updateTarget — seeds through
+     * seedTarget, so the shape never diverges and fetchTarget can always unwrap it.
+     *
+     * Key order is [loadingKey, 'target', id, lastUpdateKey]: `id` precedes `lastUpdateKey`
+     * so that [loadingKey, 'target', id] prefix-matches EVERY lastUpdateKey bucket of one
+     * item, which is what deleteTarget needs to evict.
+     */
+    type TargetEntry = { data: T | undefined };
+    const targetKey = (id: K, lastUpdateKey = ''): unknown[] => [
+        loadingKey,
+        'target',
+        id,
+        lastUpdateKey
+    ];
+    /** Prefix matching every cached bucket of one item, regardless of lastUpdateKey */
+    const targetKeyPrefix = (id: K): unknown[] => [loadingKey, 'target', id];
+    const seedTarget = (id: K, item: T | undefined, lastUpdateKey = ''): void => {
+        _queryClient.setQueryData<TargetEntry>(targetKey(id, lastUpdateKey), { data: item });
+    };
+
+    /**
      * Common save routine shared by all fetch* methods: writes each fetched
      * item into the local store (addRecord/editRecord) and, when supplied,
      * runs onSave per item to let the caller do extra bookkeeping
      * (e.g. syncing the per-item TanStack target cache).
+     *
+     * Enforces maxRecords BEFORE storing the batch, so the incoming (freshest) items
+     * always survive the wipe: what the caller just asked for stays renderable.
      *
      * @param items
      * @param merge - true: editRecord (merge fields into existing item), false: addRecord (replace)
      * @param onSave - customized single item operations
      */
     function saveRecords(items: (T | undefined)[] = [], merge = false, onSave?: (item: T) => void) {
+        // Critical mass only. Nothing is dropped for being stale — stale records are the
+        // ones keeping the UI populated while fresher data is on its way. Past maxRecords
+        // the whole store goes, and the batch below immediately repopulates it.
+        if (maxRecords > 0 && Object.keys(itemDictionary.value).length + items.length > maxRecords)
+            resetAll();
+
         for (let i = 0, len = items.length; i < len; i++) {
             if (!items[i]) continue;
             if (merge) editRecord(items[i]);
@@ -309,15 +472,7 @@ export const useStructureRestApi = <
                 saveRecords(
                     items,
                     merge,
-                    mismatch
-                        ? undefined
-                        : (item: T) => {
-                              // Seed/refresh the target cache entry for this single item
-                              _queryClient.setQueryData(
-                                  [loadingKey, 'target', '', createIdentifier(item)],
-                                  item
-                              );
-                          }
+                    mismatch ? undefined : (item: T) => seedTarget(createIdentifier(item), item)
                 )
             )
             .catch((error: unknown) => {
@@ -376,12 +531,7 @@ export const useStructureRestApi = <
                     else addRecord(items[i]!);
 
                     // Keep per-item target caches in sync unless mismatched partial data
-                    if (!mismatch) {
-                        _queryClient.setQueryData(
-                            [loadingKey, 'target', '', createIdentifier(items[i]!)],
-                            items[i]
-                        );
-                    }
+                    if (!mismatch) seedTarget(createIdentifier(items[i]!), items[i]);
                 }
                 removeDuplicateChildren(parentId);
                 return items;
@@ -431,27 +581,23 @@ export const useStructureRestApi = <
         }
 
         // One cache slot per item id, so each target is freshness-tracked independently
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const queryKey: any[] = [loadingKey, 'target', lastUpdateKey, id];
+        const queryKey = targetKey(id, lastUpdateKey);
 
         // forced: drop the entry so fetchQuery below can't reuse it
         if (forced) _queryClient.removeQueries({ queryKey, exact: true });
 
         if (loading) startLoading(lk);
 
-        // TanStack Query v5 disallows undefined as a queryFn return value.
-        // Wrap: undefined → { data: undefined }, unwrap in .then()
-        type WrappedTarget = { data: T | undefined };
-        // Returns the cached { data } when fresh; otherwise calls apiCall(), wraps
-        // its result and caches it under queryKey for the next fetchTarget(id) call
+        // The target cache always holds { data } (see seedTarget), so a legitimate
+        // `undefined` item is never mistaken for a missing entry, and fetchTarget can
+        // unwrap whatever a producer seeded — list, search, parent, create or update.
         return _queryClient
-            .fetchQuery<WrappedTarget>({
+            .fetchQuery<TargetEntry>({
                 queryKey,
-                // Wrap the resolved item so a legitimate `undefined` result isn't mistaken for "no cache entry"
                 queryFn: () => apiCall().then((item) => ({ data: item })),
                 staleTime: customTTL ?? TTL
             })
-            .then(({ data: item }: WrappedTarget) => {
+            .then(({ data: item }: TargetEntry) => {
                 if (!item) return;
                 return saveRecords([item], merge)[0];
             })
@@ -499,8 +645,8 @@ export const useStructureRestApi = <
 
         // Check which ids are stale and need a network fetch
         for (const id of ids) {
-            const targetKey = [loadingKey, 'target', lastUpdateKey, id];
-            if (!forced && isQueryFresh(targetKey, customTTL ?? TTL)) cachedIds.push(id);
+            if (!forced && isQueryFresh(targetKey(id, lastUpdateKey), customTTL ?? TTL))
+                cachedIds.push(id);
             else expiredIds.push(id);
         }
 
@@ -516,10 +662,7 @@ export const useStructureRestApi = <
         return apiCall()
             .then((items: (T | undefined)[] = []) => [
                 ...saveRecords(items, merge, (item: T) =>
-                    _queryClient.setQueryData(
-                        [loadingKey, 'target', lastUpdateKey, createIdentifier(item)],
-                        item
-                    )
+                    seedTarget(createIdentifier(item), item, lastUpdateKey)
                 ),
                 ...cachedItems
             ])
@@ -527,7 +670,7 @@ export const useStructureRestApi = <
                 // Remove failed entries so they can be retried
                 for (const id of expiredIds)
                     _queryClient.removeQueries({
-                        queryKey: [loadingKey, 'target', lastUpdateKey, id],
+                        queryKey: targetKey(id, lastUpdateKey),
                         exact: true
                     });
                 throw error;
@@ -548,12 +691,40 @@ export const useStructureRestApi = <
     const searchTotals = ref<Record<string, number>>({});
 
     /**
-     * Create a stable and always-the-same key from an object
+     * Drop every search index (page-to-ids maps and totals).
+     * The companion of resetRecords(): that one owns the item data, this one owns
+     * the "which items answered which search" bookkeeping. Neither touches the
+     * TanStack cache. Call both (or destroy()) for a total reset.
+     */
+    const resetSearches = () => {
+        searchCached.value = {};
+        searchTotals.value = {};
+    };
+
+    /**
+     * Wipe the whole client store: records AND every structure that holds bare ids.
+     *
+     * searchCached and parentHasMany store ids, not records. Dropping records without
+     * them leaves dangling ids, and getRecords() silently filters those out — so
+     * searchGet/getRecordsByParent would return SHORT arrays instead of refetching.
+     * Reset them together or not at all.
+     *
+     * Does not touch the TanStack cache: its entries stay valid and a later fetch
+     * repopulates the dictionary from them without hitting the network.
+     */
+    const resetAll = () => {
+        resetRecords();
+        resetSearches();
+        parentHasMany.value = {} as typeof parentHasMany.value;
+    };
+
+    /**
+     * Create a stable and always-the-same key from an object.
+     * Nested objects are supported: see stableNormalize.
      * @param object
      */
     // eslint-disable-next-line unicorn/consistent-function-scoping
-    const searchKeyGen = (object: object = {}) =>
-        JSON.stringify(object, Object.keys(object).toSorted());
+    const searchKeyGen = (object: object = {}) => JSON.stringify(stableNormalize(object));
 
     /**
      * Get search page based on key, pageSize and page number
@@ -585,6 +756,25 @@ export const useStructureRestApi = <
     };
 
     /**
+     * Query key of one search page.
+     *
+     * Key order is [loadingKey, 'search', searchKey, lastUpdateKey, page]: `searchKey` precedes
+     * `lastUpdateKey` so [loadingKey, 'search', searchKey] prefix-matches EVERY page and EVERY
+     * lastUpdateKey bucket of one search, which is what searchCleanup needs to test for liveness.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const searchKeyFor = (searchKey: string, page: number, lastUpdateKey = ''): any[] => [
+        loadingKey,
+        'search',
+        searchKey,
+        lastUpdateKey,
+        page
+    ];
+    /** Prefix matching every cached page/bucket of one search */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const searchKeyPrefix = (searchKey: string): any[] => [loadingKey, 'search', searchKey];
+
+    /**
      * Prune searchCached and searchTotals entries that no longer have a
      * corresponding live entry in the TanStack query cache.
      * Keeps at most MAX_SEARCHES entries to bound memory usage.
@@ -597,21 +787,13 @@ export const useStructureRestApi = <
         const activeKeys: string[] = [];
 
         for (const cacheKey of Object.keys(searchCached.value)) {
-            const pageMap = searchCached.value[cacheKey];
-            // true as soon as one page of this cacheKey is still tracked by TanStack
-            let hasActivePage = false;
-            for (const pageString of Object.keys(pageMap ?? {})) {
-                const page = Number(pageString);
+            // Live if ANY page under ANY lastUpdateKey is still cached. Probing a single
+            // hardcoded lastUpdateKey would prune searches that are very much alive.
+            const hasActivePage = _queryClient
+                .getQueryCache()
+                .findAll({ queryKey: searchKeyPrefix(cacheKey) })
+                .some((query) => query.state.dataUpdatedAt);
 
-                if (
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    _queryClient.getQueryState([loadingKey, 'search', '', cacheKey, page] as any)
-                        ?.dataUpdatedAt
-                ) {
-                    hasActivePage = true;
-                    break;
-                }
-            }
             if (hasActivePage) activeKeys.push(cacheKey);
             else {
                 delete searchCached.value[cacheKey];
@@ -634,7 +816,7 @@ export const useStructureRestApi = <
      * The searchCached ref tracks which item ids belong to each page (for searchGet).
      *
      * Cache key structure: searchKey of filters + ":" + pageSize  (e.g. '{"q":"test"}:20')
-     * Query key: [loadingKey, 'search', lastUpdateKey, cacheKey, page]
+     * Query key: [loadingKey, 'search', cacheKey, lastUpdateKey, page] — see searchKeyFor
      *
      * @param apiCall
      * @param filters - search parameters
@@ -667,7 +849,7 @@ export const useStructureRestApi = <
         // cacheKey groups all pages for the same (filters, pageSize) combination
         const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const queryKey: any[] = [loadingKey, 'search', lastUpdateKey, searchKey, page];
+        const queryKey: any[] = searchKeyFor(searchKey, page, lastUpdateKey);
 
         // Prune stale searchCached entries before each search
         searchCleanup();
@@ -697,12 +879,7 @@ export const useStructureRestApi = <
                 saveRecords(items, merge, (item: T) => {
                     searchCached.value[searchKey]![page]!.push(createIdentifier(item));
 
-                    if (!mismatch) {
-                        _queryClient.setQueryData(
-                            [loadingKey, 'target', '', createIdentifier(item)],
-                            item
-                        );
-                    }
+                    if (!mismatch) seedTarget(createIdentifier(item), item);
                 });
 
                 return items;
@@ -747,11 +924,11 @@ export const useStructureRestApi = <
         {
             loading = true,
             lastUpdateKey = '',
-            loadingKey: lk
-        }: Omit<IFetchSettings, 'forced' | 'merge'> = {},
-        fetchLike = true
+            loadingKey: lk,
+            fetchLike = true
+        }: Omit<IFetchSettings, 'forced' | 'merge' | 'fetchAgain'> = {}
     ): Promise<T | undefined> => {
-        const temporaryId = crypto.randomUUID();
+        const temporaryId = generateFallbackValue();
         // Create temporary item with temporary id for instantaneity
         if (dummyData) editRecord(dummyData, temporaryId as K, true);
         if (loading) startLoading(lk);
@@ -767,9 +944,7 @@ export const useStructureRestApi = <
                 addRecord(item);
 
                 // Populate the per-item target cache
-                if (fetchLike) {
-                    _queryClient.setQueryData([loadingKey, 'target', lastUpdateKey, id], item);
-                }
+                if (fetchLike) seedTarget(id, item, lastUpdateKey);
                 return getRecord(id);
             })
             .catch((error: unknown) => {
@@ -803,16 +978,24 @@ export const useStructureRestApi = <
             loading = true,
             merge,
             lastUpdateKey = '',
-            loadingKey: lk
-        }: Omit<IFetchSettings, 'forced'> = {},
-        fetchLike = true,
-        fetchAgain = true
+            loadingKey: lk,
+            fetchLike = true,
+            fetchAgain = true
+        }: Omit<IFetchSettings, 'forced'> = {}
     ): Promise<F | (T | undefined)[]> => {
-        // to be used in case of error and revert is needed
-        const oldItemData = getRecord(id);
+        // Resolve the target id up front: the rollback needs it even when the caller
+        // didn't pass one (editRecord would otherwise infer it internally)
+        const targetId = id ?? createIdentifier(itemData as T);
+
+        // Snapshot to restore in case of error. Deep-cloned and detached from the store:
+        // the optimistic merge below can mutate nested objects the live record shares
+        const previousItemData = getRecord(targetId);
+        const rollbackData = previousItemData
+            ? (structuredClone(toRaw(previousItemData)) as T)
+            : undefined;
 
         // for instantaneity, but can be inconsistent
-        editRecord(itemData, id, true);
+        editRecord(itemData, targetId, true);
 
         if (loading) startLoading(lk);
 
@@ -828,21 +1011,18 @@ export const useStructureRestApi = <
                     // Refresh per-item target cache — fall back to createIdentifier(data)
                     // when id wasn't passed in (e.g. it was inferred from the response)
                     if (fetchLike || fetchAgain)
-                        _queryClient.setQueryData(
-                            [
-                                loadingKey,
-                                'target',
-                                lastUpdateKey,
-                                id ?? createIdentifier(data as T)
-                            ],
-                            data
-                        );
+                        seedTarget(id ?? createIdentifier(data as T), data as T, lastUpdateKey);
 
                     return data;
                 })
                 .catch((error: unknown) => {
-                    // Rollback in case of error
-                    if (oldItemData) editRecord(oldItemData, id);
+                    // Rollback in case of error.
+                    // addRecord (not editRecord) because the rollback must replace the record
+                    // wholesale: editRecord merges, so any field *added* by the optimistic
+                    // update would survive it. If the record didn't exist, the optimistic
+                    // update created it, so undoing means removing it.
+                    if (rollbackData) addRecord(rollbackData);
+                    else deleteRecord(targetId);
                     throw error;
                 })
                 .finally(() => loading && stopLoading(lk))
@@ -865,8 +1045,9 @@ export const useStructureRestApi = <
         // in case revert is needed
         const oldItemData = getRecord(id);
         deleteRecord(id);
-        // Remove from TanStack cache optimistically
-        _queryClient.removeQueries({ queryKey: [loadingKey, 'target', '', id], exact: true });
+        // Remove from TanStack cache optimistically.
+        // Prefix match (not exact): a deleted item must not survive in a lastUpdateKey bucket
+        _queryClient.removeQueries({ queryKey: targetKeyPrefix(id) });
         if (loading) startLoading(lk);
         return apiCall()
             .catch((error: unknown) => {
@@ -874,7 +1055,7 @@ export const useStructureRestApi = <
                 if (oldItemData) {
                     addRecord(oldItemData);
                     // Restore the target cache entry removed optimistically above
-                    _queryClient.setQueryData([loadingKey, 'target', '', id], oldItemData);
+                    seedTarget(id, oldItemData);
                 }
                 throw error;
             })
@@ -889,6 +1070,8 @@ export const useStructureRestApi = <
 
         // TanStack QueryClient — exposed so consumers (and tests) can clear/unmount it
         queryClient: _queryClient,
+        // Manual teardown for standalone usage (auto-called on scope dispose otherwise)
+        destroy,
 
         // core structure
         itemDictionary,
@@ -896,6 +1079,9 @@ export const useStructureRestApi = <
 
         setRecords,
         resetRecords,
+        resetSearches,
+        resetAll,
+        maxRecords,
         getRecord,
         getRecords,
         addRecord,

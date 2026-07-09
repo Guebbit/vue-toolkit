@@ -7,12 +7,12 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export interface ServerOptions {
+export interface IServerOptions {
     /** When > 0, responses resolve after this many ms (needs fake timers to advance). */
     latency?: number;
 }
 
-export interface ServerCalls {
+export interface IServerCalls {
     list: number;
     get: number;
     search: number;
@@ -21,10 +21,14 @@ export interface ServerCalls {
     remove: number;
 }
 
-export function createServer<T extends { id: number }>(seed: T[] = [], options: ServerOptions = {}) {
+export function createServer<T extends { id: number }>(
+    seed: T[] = [],
+    options: IServerOptions = {}
+) {
     const store = new Map<number, T>(seed.map((item) => [item.id, { ...item }]));
-    const calls: ServerCalls = { list: 0, get: 0, search: 0, create: 0, update: 0, remove: 0 };
-    let autoId = seed.reduce((max, item) => Math.max(max, item.id), 0);
+    const calls: IServerCalls = { list: 0, get: 0, search: 0, create: 0, update: 0, remove: 0 };
+    let autoId = 0;
+    for (const item of seed) autoId = Math.max(autoId, item.id);
 
     const settle = <R>(value: R): Promise<R> => {
         if (!options.latency) return Promise.resolve(value);
@@ -32,6 +36,7 @@ export function createServer<T extends { id: number }>(seed: T[] = [], options: 
     };
 
     /** GET /resource — all items. */
+    // eslint-disable-next-line unicorn/consistent-function-scoping -- must stay nested to match the `() => apiCall` factory contract shared with `get`/`many`/`search`
     const list = () => () => {
         calls.list += 1;
         return settle([...store.values()] as (T | undefined)[]);
@@ -58,7 +63,7 @@ export function createServer<T extends { id: number }>(seed: T[] = [], options: 
         (predicate: (item: T) => boolean = () => true, page = 1, pageSize = 10) =>
         () => {
             calls.search += 1;
-            const matched = [...store.values()].filter(predicate);
+            const matched = [...store.values()].filter((item) => predicate(item));
             const start = (page - 1) * pageSize;
             return settle<[(T | undefined)[], number]>([
                 matched.slice(start, start + pageSize),

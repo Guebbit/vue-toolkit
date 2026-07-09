@@ -33,7 +33,9 @@ describe('UNIT · fetchSearch', () => {
     it('records the page→ids mapping for searchGet', async () => {
         const c = make();
         await c.fetchSearch(apiResolve(TECH), { category: 'tech' }, 1);
-        expect(c.searchGet({ category: 'tech' }, 1).map((a) => a.id)).toEqual(TECH.map((a) => a.id));
+        expect(c.searchGet({ category: 'tech' }, 1).map((a) => a.id)).toEqual(
+            TECH.map((a) => a.id)
+        );
     });
 
     it('handles an empty result set', async () => {
@@ -55,9 +57,9 @@ describe('UNIT · fetchSearch', () => {
 
     it('re-throws on error and does not cache the failed page', async () => {
         const c = make();
-        await expect(c.fetchSearch(apiReject('server error'), { category: 'tech' }, 1)).rejects.toThrow(
-            'server error'
-        );
+        await expect(
+            c.fetchSearch(apiReject('server error'), { category: 'tech' }, 1)
+        ).rejects.toThrow('server error');
         expect(c.searchGet({ category: 'tech' }, 1)).toEqual([]);
     });
 });

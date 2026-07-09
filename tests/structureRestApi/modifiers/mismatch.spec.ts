@@ -47,9 +47,15 @@ describe('MODIFIER · mismatch', () => {
 
         it('mismatch: skips seeding → later fetchTarget hits the API', async () => {
             const c = makeComposable<IArticle, number>();
-            await c.fetchSearch(apiResolve(buildArticles(2, 'tech', 1)), { category: 'tech' }, 1, 10, {
-                mismatch: true
-            });
+            await c.fetchSearch(
+                apiResolve(buildArticles(2, 'tech', 1)),
+                { category: 'tech' },
+                1,
+                10,
+                {
+                    mismatch: true
+                }
+            );
             const get = apiResolve(buildArticles(1, 'tech', 1)[0]);
             await c.fetchTarget(get, 1);
             expect(get).toHaveBeenCalledTimes(1);

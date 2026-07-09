@@ -1,9 +1,12 @@
 import { computed, ref } from 'vue';
 
 /**
- * Generates a random fallback value, used to fill in a missing identifier field.
+ * Generates a random unique value, used to fill in a missing identifier field.
+ *
+ * Guarded: `crypto` is not a global in every environment (some SSR/Node/jsdom setups),
+ * and an unguarded `crypto.randomUUID()` throws there rather than degrading.
  */
-const generateFallbackValue = () =>
+export const generateFallbackValue = () =>
     typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -78,6 +81,14 @@ export const useStructureDataManagement = <
 
     /**
      * Dictionary of items (to be filled)
+     *
+     * Items are NEVER evicted by age. Stale data is not garbage data: it is what keeps
+     * the UI rendered while a fresher copy is being downloaded. An item is only garbage
+     * once nothing points at it, which has nothing to do with how old it is.
+     *
+     * So nothing here prunes on a timer or on cache expiry. The dictionary is emptied
+     * only on teardown (resetRecords / resetAll / destroy) or, in useStructureRestApi,
+     * on critical mass — see `maxRecords`.
      */
     const itemDictionary = ref({} as Record<K, T>);
 

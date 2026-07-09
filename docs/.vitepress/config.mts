@@ -2,27 +2,39 @@ import { defineConfig } from 'vitepress'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
-  title: "js-toolkit",
-  description: "javascript tools library free as in freedom",
+  title: '@guebbit/vue-toolkit',
+  description: 'Vue 3 composables and Pinia stores for CRUD screens: caching, optimistic updates, rollback, and form validation.',
+  base: '/vue-toolkit/',
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Examples', link: '/markdown-examples' }
+      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Reference', link: '/composables/structure-rest-api' }
     ],
 
     sidebar: [
       {
-        text: 'Examples',
+        text: 'Guide',
+        items: [{ text: 'Getting Started', link: '/guide/getting-started' }]
+      },
+      {
+        text: 'Composables',
         items: [
-          { text: 'Markdown Examples', link: '/markdown-examples' },
-          { text: 'Runtime API Examples', link: '/api-examples' }
+          { text: 'useStructureRestApi', link: '/composables/structure-rest-api' },
+          { text: 'useStructureDataManagement', link: '/composables/structure-data-management' },
+          { text: 'useStructureFormValidation', link: '/composables/structure-form-validation' }
+        ]
+      },
+      {
+        text: 'Stores',
+        items: [
+          { text: 'useNotificationsStore', link: '/stores/notifications' },
+          { text: 'useCoreStore', link: '/stores/core' }
         ]
       }
     ],
 
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/vuejs/vitepress' }
-    ]
+    socialLinks: [{ icon: 'github', link: 'https://github.com/Guebbit/vue-toolkit' }]
   }
 })

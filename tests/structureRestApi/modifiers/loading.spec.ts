@@ -4,10 +4,11 @@
  *   - per-call loadingKey POSTFIX tracks a separate sub-key (row vs table)
  *   - loading:false opts a call out entirely
  *   - loading resets to false even when the API rejects
+ *   - loading is REF-COUNTED: concurrent fetches don't clear each other's state
  */
 
 import { makeExternalLoading, makeComposable, clearAllInstances } from '../_helpers/harness';
-import { apiResolve, apiReject } from '../_helpers/fakeApi';
+import { apiResolve, apiReject, deferredApi } from '../_helpers/fakeApi';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
@@ -82,5 +83,31 @@ describe('MODIFIER · loading', () => {
             { loading: false }
         );
         expect(during).toBe(false);
+    });
+
+    it('stays true while a concurrent fetch is still pending (ref-counted)', async () => {
+        const c = makeComposable<IUser, number>();
+        const a = deferredApi<IUser[]>();
+        const b = deferredApi<IUser[]>();
+        // two independent fetches (different keys → both actually run)
+        const p1 = c.fetchAll(a.call, { lastUpdateKey: 'A' });
+        const p2 = c.fetchAll(b.call, { lastUpdateKey: 'B' });
+        // Should an assertion below throw, the test aborts with a fetch still in flight;
+        // afterEach's destroy() then clears the client and TanStack rejects it with a
+        // CancelledError. Pre-attach handlers so that rejection is never unhandled — an
+        // unhandled one kills the Jest worker and hides every other result in this file.
+        p1.catch(() => {});
+        p2.catch(() => {});
+        expect(c.loading.value).toBe(true);
+
+        a.control.resolve([...USERS]);
+        await p1;
+        // b is still in flight, so loading MUST still be true: a boolean flag would
+        // have been cleared here by whichever fetch resolved first.
+        expect(c.loading.value).toBe(true);
+
+        b.control.resolve([...USERS]);
+        await p2;
+        expect(c.loading.value).toBe(false);
     });
 });

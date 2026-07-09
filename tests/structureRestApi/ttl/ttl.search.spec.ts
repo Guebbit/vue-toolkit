@@ -11,6 +11,8 @@ import { buildArticles, buildProducts, type IArticle, type IProduct } from '../_
 import { useFakeClock, advance, restoreClock } from '../_helpers/time';
 
 const TTL = 10_000;
+const makeArticles = () => makeComposable<IArticle, number>({ TTL });
+const makeProducts = () => makeComposable<IProduct, number>({ TTL });
 
 beforeEach(() => useFakeClock());
 afterEach(() => {
@@ -19,11 +21,10 @@ afterEach(() => {
 });
 
 describe('TTL · fetchSearch', () => {
-    const make = () => makeComposable<IArticle, number>({ TTL });
     const TECH = buildArticles(5, 'tech', 1);
 
     it('VALID just under TTL → served from cache', async () => {
-        const c = make();
+        const c = makeArticles();
         const first = apiResolve(TECH);
         const second = apiResolve(TECH);
         await c.fetchSearch(first, { category: 'tech' }, 1, 10);
@@ -33,7 +34,7 @@ describe('TTL · fetchSearch', () => {
     });
 
     it('STALE past TTL → API called again', async () => {
-        const c = make();
+        const c = makeArticles();
         const first = apiResolve(TECH);
         const second = apiResolve(TECH);
         await c.fetchSearch(first, { category: 'tech' }, 1, 10);
@@ -44,10 +45,8 @@ describe('TTL · fetchSearch', () => {
 });
 
 describe('TTL · fetchPaginate', () => {
-    const make = () => makeComposable<IProduct, number>({ TTL });
-
     it('VALID just under TTL → served from cache', async () => {
-        const c = make();
+        const c = makeProducts();
         const first = apiResolve(buildProducts(10, 1));
         const second = apiResolve(buildProducts(10, 1));
         await c.fetchPaginate(first, 1, 10);
@@ -57,7 +56,7 @@ describe('TTL · fetchPaginate', () => {
     });
 
     it('STALE past TTL → API called again', async () => {
-        const c = make();
+        const c = makeProducts();
         const first = apiResolve(buildProducts(10, 1));
         const second = apiResolve(buildProducts(10, 1));
         await c.fetchPaginate(first, 1, 10);

@@ -6,9 +6,9 @@
  * for those ids is served without touching the network. This is the payoff of
  * "TanStack Query as the single source of truth".
  *
- * Includes one test that pins a KNOWN BUG: the seeding paths store the raw item
- * while fetchTarget unwraps `{ data }`, so fetchTarget's RETURN VALUE after a
- * seeding fetch is currently undefined. It is expected to FAIL until fixed.
+ * The last test locks the return-value contract: producers seed the item as
+ * `{ data }` via seedTarget and fetchTarget unwraps it, so a warm fetchTarget both
+ * skips the network and resolves the item (this was the `{ data }` wrapping bug).
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -71,14 +71,15 @@ describe('INTENTION · cross-method cache seeding', () => {
     });
 
     // ---------------------------------------------------------------------
-    // KNOWN BUG (expected to FAIL): return-value contract of fetchTarget.
+    // Return-value contract: a warm fetchTarget skips the network AND resolves
+    // the seeded item (producers seed { data } via seedTarget, fetchTarget unwraps).
     // ---------------------------------------------------------------------
-    it('BUG: fetchTarget RETURNS the item seeded by a prior list fetch', async () => {
+    it('fetchTarget RETURNS the item seeded by a prior list fetch (network skipped)', async () => {
         const c = makeComposable<IUser, number>();
         await c.fetchAll(apiResolve([...USERS]));
-        // Network is correctly skipped, but the seeded raw item is not unwrapped
-        // as `{ data }`, so the resolved value is currently `undefined`.
-        const result = await c.fetchTarget(apiResolve(USERS[0]), 1);
+        const get = apiResolve(USERS[0]);
+        const result = await c.fetchTarget(get, 1);
+        expect(get).not.toHaveBeenCalled();
         expect(result).toEqual(USERS[0]);
     });
 });

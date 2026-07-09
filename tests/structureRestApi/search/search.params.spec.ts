@@ -2,11 +2,9 @@
  * SEARCH — filter parameters as the cache dimension.
  *
  * Each distinct set of filters is its own cache bucket; equal filters (regardless
- * of key order) share one. Covers flat string/number/boolean filters and
- * array-of-primitive filters (both serialise stably via searchKeyGen).
- *
- * NOTE: searchKeyGen allow-lists only TOP-LEVEL keys, so nested-object filter
- * *content* is intentionally not used as a distinguishing dimension here.
+ * of key order, at ANY depth) share one. Covers flat string/number/boolean filters,
+ * array-of-primitive filters, and nested-object filters (sort/range/geo shapes) —
+ * all serialise stably via searchKeyGen -> stableNormalize.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -92,6 +90,34 @@ describe('SEARCH · filter parameters', () => {
     it('searchGet returns the stored results for a filtered search', async () => {
         const c = make();
         await c.fetchSearch(apiResolve(TECH), { category: 'tech' }, 1);
-        expect(c.searchGet({ category: 'tech' }, 1).map((a) => a.id)).toEqual(TECH.map((a) => a.id));
+        expect(c.searchGet({ category: 'tech' }, 1).map((a) => a.id)).toEqual(
+            TECH.map((a) => a.id)
+        );
+    });
+
+    it('nested-object filters are distinct cache buckets', async () => {
+        const c = make();
+        const first = apiResolve(buildArticles(2, 'tech', 1)); // ids 1,2
+        const second = apiResolve(buildArticles(2, 'tech', 50)); // ids 50,51
+
+        await c.fetchSearch(first, { sort: { by: 'name' } }, 1);
+        await c.fetchSearch(second, { sort: { by: 'date' } }, 1);
+
+        // differ only BELOW the top level → the second search must actually run ...
+        expect(second).toHaveBeenCalledTimes(1);
+        // ... and return its own results, not the first search's.
+        expect(c.searchGet({ sort: { by: 'date' } }, 1).map((a) => a.id)).toEqual([50, 51]);
+    });
+
+    it('nested-object filters share a bucket regardless of key order at any depth', async () => {
+        const c = make();
+        const first = apiResolve(TECH);
+        const second = apiResolve(TECH);
+
+        await c.fetchSearch(first, { sort: { by: 'name', dir: 'asc' } }, 1);
+        await c.fetchSearch(second, { sort: { dir: 'asc', by: 'name' } }, 1);
+
+        // same filters, different key order → one bucket, no second request
+        expect(second).not.toHaveBeenCalled();
     });
 });

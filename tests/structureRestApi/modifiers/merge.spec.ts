@@ -67,7 +67,11 @@ describe('MODIFIER · merge', () => {
         it('default replaces the record with the server response', async () => {
             const c = make();
             await c.fetchTarget(apiResolve(FULL_USER), 1);
-            await c.updateTarget(apiResolve({ id: 1, name: 'Alice U' } as IUser), { name: 'Alice U' }, 1);
+            await c.updateTarget(
+                apiResolve({ id: 1, name: 'Alice U' } as IUser),
+                { name: 'Alice U' },
+                1
+            );
             expect(c.getRecord(1)).toEqual({ id: 1, name: 'Alice U' });
         });
     });

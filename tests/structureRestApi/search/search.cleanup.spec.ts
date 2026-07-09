@@ -17,7 +17,12 @@ const SPORT = buildArticles(3, 'sport', 100);
 describe('SEARCH · cleanup', () => {
     it('prunes an orphaned entry and its total when its query is evicted', async () => {
         const c = make();
-        await c.fetchSearch(apiResolve([TECH, 42] as [IArticle[], number]), { category: 'tech' }, 1, 10);
+        await c.fetchSearch(
+            apiResolve([TECH, 42] as [IArticle[], number]),
+            { category: 'tech' },
+            1,
+            10
+        );
         expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(42);
 
         c.queryClient.clear(); // evict all TanStack entries → tech is now orphaned
@@ -26,6 +31,24 @@ describe('SEARCH · cleanup', () => {
         expect(c.searchGet({ category: 'tech' }, 1)).toEqual([]);
         expect(c.searchGetTotal({ category: 'tech' }, 10)).toBeUndefined();
         expect(c.searchGet({ category: 'sport' }, 1)).toHaveLength(3);
+    });
+
+    it('does not prune a live search cached under a lastUpdateKey', async () => {
+        const c = make();
+        // this search lives in a namespaced bucket, not the default '' one
+        await c.fetchSearch(
+            apiResolve([TECH, 42] as [IArticle[], number]),
+            { category: 'tech' },
+            1,
+            10,
+            { lastUpdateKey: 'v1' }
+        );
+
+        // a second, unrelated search triggers cleanup — the tech search is still live
+        await c.fetchSearch(apiResolve(SPORT), { category: 'sport' }, 1);
+
+        expect(c.searchGet({ category: 'tech' }, 1, 10)).toHaveLength(3);
+        expect(c.searchGetTotal({ category: 'tech' }, 10)).toBe(42);
     });
 
     it('keeps the number of retained search buckets bounded (MAX_SEARCHES = 50)', async () => {
