@@ -1,1 +1,54 @@
-TODO
+# 2.0
+
+## Added
+- Added a richer public API around `useStructureRestApi`, including:
+  - `fetchPaginate`
+  - pre-flight cache/freshness helpers: `checkTarget`, `checkAll`, `checkByParent`, `checkAny`, `checkSearch`, `checkPaginate`, `checkMultiple`
+  - search total helpers: `searchGetTotal`, `searchSetTotal`
+  - lifecycle helpers: `destroy`, `resetSearches`, `resetAll`
+  - exposed `queryClient`
+  - exposed `maxRecords`
+- Added `generateFallbackValue()` export.
+- Added `lastInsertedIdentifier`, `lastInsertedIdentifiers`, and `lastInsertedRecord` to data-management/rest composables.
+- Added complete documentation site pages for composables and stores.
+- Added CI, docs deployment, commitlint, and husky-based repository automation.
+
+## Changed
+- `useStructureRestApi` was substantially reworked.
+- TanStack Query is now the core cache/freshness engine behind the REST composable, replacing the older internal TTL bookkeeping approach.
+- Caching behavior is now more robust and explicit:
+  - per-query freshness is handled through a query client
+  - search/page caches are better namespaced
+  - per-item cache seeding is shared across list/search/detail/mutation flows
+- `fetchSearch` now supports both:
+  - plain item arrays
+  - tuple responses in the form `[items, total]`
+- `searchGet` now takes `pageSize` into account, making search caches page-size-aware.
+- `fetchPaginate` is now the dedicated pagination-oriented API instead of relying on custom `fetchAll` patterns.
+- Root exports now use `export *`, making more types/helpers part of the public surface.
+- Notifications and identifier generation now use a safer fallback id generator rather than assuming `crypto.randomUUID()` is always available.
+- Loading management is now ref-counted, making concurrent requests safer.
+- Tooling/scripts were modernized:
+  - package version bumped to `2.0`
+  - prettier changed to check mode by default
+  - new `complete:check` script
+  - husky setup moved to `prepare`
+- Documentation and README were rewritten to reflect the actual library direction and usage.
+
+## Improved
+- Optimistic update/delete/create flows are more reliable, including rollback behavior.
+- Cache invalidation and stale handling are more coherent across list/detail/search flows.
+- Search key generation is now stable even for nested objects.
+- Parent/child relation handling and record lifecycle behavior are more explicit.
+- Test coverage was heavily expanded and reorganized around:
+  - unit behavior
+  - TTL/freshness behavior
+  - pagination
+  - search
+  - lifecycle
+  - modifier semantics
+  - end-to-end intent scenarios
+
+## Notes
+- This release is not just an internal refactor: the public API evolved slightly, especially around pagination, search totals, cache inspection, and lifecycle control.
+- The biggest architectural shift is that TanStack became the backbone of fetch freshness, deduplication, and cache coordination, avoiding more custom wheel-reinventing in the data layer.
