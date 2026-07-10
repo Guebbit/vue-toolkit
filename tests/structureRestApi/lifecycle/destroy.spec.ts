@@ -7,7 +7,7 @@
  * is gone, so nothing should still render from it.
  */
 
-import { QueryClient } from '@tanstack/vue-query';
+import { QueryClient } from '@tanstack/query-core';
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
 import { USERS, type IUser } from '../_helpers/fixtures';

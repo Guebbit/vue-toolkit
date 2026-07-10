@@ -1,15 +1,6 @@
 import { computed, getCurrentScope, onScopeDispose, reactive, ref, toRaw } from 'vue';
-import { QueryClient } from '@tanstack/query-core';
-// vue-query's QueryClient subclasses the core one; we instantiate it (Vue-integrated
-// foundation for future reactive layers) but keep the core type for the external param
-// so either a core or a vue-query client can be injected.
-import { QueryClient as VueQueryClient } from '@tanstack/vue-query';
+import { QueryClient, CancelledError } from '@tanstack/query-core';
 import { generateFallbackValue, useStructureDataManagement } from '../index';
-
-/**
- * Ideas:
- *  - Create a "check" method to know in advance if a fetch request will be denied and cache used
- */
 
 /**
  * fetchSearch apiCall can return either a plain array or a tuple [items, total].
@@ -275,7 +266,7 @@ export const useStructureRestApi = <
      */
     const _queryClient: QueryClient =
         queryClientExternal ??
-        new VueQueryClient({
+        new QueryClient({
             defaultOptions: {
                 queries: {
                     retry: false,
@@ -376,6 +367,67 @@ export const useStructureRestApi = <
     }
 
     /**
+     * The fetch protocol every cached fetch* method obeys, written once:
+     *   forced  -> drop the entry so fetchQuery can't treat it as fresh
+     *   loading -> count this request in
+     *   run through the cache (fetchQuery returns the cached value while it is fresh)
+     *   on failure, drop the entry so the call can be retried
+     *   loading -> count this request out, success or not
+     *
+     * The methods differ ONLY in their query key and in what they do with the data,
+     * so those are the only two things they pass in. This helper takes no behavioural
+     * flags: anything that needs to opt out of the protocol (fetchTarget without an id,
+     * fetchMultiple's per-id fan-out) stays outside it, visibly, in its own method.
+     *
+     * @key R - what the cache stores: an item array, a { data } wrapper, an [items, total] tuple
+     * @key X - what the caller gets back, once onData has interpreted R
+     *
+     * @param queryKey
+     * @param queryFunction - produces R (usually the caller's apiCall, sometimes wrapped)
+     * @param settings - the per-call settings the caller already received
+     * @param onData   - interpret + store the result; omitted when the raw R is returned as-is
+     */
+    const runQuery = <R, X = R>(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        queryKey: any[],
+        queryFunction: () => Promise<R>,
+        {
+            forced = false,
+            loading = true,
+            loadingKey: lk,
+            TTL: customTTL
+        }: Pick<IFetchSettings, 'forced' | 'loading' | 'loadingKey' | 'TTL'> = {},
+        onData?: (data: R) => X
+    ): Promise<X> => {
+        if (forced) _queryClient.removeQueries({ queryKey, exact: true });
+
+        if (loading) startLoading(lk);
+
+        return _queryClient
+            .fetchQuery<R>({ queryKey, queryFn: queryFunction, staleTime: customTTL ?? TTL })
+            .then((data: R) => (onData ? onData(data) : (data as unknown as X)))
+            .catch((error: unknown) => {
+                // A cancellation (e.g. a concurrent updateTarget/deleteTarget cancelling this
+                // same in-flight fetch to apply its own, newer value first) is NOT a failure —
+                // it must never surface as a rejection to whoever called this fetch. They just
+                // get back whatever is currently cached (their own optimistic edit already won)
+                // instead of an error. Only a genuine fetch failure clears the entry and rejects.
+                if (error instanceof CancelledError) {
+                    const cached = _queryClient.getQueryData<R>(queryKey);
+                    return cached === undefined
+                        ? (undefined as X)
+                        : onData
+                          ? onData(cached)
+                          : (cached as unknown as X);
+                }
+                // Remove the failed entry so it can be retried
+                _queryClient.removeQueries({ queryKey, exact: true });
+                throw error;
+            })
+            .finally(() => loading && stopLoading(lk));
+    };
+
+    /**
      * Generic fetch for all types of requests.
      * Just for loading management and optional TanStack-backed caching.
      * When no lastUpdateKey is supplied the call is always executed without caching.
@@ -399,32 +451,20 @@ export const useStructureRestApi = <
             TTL: customTTL
         }: Omit<IFetchSettings, 'merge'> = {}
     ): Promise<F | undefined> => {
-        // No cache key provided — always execute without TanStack caching
+        // No cache key provided — always execute, outside the cache and outside runQuery
         if (!lastUpdateKey) {
             if (loading) startLoading(lk);
             return asyncCall().finally(() => loading && stopLoading(lk));
         }
 
         // Namespaced by loadingKey + lastUpdateKey so unrelated fetchAny calls don't share a cache slot
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const queryKey: any[] = [loadingKey, 'any', lastUpdateKey];
-
-        // forced: drop the existing entry first so fetchQuery can't treat it as still fresh
-        if (forced) _queryClient.removeQueries({ queryKey, exact: true });
-
-        if (loading) startLoading(lk);
-
-        return (
-            _queryClient
-                // fetchQuery returns the cached value if it's within staleTime, otherwise
-                // it awaits asyncCall(), caches the resolved value under queryKey and returns it
-                .fetchQuery({ queryKey, queryFn: asyncCall, staleTime: customTTL ?? TTL })
-                .catch((error: unknown) => {
-                    _queryClient.removeQueries({ queryKey, exact: true });
-                    throw error;
-                })
-                .finally(() => loading && stopLoading(lk))
-        );
+        // No onData: the raw response is cached and returned untouched, never stored as records
+        return runQuery([loadingKey, 'any', lastUpdateKey], asyncCall, {
+            forced,
+            loading,
+            loadingKey: lk,
+            TTL: customTTL
+        });
     };
 
     /**
@@ -454,32 +494,22 @@ export const useStructureRestApi = <
         }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
         // One cache slot per (loadingKey, lastUpdateKey) — every "all" fetch with the same pair shares it
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const queryKey: any[] = [loadingKey, 'all', lastUpdateKey];
+        const queryKey = [loadingKey, 'all', lastUpdateKey];
 
-        // forced: remove cache entry so fetchQuery always re-fetches
-        if (forced) _queryClient.removeQueries({ queryKey, exact: true });
-
-        if (loading) startLoading(lk);
-
-        // Skips apiCall entirely if queryKey is still within staleTime, returning the cached list instead
-        return _queryClient
-            .fetchQuery({ queryKey, queryFn: apiCall, staleTime: customTTL ?? TTL })
-            .then((items: (T | undefined)[] = []) =>
-                // Store each fetched item locally; also seed its own "target" query
-                // cache entry so a later fetchTarget(id) call sees it as fresh —
-                // unless mismatch, since these items may carry only partial fields
+        return runQuery(
+            queryKey,
+            apiCall,
+            { forced, loading, loadingKey: lk, TTL: customTTL },
+            // Store each fetched item locally; also seed its own "target" query
+            // cache entry so a later fetchTarget(id) call sees it as fresh —
+            // unless mismatch, since these items may carry only partial fields
+            (items: (T | undefined)[] = []) =>
                 saveRecords(
                     items,
                     merge,
                     mismatch ? undefined : (item: T) => seedTarget(createIdentifier(item), item)
                 )
-            )
-            .catch((error: unknown) => {
-                _queryClient.removeQueries({ queryKey, exact: true });
-                throw error;
-            })
-            .finally(() => loading && stopLoading(lk));
+        );
     };
 
     /**
@@ -510,18 +540,13 @@ export const useStructureRestApi = <
         }: IFetchSettings = {}
     ): Promise<(T | undefined)[]> => {
         // parentId is folded into the key so each parent gets its own cache slot
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const queryKey: any[] = [loadingKey, 'parent', lastUpdateKey + String(parentId)];
+        const queryKey = [loadingKey, 'parent', lastUpdateKey + String(parentId)];
 
-        // forced: drop the entry so fetchQuery below can't reuse it
-        if (forced) _queryClient.removeQueries({ queryKey, exact: true });
-
-        if (loading) startLoading(lk);
-
-        // Returns the cached array as-is when fresh, otherwise awaits apiCall() and caches the result
-        return _queryClient
-            .fetchQuery({ queryKey, queryFn: apiCall, staleTime: customTTL ?? TTL })
-            .then((items: (T | undefined)[] = []) => {
+        return runQuery(
+            queryKey,
+            apiCall,
+            { forced, loading, loadingKey: lk, TTL: customTTL },
+            (items: (T | undefined)[] = []) => {
                 for (let i = 0, len = items.length; i < len; i++) {
                     if (!items[i]) continue;
                     addToParent(parentId, createIdentifier(items[i]!) as string);
@@ -535,12 +560,8 @@ export const useStructureRestApi = <
                 }
                 removeDuplicateChildren(parentId);
                 return items;
-            })
-            .catch((error: unknown) => {
-                _queryClient.removeQueries({ queryKey, exact: true });
-                throw error;
-            })
-            .finally(() => loading && stopLoading(lk));
+            }
+        );
     };
 
     /**
@@ -580,32 +601,47 @@ export const useStructureRestApi = <
                 .finally(() => loading && stopLoading(lk));
         }
 
-        // One cache slot per item id, so each target is freshness-tracked independently
-        const queryKey = targetKey(id, lastUpdateKey);
-
-        // forced: drop the entry so fetchQuery below can't reuse it
-        if (forced) _queryClient.removeQueries({ queryKey, exact: true });
-
-        if (loading) startLoading(lk);
-
+        // One cache slot per item id, so each target is freshness-tracked independently.
         // The target cache always holds { data } (see seedTarget), so a legitimate
         // `undefined` item is never mistaken for a missing entry, and fetchTarget can
         // unwrap whatever a producer seeded — list, search, parent, create or update.
-        return _queryClient
-            .fetchQuery<TargetEntry>({
-                queryKey,
-                queryFn: () => apiCall().then((item) => ({ data: item })),
-                staleTime: customTTL ?? TTL
-            })
-            .then(({ data: item }: TargetEntry) => {
+        return runQuery<TargetEntry, T | undefined>(
+            targetKey(id, lastUpdateKey),
+            () => apiCall().then((item) => ({ data: item })),
+            { forced, loading, loadingKey: lk, TTL: customTTL },
+            ({ data: item }: TargetEntry) => {
                 if (!item) return;
                 return saveRecords([item], merge)[0];
-            })
-            .catch((error: unknown) => {
-                _queryClient.removeQueries({ queryKey, exact: true });
-                throw error;
-            })
-            .finally(() => loading && stopLoading(lk));
+            }
+        );
+    };
+
+    /**
+     * Split ids into ones whose target cache entry is still fresh (cachedIds, served
+     * without a network call) vs missing/stale (expiredIds, must be re-fetched).
+     * Shared by fetchMultiple (which then fetches expiredIds) and checkMultiple
+     * (which only reports the split, see the pre-flight checks section below) —
+     * written once so the two can never disagree about what counts as fresh.
+     *
+     * @param ids
+     * @param lastUpdateKey
+     * @param forced - true: skip the freshness check entirely, everything is "expired"
+     * @param staleTime
+     */
+    const classifyMultiple = (
+        ids: K[],
+        lastUpdateKey = '',
+        forced = false,
+        staleTime = TTL
+    ): { cachedIds: K[]; expiredIds: K[] } => {
+        const expiredIds: K[] = [];
+        const cachedIds: K[] = [];
+        for (const id of ids) {
+            if (!forced && isQueryFresh(targetKey(id, lastUpdateKey), staleTime))
+                cachedIds.push(id);
+            else expiredIds.push(id);
+        }
+        return { cachedIds, expiredIds };
     };
 
     /**
@@ -638,17 +674,12 @@ export const useStructureRestApi = <
         // nothing to search
         if (!ids || ids.length === 0) return Promise.resolve([]);
 
-        // ids whose target cache entry is missing/stale and must be re-fetched
-        const expiredIds: K[] = [];
-        // ids whose target cache entry is still fresh — served without a network call
-        const cachedIds: K[] = [];
-
-        // Check which ids are stale and need a network fetch
-        for (const id of ids) {
-            if (!forced && isQueryFresh(targetKey(id, lastUpdateKey), customTTL ?? TTL))
-                cachedIds.push(id);
-            else expiredIds.push(id);
-        }
+        const { cachedIds, expiredIds } = classifyMultiple(
+            ids,
+            lastUpdateKey,
+            forced,
+            customTTL ?? TTL
+        );
 
         // items that I already have
         const cachedItems = cachedIds.map((id) => getRecord(id));
@@ -848,20 +879,15 @@ export const useStructureRestApi = <
     ): Promise<(T | undefined)[]> => {
         // cacheKey groups all pages for the same (filters, pageSize) combination
         const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const queryKey: any[] = searchKeyFor(searchKey, page, lastUpdateKey);
 
         // Prune stale searchCached entries before each search
         searchCleanup();
 
-        // forced: drop the entry so fetchQuery below can't reuse it
-        if (forced) _queryClient.removeQueries({ queryKey, exact: true });
-
-        if (loading) startLoading(lk);
-
-        return _queryClient
-            .fetchQuery({ queryKey, queryFn: apiCall, staleTime: customTTL ?? TTL })
-            .then((result: SearchApiResult<T>) => {
+        return runQuery<SearchApiResult<T>, (T | undefined)[]>(
+            searchKeyFor(searchKey, page, lastUpdateKey),
+            apiCall,
+            { forced, loading, loadingKey: lk, TTL: customTTL },
+            (result: SearchApiResult<T>) => {
                 // Support both plain T[] and [T[], total] tuple shapes
                 const isTuple = Array.isArray(result[0]);
                 const items = (isTuple ? result[0] : result) as (T | undefined)[];
@@ -883,12 +909,8 @@ export const useStructureRestApi = <
                 });
 
                 return items;
-            })
-            .catch((error: unknown) => {
-                _queryClient.removeQueries({ queryKey, exact: true });
-                throw error;
-            })
-            .finally(() => loading && stopLoading(lk));
+            }
+        );
     };
 
     /**
@@ -906,6 +928,118 @@ export const useStructureRestApi = <
         pageSize = 10,
         settings: IFetchSettings = {}
     ) => fetchSearch(apiCall, {}, page, pageSize, settings);
+
+    /**
+     * ---------------------------- PRE-FLIGHT FRESHNESS CHECKS -----------------------------
+     *
+     * "Would this call be served from cache, or would it hit the network?" — answered
+     * synchronously, without calling apiCall or touching loading state. Each check builds
+     * the exact query key its fetch* counterpart uses, so an entry reported fresh here is
+     * the same entry that fetch* would reuse instead of refetching.
+     *
+     * There is no `forced` parameter: a forced call always fetches, so there is nothing
+     * to check. Being synchronous, a check's result only holds until the next microtask
+     * that might mutate the cache (e.g. an awaited fetch elsewhere) — treat it as advisory
+     * for the immediate next call, not as a durable state to hold onto.
+     */
+
+    /**
+     * Would fetchTarget(apiCall, id, settings) be served from cache?
+     * @param id
+     * @param lastUpdateKey
+     * @param TTL - mirrors the per-call staleTime override you'd pass to fetchTarget
+     */
+    const checkTarget = (
+        id: K,
+        { lastUpdateKey = '', TTL: customTTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
+    ): boolean => isQueryFresh(targetKey(id, lastUpdateKey), customTTL ?? TTL);
+
+    /**
+     * Would fetchAll(apiCall, settings) be served from cache?
+     */
+    const checkAll = ({
+        lastUpdateKey = '',
+        TTL: customTTL
+    }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}): boolean =>
+        isQueryFresh([loadingKey, 'all', lastUpdateKey], customTTL ?? TTL);
+
+    /**
+     * Would fetchByParent(apiCall, parentId, settings) be served from cache?
+     */
+    const checkByParent = (
+        parentId: P,
+        { lastUpdateKey = '', TTL: customTTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
+    ): boolean =>
+        isQueryFresh([loadingKey, 'parent', lastUpdateKey + String(parentId)], customTTL ?? TTL);
+
+    /**
+     * Would fetchAny(asyncCall, settings) be served from cache? Without a lastUpdateKey,
+     * fetchAny never caches at all — always false, matching fetchAny's own rule.
+     */
+    const checkAny = (
+        lastUpdateKey = '',
+        { TTL: customTTL }: Pick<IFetchSettings, 'TTL'> = {}
+    ): boolean =>
+        lastUpdateKey ? isQueryFresh([loadingKey, 'any', lastUpdateKey], customTTL ?? TTL) : false;
+
+    /**
+     * Would fetchSearch(apiCall, filters, page, pageSize, settings) be served from cache?
+     */
+    const checkSearch = <F = object>(
+        filters: F = {} as F,
+        page = 1,
+        pageSize = 10,
+        { lastUpdateKey = '', TTL: customTTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
+    ): boolean => {
+        const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
+        return isQueryFresh(searchKeyFor(searchKey, page, lastUpdateKey), customTTL ?? TTL);
+    };
+
+    /**
+     * Would fetchPaginate(apiCall, page, pageSize, settings) be served from cache?
+     * Same relationship as fetchPaginate has to fetchSearch: no filters.
+     */
+    const checkPaginate = (
+        page = 1,
+        pageSize = 10,
+        settings: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
+    ): boolean => checkSearch({}, page, pageSize, settings);
+
+    /**
+     * Would fetchMultiple(apiCall, ids, settings) skip the network for some, all, or
+     * none of the given ids? Mirrors fetchMultiple's own per-id split (classifyMultiple):
+     * cachedIds would be served without a request, expiredIds would trigger the one
+     * batched apiCall fetchMultiple makes to cover all of them.
+     */
+    const checkMultiple = (
+        ids: K[] = [],
+        { lastUpdateKey = '', TTL: customTTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
+    ): { cachedIds: K[]; expiredIds: K[] } =>
+        classifyMultiple(ids, lastUpdateKey, false, customTTL ?? TTL);
+
+    /**
+     * Mark every 'all' / 'search' / 'parent' query of this composable as stale.
+     *
+     * There are no live query observers in this file (nothing calls useQuery), so
+     * invalidateQueries only flips each entry's isInvalidated flag — it does NOT
+     * trigger a network request by itself. The next explicit fetchAll/fetchSearch/
+     * fetchByParent call is what actually refetches, via runQuery's normal
+     * fetchQuery -> isStaleByTime check picking up the invalidated flag.
+     *
+     * Called after createTarget/deleteTarget succeed: a created or deleted record
+     * changes what a list-shaped fetch should return, even though the record's own
+     * data is already correct in itemDictionary/target cache regardless.
+     */
+    const invalidateListQueries = (): void => {
+        _queryClient.invalidateQueries({
+            predicate: (query) => {
+                const [lk, kind] = query.queryKey as [string, string];
+                return (
+                    lk === loadingKey && (kind === 'all' || kind === 'search' || kind === 'parent')
+                );
+            }
+        });
+    };
 
     /**
      * dummyData: Create data immediately and then update it later
@@ -945,6 +1079,8 @@ export const useStructureRestApi = <
 
                 // Populate the per-item target cache
                 if (fetchLike) seedTarget(id, item, lastUpdateKey);
+                // A new record can belong in cached lists that don't know about it yet
+                invalidateListQueries();
                 return getRecord(id);
             })
             .catch((error: unknown) => {
@@ -994,15 +1130,19 @@ export const useStructureRestApi = <
             ? (structuredClone(toRaw(previousItemData)) as T)
             : undefined;
 
-        // for instantaneity, but can be inconsistent
-        editRecord(itemData, targetId, true);
+        // Cancel any in-flight fetchTarget for this id (any lastUpdateKey bucket) first:
+        // otherwise an older response can resolve after the optimistic edit below and
+        // clobber it with pre-update data. Mirrors TanStack's documented optimistic-update
+        // recipe (cancelQueries before the optimistic write).
+        return _queryClient.cancelQueries({ queryKey: targetKeyPrefix(targetId) }).then(() => {
+            // for instantaneity, but can be inconsistent
+            editRecord(itemData, targetId, true);
 
-        if (loading) startLoading(lk);
+            if (loading) startLoading(lk);
 
-        return (
-            apiCall()
-                // If the apiCall returns the updated item, editRecord will be called again to ensure data consistency
+            return apiCall()
                 .then((data) => {
+                    // If the apiCall returns the updated item, editRecord will be called again to ensure data consistency
                     if (fetchAgain) {
                         if (merge) editRecord(data as T, id);
                         else addRecord(data as T);
@@ -1025,8 +1165,8 @@ export const useStructureRestApi = <
                     else deleteRecord(targetId);
                     throw error;
                 })
-                .finally(() => loading && stopLoading(lk))
-        );
+                .finally(() => loading && stopLoading(lk));
+        });
     };
 
     /**
@@ -1044,22 +1184,32 @@ export const useStructureRestApi = <
     ): Promise<F> => {
         // in case revert is needed
         const oldItemData = getRecord(id);
-        deleteRecord(id);
-        // Remove from TanStack cache optimistically.
-        // Prefix match (not exact): a deleted item must not survive in a lastUpdateKey bucket
-        _queryClient.removeQueries({ queryKey: targetKeyPrefix(id) });
-        if (loading) startLoading(lk);
-        return apiCall()
-            .catch((error: unknown) => {
-                // Rollback in case of error
-                if (oldItemData) {
-                    addRecord(oldItemData);
-                    // Restore the target cache entry removed optimistically above
-                    seedTarget(id, oldItemData);
-                }
-                throw error;
-            })
-            .finally(() => loading && stopLoading(lk));
+
+        // Cancel any in-flight fetchTarget for this id first, same reasoning as updateTarget:
+        // an older response resolving after the delete below would re-add stale data.
+        return _queryClient.cancelQueries({ queryKey: targetKeyPrefix(id) }).then(() => {
+            deleteRecord(id);
+            // Remove from TanStack cache optimistically.
+            // Prefix match (not exact): a deleted item must not survive in a lastUpdateKey bucket
+            _queryClient.removeQueries({ queryKey: targetKeyPrefix(id) });
+            if (loading) startLoading(lk);
+            return apiCall()
+                .then((result) => {
+                    // Cached lists may still list this id; make them refetch next time
+                    invalidateListQueries();
+                    return result;
+                })
+                .catch((error: unknown) => {
+                    // Rollback in case of error
+                    if (oldItemData) {
+                        addRecord(oldItemData);
+                        // Restore the target cache entry removed optimistically above
+                        seedTarget(id, oldItemData);
+                    }
+                    throw error;
+                })
+                .finally(() => loading && stopLoading(lk));
+        });
     };
 
     return {
@@ -1130,6 +1280,15 @@ export const useStructureRestApi = <
         fetchPaginate,
         createTarget,
         updateTarget,
-        deleteTarget
+        deleteTarget,
+
+        // pre-flight freshness checks
+        checkTarget,
+        checkAll,
+        checkByParent,
+        checkAny,
+        checkSearch,
+        checkPaginate,
+        checkMultiple
     };
 };
