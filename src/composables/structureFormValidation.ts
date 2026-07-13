@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch, type WatchSource } from 'vue';
 import { type ZodType } from 'zod';
 
 /**
@@ -16,15 +16,28 @@ export const useStructureFormValidation = <
     schema?: ZodType<T>
 ) => {
     /**
+     * Baseline values resetForm() restores and isDirty compares against.
+     * Starts as a copy of initialData, but is mutable via setInitialData so a
+     * record fetched after this composable was created can become the new
+     * baseline (see setInitialData / activateAutoHydrate).
+     */
+    const initialFormData = ref<T>({ ...initialData } as T);
+
+    /**
      * Reactive form data
      */
-    const form = ref<T>({ ...initialData } as T);
+    const form = ref<T>({ ...initialFormData.value } as T);
 
     /**
      * Per-field validation errors.
      * Each key maps to a list of error messages for that field.
      */
     const formErrors = ref<Partial<Record<keyof T, string[]>>>({});
+
+    /**
+     *
+     */
+    const showFormErrors = ref(false);
 
     /**
      * Whether a submission is currently in progress
@@ -39,7 +52,9 @@ export const useStructureFormValidation = <
     /**
      * True when the form data differs from the initial values
      */
-    const isDirty = computed(() => JSON.stringify(form.value) !== JSON.stringify(initialData));
+    const isDirty = computed(
+        () => JSON.stringify(form.value) !== JSON.stringify(initialFormData.value)
+    );
 
     /**
      * Merge partial data into the form
@@ -54,8 +69,19 @@ export const useStructureFormValidation = <
      * Reset form to initial values and clear all errors
      */
     const resetForm = () => {
-        form.value = { ...initialData } as T;
+        form.value = { ...initialFormData.value } as T;
         formErrors.value = {};
+    };
+
+    /**
+     * Replace the baseline values that resetForm() restores and isDirty compares
+     * against. Does not touch the live form or its errors by itself — call
+     * resetForm() afterwards (or see activateAutoHydrate) to apply it to `form`.
+     *
+     * @param data
+     */
+    const setInitialData = (data: T) => {
+        initialFormData.value = { ...data } as T;
     };
 
     /**
@@ -142,14 +168,38 @@ export const useStructureFormValidation = <
         }
     };
 
+    /**
+     * Watches a source (e.g. a fetched record) and, whenever it resolves to a
+     * defined value, adopts it as the new reset baseline (setInitialData) and
+     * applies it to the form (resetForm) — so the form auto-hydrates once the
+     * record arrives instead of staying on the original initialData passed to
+     * this composable.
+     *
+     * @param currentItem - reactive source to watch, e.g. selectedRecord from useStructureRestApi
+     * @returns the underlying watch handle (call it to stop watching)
+     */
+    const activateAutoHydrate = (currentItem: WatchSource<T | undefined | null>) =>
+        watch(
+            currentItem,
+            (item) => {
+                if (!item) return;
+                setInitialData(item);
+                resetForm();
+            },
+            { immediate: true }
+        );
+
     return {
         form,
         formErrors,
+        showFormErrors,
         isSubmitting,
         isValid,
         isDirty,
         setForm,
         resetForm,
+        setInitialData,
+        activateAutoHydrate,
         clearErrors,
         setFieldError,
         clearFieldError,

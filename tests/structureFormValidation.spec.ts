@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nextTick, ref } from 'vue';
 import { useStructureFormValidation } from '../src/composables/structureFormValidation';
 
 interface ILoginForm {
@@ -62,6 +63,75 @@ describe('useStructureFormValidation', () => {
             composable.setFieldError('email', 'bad email');
             composable.resetForm();
             expect(composable.formErrors.value).toEqual({});
+        });
+    });
+
+    // ─── setInitialData ──────────────────────────────────────────────────────
+
+    describe('setInitialData', () => {
+        it('changes the baseline resetForm() restores to', () => {
+            composable.setInitialData({ email: 'fetched@test.com', password: 'fetchedPass' });
+            composable.setForm({ email: 'edited@test.com' });
+            composable.resetForm();
+            expect(composable.form.value).toEqual({
+                email: 'fetched@test.com',
+                password: 'fetchedPass'
+            });
+        });
+
+        it('does not itself touch the live form value', () => {
+            composable.setInitialData({ email: 'fetched@test.com', password: 'fetchedPass' });
+            expect(composable.form.value).toEqual(INITIAL_LOGIN);
+        });
+
+        it('shifts isDirty’s comparison baseline', () => {
+            composable.setForm({ email: 'same@test.com', password: 'samePass' });
+            composable.setInitialData({ email: 'same@test.com', password: 'samePass' });
+            expect(composable.isDirty.value).toBe(false);
+        });
+    });
+
+    // ─── activateAutoHydrate ─────────────────────────────────────────────────
+
+    describe('activateAutoHydrate', () => {
+        it('does nothing while the source is undefined', () => {
+            const source = ref<ILoginForm | undefined>(undefined);
+            composable.activateAutoHydrate(source);
+            expect(composable.form.value).toEqual(INITIAL_LOGIN);
+            expect(composable.isDirty.value).toBe(false);
+        });
+
+        it('adopts the source as the new baseline as soon as it resolves', async () => {
+            const source = ref<ILoginForm | undefined>(undefined);
+            composable.activateAutoHydrate(source);
+
+            source.value = { email: 'hydrated@test.com', password: 'hydratedPass' };
+            await nextTick();
+
+            expect(composable.form.value).toEqual({
+                email: 'hydrated@test.com',
+                password: 'hydratedPass'
+            });
+            expect(composable.isDirty.value).toBe(false);
+        });
+
+        it('keeps hydrating the form on later source changes, discarding local edits', async () => {
+            const source = ref<ILoginForm | undefined>({
+                email: 'first@test.com',
+                password: 'firstPass'
+            });
+            composable.activateAutoHydrate(source);
+            await nextTick();
+
+            composable.setForm({ email: 'locallyEdited@test.com' });
+
+            source.value = { email: 'second@test.com', password: 'secondPass' };
+            await nextTick();
+
+            expect(composable.form.value).toEqual({
+                email: 'second@test.com',
+                password: 'secondPass'
+            });
         });
     });
 
