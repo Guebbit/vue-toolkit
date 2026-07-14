@@ -1,6 +1,6 @@
 {
     "name": "@guebbit/vue-toolkit",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "license": "AGPLv3.0",
     "type": "module",
     "main": "dist/index.js",
@@ -36,10 +36,6 @@
         "publish:public": "npm run complete && npm publish --access public",
         "prepare": "husky"
     },
-    "peerDependencies": {
-        "pinia": ">=2.0.0",
-        "vue": ">=3.0.0"
-    },
     "devDependencies": {
         "@commitlint/cli": "^20.5.0",
         "@commitlint/config-conventional": "^20.5.0",
@@ -67,8 +63,15 @@
         "vitepress": "^1.6.4",
         "vue": "^3.5.31"
     },
-    "dependencies": {
-        "@tanstack/query-core": "^5.100.6",
-        "zod": "^4.3.6"
+    "peerDependencies": {
+        "pinia": ">=2.0.0",
+        "vue": ">=3.0.0",
+        "@tanstack/query-core": ">=5.100.6",
+        "zod": ">=4.4.3"
+    },
+    "peerDependenciesMeta": {
+        "zod": {
+            "optional": true
+        }
     }
 }

@@ -6,7 +6,7 @@
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
-import { USERS, buildUsers, buildArticles, type IUser, type IArticle } from '../_helpers/fixtures';
+import { USERS, buildUsers, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
 
@@ -25,15 +25,6 @@ describe('MODIFIER · forced', () => {
         await c.fetchTarget(apiResolve(USERS[0]), 1);
         await c.fetchTarget(apiResolve({ ...USERS[0], name: 'Alice V2' }), 1, { forced: true });
         expect(c.getRecord(1)?.name).toBe('Alice V2');
-    });
-
-    it('fetchSearch: forced re-hits the API', async () => {
-        const c = makeComposable<IArticle, number>();
-        const first = apiResolve(buildArticles(5, 'tech', 1));
-        const second = apiResolve(buildArticles(5, 'tech', 1));
-        await c.fetchSearch(first, { category: 'tech' }, 1);
-        await c.fetchSearch(second, { category: 'tech' }, 1, 10, { forced: true });
-        expect(second).toHaveBeenCalledTimes(1);
     });
 
     it('fetchByParent: forced re-hits the API', async () => {

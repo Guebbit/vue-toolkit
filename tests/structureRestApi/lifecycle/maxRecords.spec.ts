@@ -3,8 +3,13 @@
  *
  * A backstop against unbounded growth, not a cache policy. When an incoming batch
  * would push the dictionary past the cap, the whole client store is wiped BEFORE the
- * batch is stored — so the freshest items always survive, and no structure is left
- * holding ids that no longer resolve.
+ * batch is stored — so the freshest items always survive, and no structure this
+ * composable owns (e.g. parentHasMany) is left holding ids that no longer resolve.
+ *
+ * useStructureSearchApi owns a further id-holding structure (searchCached) on
+ * top of this composable, and that one is NOT wiped by this internal cap
+ * enforcement (only its own explicit resetSearches()/resetAll()/destroy() clear
+ * it) — see tests/structureSearchApi/lifecycle/maxRecords.spec.ts.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -27,19 +32,6 @@ describe('LIFECYCLE · maxRecords', () => {
         expect(c.itemList.value).toHaveLength(5);
         // the freshest batch is the one that survived
         expect(c.itemList.value.map((a) => a.id)).toEqual([100, 101, 102, 103, 104]);
-    });
-
-    it('leaves no dangling ids behind: searches are reset with the records', async () => {
-        const c = make(10);
-        await c.fetchSearch(apiResolve([buildArticles(8, 'tech', 1), 8]), { category: 'tech' }, 1);
-        expect(c.searchGet({ category: 'tech' }, 1)).toHaveLength(8);
-
-        // trip the cap via an unrelated fetch
-        await c.fetchAll(apiResolve(buildArticles(5, 'sport', 100)));
-
-        // searchCached must be gone too — NOT a short array of survivors
-        expect(c.searchGet({ category: 'tech' }, 1)).toEqual([]);
-        expect(c.searchGetTotal({ category: 'tech' }, 10)).toBeUndefined();
     });
 
     it('never wipes when disabled (maxRecords = 0)', async () => {

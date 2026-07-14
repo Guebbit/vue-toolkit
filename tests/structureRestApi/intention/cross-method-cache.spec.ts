@@ -13,7 +13,7 @@
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
-import { USERS, buildArticles, type IUser, type IArticle } from '../_helpers/fixtures';
+import { USERS, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
 
@@ -34,14 +34,6 @@ describe('INTENTION · cross-method cache seeding', () => {
         const result = await c.fetchMultiple(batch, [1, 2, 3]);
         expect(batch).not.toHaveBeenCalled();
         expect(result).toHaveLength(3);
-    });
-
-    it('fetchSearch → fetchTarget(id) is served from cache', async () => {
-        const c = makeComposable<IArticle, number>();
-        await c.fetchSearch(apiResolve(buildArticles(3, 'tech', 1)), { category: 'tech' }, 1);
-        const get = apiResolve(buildArticles(1, 'tech', 1)[0]);
-        await c.fetchTarget(get, 1);
-        expect(get).not.toHaveBeenCalled();
     });
 
     it('fetchByParent → fetchTarget(id) is served from cache', async () => {

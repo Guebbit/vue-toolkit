@@ -1,9 +1,11 @@
 /**
- * TTL — the pre-flight checks (checkTarget/checkAll/checkByParent/checkSearch/
- * checkMultiple) must agree with their fetch* counterpart about the stale boundary:
+ * TTL — the pre-flight checks (checkTarget/checkAll/checkByParent/checkMultiple)
+ * must agree with their fetch* counterpart about the stale boundary:
  *   - VALID: just UNDER the TTL → check reports true (fetch* would reuse the cache)
  *   - STALE: just PAST the TTL → check reports false (fetch* would hit the network)
  * Plus the per-call TTL override, same as ttl/ttl.get.spec.ts.
+ *
+ * (checkSearch's TTL behaviour lives in tests/structureSearchApi/ttl/ttl.check.spec.ts)
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -65,22 +67,6 @@ describe('TTL · checkByParent', () => {
         await c.fetchByParent(apiResolve(buildUsers(3, 1)), 'team-1');
         await advance(TTL + 1);
         expect(c.checkByParent('team-1')).toBe(false);
-    });
-});
-
-describe('TTL · checkSearch', () => {
-    it('VALID just under TTL → true', async () => {
-        const c = make();
-        await c.fetchSearch(apiResolve([USERS[0]]), { role: 'admin' }, 1, 10);
-        await advance(TTL - 1);
-        expect(c.checkSearch({ role: 'admin' }, 1, 10)).toBe(true);
-    });
-
-    it('STALE past TTL → false', async () => {
-        const c = make();
-        await c.fetchSearch(apiResolve([USERS[0]]), { role: 'admin' }, 1, 10);
-        await advance(TTL + 1);
-        expect(c.checkSearch({ role: 'admin' }, 1, 10)).toBe(false);
     });
 });
 

@@ -65,7 +65,7 @@ Passed to `useStructureRestApi<T, K, P>(options)`:
 
 | Method                                                    | Purpose                                                                                     |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `fetchAny(asyncCall, settings?)`                          | Generic fetch — loading + optional caching, for calls that don't fit the other shapes.      |
+| `fetchAny(apiCall, settings?)`                          | Generic fetch — loading + optional caching, for calls that don't fit the other shapes.      |
 | `fetchAll(apiCall, settings?)`                             | Fetch and cache a full list.                                                                 |
 | `fetchByParent(apiCall, parentId, settings?)`              | Like `fetchAll`, scoped to a `belongsTo` parent; updates `parentHasMany`.                     |
 | `fetchTarget(apiCall, id?, settings?)`                     | Fetch a single item; per-item freshness tracking.                                            |

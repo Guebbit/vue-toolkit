@@ -2,9 +2,9 @@
  * LIFECYCLE — teardown contract for `destroy()`.
  *
  * `destroy()` clears the query cache only when this composable created it; an
- * injected client is left alone unless `destroy(true)` forces it. It always resets
- * the client store (itemDictionary + search indexes): destroy means the owning scope
- * is gone, so nothing should still render from it.
+ * injected client is left alone unless `destroy(true)` forces it. It always
+ * resets the client store (itemDictionary): destroy means the owning scope is
+ * gone, so nothing should still render from it.
  */
 
 import { QueryClient } from '@tanstack/query-core';
@@ -51,16 +51,13 @@ describe('LIFECYCLE · destroy() teardown', () => {
         client.clear();
     });
 
-    it('destroy() resets the client store — records and search indexes both go', async () => {
+    it('destroy() resets the client store — records go', async () => {
         const c = makeComposable<IUser, number>();
         await c.fetchAll(apiResolve([...USERS]));
-        await c.fetchSearch(apiResolve([...USERS]), { role: 'admin' }, 1);
         expect(c.itemList.value.length).toBeGreaterThan(0);
 
         c.destroy();
 
         expect(c.itemList.value).toHaveLength(0);
-        expect(c.searchCached.value).toEqual({});
-        expect(c.searchGet({ role: 'admin' }, 1)).toEqual([]);
     });
 });

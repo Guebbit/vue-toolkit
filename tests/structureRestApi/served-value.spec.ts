@@ -60,12 +60,6 @@ describe('VALUE · served on a cache hit', () => {
         expect(result).toEqual(expect.arrayContaining([USERS[0], USERS[1]]));
     });
 
-    it('searchGet: returns items in order with full fields', async () => {
-        const c = make();
-        await c.fetchSearch(apiResolve([USERS[0], USERS[1], USERS[2]]), { q: 'a' }, 1);
-        expect(c.searchGet({ q: 'a' }, 1)).toEqual([USERS[0], USERS[1], USERS[2]]);
-    });
-
     it('fetchTarget (warm from a list fetch) resolves the seeded item', async () => {
         const c = make();
         await c.fetchAll(apiResolve([...USERS]));

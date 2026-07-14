@@ -1,7 +1,8 @@
 /**
- * PAGINATION — fetchPaginate (server pagination without filters).
- * Delegates to fetchSearch with empty filters, so each (page, pageSize) is its
- * own cache bucket, totals come from the tuple shape, and searchGet({}) reads back.
+ * PAGINATION — fetchPaginate (server pagination, one page at a time, no filter
+ * concept of its own). Each (page, pageSize, lastUpdateKey) is its own cache
+ * bucket. See useStructureSearchApi.fetchSearch, built on top of this, for
+ * filters/searchGet/totals.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -49,24 +50,6 @@ describe('PAGINATION · fetchPaginate', () => {
         await c.fetchPaginate(size20, 1, 20);
         expect(size10).toHaveBeenCalledTimes(1);
         expect(size20).toHaveBeenCalledTimes(1);
-    });
-
-    it('records the tuple total under empty filters', async () => {
-        const c = make();
-        await c.fetchPaginate(
-            apiResolve([buildProducts(10, 1), 150] as [IProduct[], number]),
-            1,
-            10
-        );
-        expect(c.searchGetTotal({}, 10)).toBe(150);
-    });
-
-    it('exposes the page via searchGet with empty filters', async () => {
-        const c = make();
-        await c.fetchPaginate(apiResolve(buildProducts(10, 1)), 1, 10);
-        const page = c.searchGet({}, 1, 10);
-        expect(page).toHaveLength(10);
-        expect(page[0]?.id).toBe(1);
     });
 
     it('accumulates items from multiple pages in the dictionary', async () => {

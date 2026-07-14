@@ -1,37 +1,16 @@
-import { computed, getCurrentScope, onScopeDispose, reactive, ref, toRaw } from 'vue';
+import {
+    computed,
+    getCurrentScope,
+    onScopeDispose,
+    reactive,
+    ref,
+    toRaw,
+    watch,
+    type WatchSource,
+    type WatchStopHandle
+} from 'vue';
 import { QueryClient, CancelledError } from '@tanstack/query-core';
 import { generateFallbackValue, useStructureDataManagement } from '../index';
-
-/**
- * fetchSearch apiCall can return either a plain array or a tuple [items, total].
- * Both shapes are handled transparently — existing callers returning a plain array keep working.
- */
-export type SearchApiResult<T> = (T | undefined)[] | [(T | undefined)[], number];
-
-/**
- * Recursively rebuild a value with every object's keys in sorted order, so that
- * JSON.stringify of the result is a stable cache key regardless of key insertion order.
- *
- * Do NOT go back to `JSON.stringify(obj, Object.keys(obj).toSorted())`: an array replacer
- * is an allow-list applied at EVERY depth, so it silently strips nested keys and makes
- * {sort:{by:'a'}} and {sort:{by:'b'}} collide on the same key.
- *
- * Conventions:
- *  - arrays keep their order (order is meaningful in a filter, e.g. sort priority)
- *  - `undefined` values are dropped, so {a: undefined} and {} share a key (an unset
- *    filter and an absent filter mean the same thing)
- *  - Date becomes its ISO string (JSON.stringify would do it anyway, done here for clarity)
- */
-export const stableNormalize = (value: unknown): unknown => {
-    if (!value || typeof value !== 'object') return value;
-    if (value instanceof Date) return value.toISOString();
-    if (Array.isArray(value)) return value.map((item) => stableNormalize(item));
-    const source = value as Record<string, unknown>;
-    const normalized: Record<string, unknown> = {};
-    for (const key of Object.keys(source).toSorted())
-        if (source[key] !== undefined) normalized[key] = stableNormalize(source[key]);
-    return normalized;
-};
 
 /**
  * Fetch settings customization
@@ -102,11 +81,6 @@ export interface IFetchSettings {
 }
 
 /**
- * Stringified query => page => array of ids of the found products
- */
-export type ISearchCache<K = string | number> = Record<string, Record<number, K[]>>;
-
-/**
  * Composable customization settings
  */
 export interface IStructureRestApi {
@@ -127,8 +101,8 @@ export interface IStructureRestApi {
      * fresh copy downloads. A record is garbage only when nothing points at it, and age
      * says nothing about that. So there is no TTL on the dictionary and no eviction tied
      * to query-cache expiry; the store is thrown away only when it grows absurd.
-     * (searchCached applies the same idea from the other end: it is capped at
-     * MAX_SEARCHES = 50 buckets rather than expired by age.)
+     * (useStructureSearchApi's searchCached applies the same idea from the other
+     * end: it is capped at MAX_SEARCHES = 50 buckets rather than expired by age.)
      *
      * WARNING: a wipe empties `itemList` / `pageItemList` / `selectedRecord`. Harmless
      * for a server-paginated UI (the incoming batch is stored right after, so the page
@@ -316,7 +290,7 @@ export const useStructureRestApi = <
      * The per-item "target" cache is the single, consistent representation read by
      * fetchTarget. Its value is ALWAYS wrapped as { data } so a legitimately
      * `undefined` item stays distinguishable from a missing entry (TanStack Query v5
-     * forbids caching a bare `undefined`). Every producer — fetchAll/fetchSearch/
+     * forbids caching a bare `undefined`). Every producer — fetchAll/fetchPaginate/
      * fetchByParent/fetchMultiple/createTarget/updateTarget — seeds through
      * seedTarget, so the shape never diverges and fetchTarget can always unwrap it.
      *
@@ -379,7 +353,7 @@ export const useStructureRestApi = <
      * flags: anything that needs to opt out of the protocol (fetchTarget without an id,
      * fetchMultiple's per-id fan-out) stays outside it, visibly, in its own method.
      *
-     * @key R - what the cache stores: an item array, a { data } wrapper, an [items, total] tuple
+     * @key R - what the cache stores: an item array, or a { data } wrapper
      * @key X - what the caller gets back, once onData has interpreted R
      *
      * @param queryKey
@@ -433,7 +407,7 @@ export const useStructureRestApi = <
      * When no lastUpdateKey is supplied the call is always executed without caching.
      *
      * @key F - type of the response, that can be anything
-     * @param asyncCall  - call that we are going to make
+     * @param apiCall  - call that we are going to make
      * @param forced
      * @param loading
      * @param lastUpdateKey
@@ -442,7 +416,7 @@ export const useStructureRestApi = <
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fetchAny = <F = any>(
-        asyncCall: () => Promise<F>,
+        apiCall: () => Promise<F>,
         {
             forced = false,
             loading = true,
@@ -454,12 +428,12 @@ export const useStructureRestApi = <
         // No cache key provided — always execute, outside the cache and outside runQuery
         if (!lastUpdateKey) {
             if (loading) startLoading(lk);
-            return asyncCall().finally(() => loading && stopLoading(lk));
+            return apiCall().finally(() => loading && stopLoading(lk));
         }
 
         // Namespaced by loadingKey + lastUpdateKey so unrelated fetchAny calls don't share a cache slot
         // No onData: the raw response is cached and returned untouched, never stored as records
-        return runQuery([loadingKey, 'any', lastUpdateKey], asyncCall, {
+        return runQuery([loadingKey, 'any', lastUpdateKey], apiCall, {
             forced,
             loading,
             loadingKey: lk,
@@ -617,6 +591,58 @@ export const useStructureRestApi = <
     };
 
     /**
+     * fetchTarget's reactive counterpart: watches an id source (Ref, ComputedRef, or
+     * getter — anything `watch()` accepts) and re-runs fetchTarget every time it
+     * changes, selecting the record as it goes. Covers both the "fetch once on mount"
+     * and the "refetch when the id changes" cases with a single watcher, since a
+     * `watch` with `immediate: true` already fires synchronously during setup.
+     *
+     * @param idSource   - Ref/ComputedRef/getter producing the current id
+     * @param apiCall    - id-parametrized, since the id changes over time
+     * @param onSuccess  - called with the fetched item after a successful fetch
+     * @param onError    - called with the error after a failed fetch (which is
+     *                     otherwise swallowed here, same as an unhandled watch callback)
+     * @param onSettled  - called after either outcome
+     * @param settings   - forwarded to fetchTarget (forced, loading, merge, TTL, ...)
+     */
+    const watchTarget = (
+        idSource: WatchSource<K | undefined | null>,
+        apiCall: (id: K) => Promise<T | undefined>,
+        {
+            onSuccess,
+            onError,
+            onSettled,
+            ...settings
+        }: IFetchSettings & {
+            onSuccess?: (item: T | undefined, id: K) => void;
+            onError?: (error: unknown, id: K) => void;
+            onSettled?: (item: T | undefined, error: unknown, id: K) => void;
+        } = {}
+    ): WatchStopHandle =>
+        watch(
+            idSource,
+            (id) => {
+                // Undefined/nullish ID = do nothing
+                if (id === undefined || id === null) return;
+
+                selectedIdentifier.value = id;
+
+                return fetchTarget(() => apiCall(id), id, settings)
+                    .then((item) => {
+                        onSuccess?.(item, id);
+                        onSettled?.(item, undefined, id);
+                        return item;
+                    })
+                    .catch((error: unknown) => {
+                        selectedIdentifier.value = undefined;
+                        onError?.(error, id);
+                        onSettled?.(undefined, error, id);
+                    });
+            },
+            { immediate: true }
+        );
+
+    /**
      * Split ids into ones whose target cache entry is still fresh (cachedIds, served
      * without a network call) vs missing/stale (expiredIds, must be re-fetched).
      * Shared by fetchMultiple (which then fetches expiredIds) and checkMultiple
@@ -710,162 +736,60 @@ export const useStructureRestApi = <
     };
 
     /**
-     * Cached items ID divided per page, itemDictionary will hold the item data.
-     * Stringified query => page => array of ids of the found products
-     */
-    const searchCached = ref<ISearchCache<K>>({});
-
-    /**
-     * Server-reported total count of matching items, keyed by cacheKey (same key as searchCached).
-     * A value is only present when the apiCall returned the enriched { items, total } shape.
-     */
-    const searchTotals = ref<Record<string, number>>({});
-
-    /**
-     * Drop every search index (page-to-ids maps and totals).
-     * The companion of resetRecords(): that one owns the item data, this one owns
-     * the "which items answered which search" bookkeeping. Neither touches the
-     * TanStack cache. Call both (or destroy()) for a total reset.
-     */
-    const resetSearches = () => {
-        searchCached.value = {};
-        searchTotals.value = {};
-    };
-
-    /**
-     * Wipe the whole client store: records AND every structure that holds bare ids.
-     *
-     * searchCached and parentHasMany store ids, not records. Dropping records without
-     * them leaves dangling ids, and getRecords() silently filters those out — so
-     * searchGet/getRecordsByParent would return SHORT arrays instead of refetching.
-     * Reset them together or not at all.
+     * Wipe the whole client store: records AND every structure that holds bare ids
+     * (currently just parentHasMany — see removeDuplicateChildren/getRecordsByParent).
      *
      * Does not touch the TanStack cache: its entries stay valid and a later fetch
      * repopulates the dictionary from them without hitting the network.
+     *
+     * NOTE for callers layering their own id-indexed bookkeeping on top of this
+     * composable (e.g. useStructureSearchApi's searchCached): dropping records here
+     * leaves THEIR ids dangling, and getRecords() silently filters those out. If you
+     * built a searchApi on top of this instance, also call its resetSearches() when
+     * you call this (or destroy()).
      */
     const resetAll = () => {
         resetRecords();
-        resetSearches();
         parentHasMany.value = {} as typeof parentHasMany.value;
     };
 
     /**
-     * Create a stable and always-the-same key from an object.
-     * Nested objects are supported: see stableNormalize.
-     * @param object
-     */
-    // eslint-disable-next-line unicorn/consistent-function-scoping
-    const searchKeyGen = (object: object = {}) => JSON.stringify(stableNormalize(object));
-
-    /**
-     * Get search page based on key, pageSize and page number
-     * @param key - stringified search parameters
-     * @param page - page
-     * @param pageSize - page size (must match the value used in fetchSearch)
-     */
-    const searchGet = (key: string | object, page = 1, pageSize = 10) => {
-        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
-        return getRecords(searchCached.value[searchKey + ':' + pageSize]?.[page]);
-    };
-
-    /**
-     * Return the server-reported total for a given search, or undefined if never received.
-     * Pass the same filters and pageSize used in fetchSearch.
-     */
-    const searchGetTotal = (key: string | object, pageSize = 10): number | undefined => {
-        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
-        return searchTotals.value[searchKey + ':' + pageSize];
-    };
-
-    /**
-     * Manually set the total for a given search (e.g. when the total comes from a separate API call).
-     * fetchSearch sets this automatically when apiCall returns the { items, total } shape.
-     */
-    const searchSetTotal = (key: string | object, total: number, pageSize = 10): void => {
-        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
-        searchTotals.value[searchKey + ':' + pageSize] = total;
-    };
-
-    /**
-     * Query key of one search page.
-     *
-     * Key order is [loadingKey, 'search', searchKey, lastUpdateKey, page]: `searchKey` precedes
-     * `lastUpdateKey` so [loadingKey, 'search', searchKey] prefix-matches EVERY page and EVERY
-     * lastUpdateKey bucket of one search, which is what searchCleanup needs to test for liveness.
+     * Query key of one server-paginated page. This composable has no concept of a
+     * "filter" or "search" — only pages, cached strictly by (lastUpdateKey, pageSize,
+     * page). A search/pagination layer built on top (see useStructureSearchApi)
+     * derives its own stable key from filters and passes it in as lastUpdateKey,
+     * getting one cache bucket per distinct filter set without this file ever
+     * needing to know what a filter is.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const searchKeyFor = (searchKey: string, page: number, lastUpdateKey = ''): any[] => [
+    const paginateKeyFor = (page: number, pageSize: number, lastUpdateKey = ''): any[] => [
         loadingKey,
-        'search',
-        searchKey,
+        'paginate',
         lastUpdateKey,
+        pageSize,
         page
     ];
-    /** Prefix matching every cached page/bucket of one search */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const searchKeyPrefix = (searchKey: string): any[] => [loadingKey, 'search', searchKey];
 
     /**
-     * Prune searchCached and searchTotals entries that no longer have a
-     * corresponding live entry in the TanStack query cache.
-     * Keeps at most MAX_SEARCHES entries to bound memory usage.
-     */
-    const searchCleanup = () => {
-        // Upper bound on distinct (filters, pageSize) combinations kept around
-        const MAX_SEARCHES = 50;
-
-        // cacheKeys that still have at least one page backed by a live TanStack entry
-        const activeKeys: string[] = [];
-
-        for (const cacheKey of Object.keys(searchCached.value)) {
-            // Live if ANY page under ANY lastUpdateKey is still cached. Probing a single
-            // hardcoded lastUpdateKey would prune searches that are very much alive.
-            const hasActivePage = _queryClient
-                .getQueryCache()
-                .findAll({ queryKey: searchKeyPrefix(cacheKey) })
-                .some((query) => query.state.dataUpdatedAt);
-
-            if (hasActivePage) activeKeys.push(cacheKey);
-            else {
-                delete searchCached.value[cacheKey];
-                delete searchTotals.value[cacheKey];
-            }
-        }
-
-        // Enforce MAX_SEARCHES — prune excess active keys
-        if (activeKeys.length > MAX_SEARCHES) {
-            for (const cacheKey of activeKeys.slice(MAX_SEARCHES)) {
-                delete searchCached.value[cacheKey];
-                delete searchTotals.value[cacheKey];
-            }
-        }
-    };
-
-    /**
-     * Fetch items as a search.
-     * TanStack Query is used for per-(filters, page, pageSize) cache management.
-     * The searchCached ref tracks which item ids belong to each page (for searchGet).
-     *
-     * Cache key structure: searchKey of filters + ":" + pageSize  (e.g. '{"q":"test"}:20')
-     * Query key: [loadingKey, 'search', cacheKey, lastUpdateKey, page] — see searchKeyFor
+     * fetchAll, one server-paginated page at a time. This is a generic paginated
+     * fetch, not a search — apiCall resolves with plain items. A caller that also
+     * needs a server-reported total (e.g. useStructureSearchApi.fetchSearch) reads
+     * it out of its own apiCall wrapper; this composable has nothing to do with it.
      *
      * @param apiCall
-     * @param filters - search parameters
-     * @param page - page number
+     * @param page
      * @param pageSize - page size used for caching
      * @param forced
      * @param loading
      * @param merge
-     * @param lastUpdateKey
+     * @param lastUpdateKey - namespaces independent cache buckets (e.g. per filter set)
      * @param loadingKey
      * @param mismatch
      * @param TTL - per-call staleTime override
      */
-    const fetchSearch = <F = object>(
-        apiCall: () => Promise<SearchApiResult<T>>,
-        filters: F = {} as F,
+    const fetchPaginate = (
+        apiCall: () => Promise<(T | undefined)[]>,
         page = 1,
-        // Could be set in the filters directly but it could be forgotten so it's better to say it explicitly
         pageSize = 10,
         {
             forced = false,
@@ -876,58 +800,18 @@ export const useStructureRestApi = <
             mismatch = false,
             TTL: customTTL
         }: IFetchSettings = {}
-    ): Promise<(T | undefined)[]> => {
-        // cacheKey groups all pages for the same (filters, pageSize) combination
-        const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
-
-        // Prune stale searchCached entries before each search
-        searchCleanup();
-
-        return runQuery<SearchApiResult<T>, (T | undefined)[]>(
-            searchKeyFor(searchKey, page, lastUpdateKey),
+    ): Promise<(T | undefined)[]> =>
+        runQuery<(T | undefined)[]>(
+            paginateKeyFor(page, pageSize, lastUpdateKey),
             apiCall,
             { forced, loading, loadingKey: lk, TTL: customTTL },
-            (result: SearchApiResult<T>) => {
-                // Support both plain T[] and [T[], total] tuple shapes
-                const isTuple = Array.isArray(result[0]);
-                const items = (isTuple ? result[0] : result) as (T | undefined)[];
-                if (isTuple)
-                    searchSetTotal(
-                        filters as object,
-                        (result as [(T | undefined)[], number?])[1] ?? 0,
-                        pageSize
-                    );
-
-                // Reset and repopulate the page-to-ids map
-                if (!(searchKey in searchCached.value)) searchCached.value[searchKey] = [];
-                searchCached.value[searchKey]![page] = [];
-
-                saveRecords(items, merge, (item: T) => {
-                    searchCached.value[searchKey]![page]!.push(createIdentifier(item));
-
-                    if (!mismatch) seedTarget(createIdentifier(item), item);
-                });
-
-                return items;
-            }
+            (items: (T | undefined)[] = []) =>
+                saveRecords(
+                    items,
+                    merge,
+                    mismatch ? undefined : (item: T) => seedTarget(createIdentifier(item), item)
+                )
         );
-    };
-
-    /**
-     * fetchAll with pagination.
-     * It works exactly as a fetchSearch without filters
-     *
-     * @param apiCall
-     * @param page
-     * @param pageSize
-     * @param settings
-     */
-    const fetchPaginate = <F = object>(
-        apiCall: () => Promise<SearchApiResult<T>>,
-        page = 1,
-        pageSize = 10,
-        settings: IFetchSettings = {}
-    ) => fetchSearch(apiCall, {}, page, pageSize, settings);
 
     /**
      * ---------------------------- PRE-FLIGHT FRESHNESS CHECKS -----------------------------
@@ -983,27 +867,13 @@ export const useStructureRestApi = <
         lastUpdateKey ? isQueryFresh([loadingKey, 'any', lastUpdateKey], customTTL ?? TTL) : false;
 
     /**
-     * Would fetchSearch(apiCall, filters, page, pageSize, settings) be served from cache?
-     */
-    const checkSearch = <F = object>(
-        filters: F = {} as F,
-        page = 1,
-        pageSize = 10,
-        { lastUpdateKey = '', TTL: customTTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
-    ): boolean => {
-        const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
-        return isQueryFresh(searchKeyFor(searchKey, page, lastUpdateKey), customTTL ?? TTL);
-    };
-
-    /**
      * Would fetchPaginate(apiCall, page, pageSize, settings) be served from cache?
-     * Same relationship as fetchPaginate has to fetchSearch: no filters.
      */
     const checkPaginate = (
         page = 1,
         pageSize = 10,
-        settings: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
-    ): boolean => checkSearch({}, page, pageSize, settings);
+        { lastUpdateKey = '', TTL: customTTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
+    ): boolean => isQueryFresh(paginateKeyFor(page, pageSize, lastUpdateKey), customTTL ?? TTL);
 
     /**
      * Would fetchMultiple(apiCall, ids, settings) skip the network for some, all, or
@@ -1035,7 +905,8 @@ export const useStructureRestApi = <
             predicate: (query) => {
                 const [lk, kind] = query.queryKey as [string, string];
                 return (
-                    lk === loadingKey && (kind === 'all' || kind === 'search' || kind === 'parent')
+                    lk === loadingKey &&
+                    (kind === 'all' || kind === 'paginate' || kind === 'parent')
                 );
             }
         });
@@ -1229,7 +1100,6 @@ export const useStructureRestApi = <
 
         setRecords,
         resetRecords,
-        resetSearches,
         resetAll,
         maxRecords,
         getRecord,
@@ -1268,15 +1138,8 @@ export const useStructureRestApi = <
         fetchAll,
         fetchByParent,
         fetchTarget,
+        watchTarget,
         fetchMultiple,
-        searchCached,
-        searchTotals,
-        searchKeyGen,
-        searchGet,
-        searchGetTotal,
-        searchSetTotal,
-        searchCleanup,
-        fetchSearch,
         fetchPaginate,
         createTarget,
         updateTarget,
@@ -1287,7 +1150,6 @@ export const useStructureRestApi = <
         checkAll,
         checkByParent,
         checkAny,
-        checkSearch,
         checkPaginate,
         checkMultiple
     };

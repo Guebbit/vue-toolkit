@@ -1,3 +1,25 @@
+# 2.1
+
+## Added
+- Added `useStructureSearchApi`, a composable built on top of `useStructureRestApi` that owns everything filter/search-related: `fetchSearch`, `watchSearch` (and `watchCurrentSearch`), `checkSearch`, `searchGet`, `searchCleanup`, `resetSearches`, `isPageCached`, `isPaginateCached`, and a search-scoped `pageItemList`.
+- Added `watchTarget` to `useStructureRestApi`: watches an id source (Ref/ComputedRef/getter) and re-runs `fetchTarget` whenever it changes, with `onSuccess`/`onError`/`onSettled` callbacks.
+- Exported `stableNormalize` from `src/utils/stableNormalize.ts` as part of the public API (previously an internal helper of the REST composable).
+
+## Changed
+- Search/filter concerns moved out of `useStructureRestApi` entirely: `fetchSearch`, `searchGet`, `searchGetTotal`, `searchSetTotal`, `searchCleanup`, `searchCached`, `searchTotals`, and `stableNormalize` are no longer part of `useStructureRestApi` — use `useStructureSearchApi` instead.
+- `fetchPaginate` on `useStructureRestApi` is now a generic, filter-agnostic paginated fetch keyed strictly by `(lastUpdateKey, pageSize, page)`. It no longer accepts `filters`, no longer supports the `[items, total]` tuple response shape, and no longer manages a total — a search/pagination layer built on top (like `useStructureSearchApi`) derives its own key from filters and reads any server-reported total out of its own response.
+- `resetAll`/`destroy` on `useStructureRestApi` no longer reset search state (there is none left to reset). Consumers using `useStructureSearchApi` get merged `resetAll`/`destroy` that also clear its `searchCached`.
+
+## Removed
+- Removed `fetchSearch`, `SearchApiResult`, `ISearchCache`, `searchGet`, `searchGetTotal`, `searchSetTotal`, and `searchCleanup` from `useStructureRestApi` (superseded by `useStructureSearchApi`).
+
+# 2.0.1
+
+## Added
+- Added `setInitialData` to `useStructureFormValidation`, to replace the reset baseline that `resetForm`/`isDirty` use.
+- Added `activateAutoHydrate` to `useStructureFormValidation`: watches a reactive source (e.g. a fetched record) and, once it resolves to a defined value, adopts it as the new reset baseline and applies it to the form.
+- Exposed `showFormErrors` from `useStructureFormValidation`.
+
 # 2.0
 
 ## Added

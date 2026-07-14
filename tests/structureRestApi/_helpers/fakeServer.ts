@@ -56,7 +56,7 @@ export function createServer<T extends { id: number }>(
     };
 
     /**
-     * GET /resource?filters — returns the [items, total] tuple shape, paginated.
+     * GET /resource?filters — returns the matching items, paginated.
      * Pass a predicate describing the filter and the page/pageSize used.
      */
     const search =
@@ -65,10 +65,7 @@ export function createServer<T extends { id: number }>(
             calls.search += 1;
             const matched = [...store.values()].filter((item) => predicate(item));
             const start = (page - 1) * pageSize;
-            return settle<[(T | undefined)[], number]>([
-                matched.slice(start, start + pageSize),
-                matched.length
-            ]);
+            return settle(matched.slice(start, start + pageSize) as (T | undefined)[]);
         };
 
     /** POST /resource — create; auto-assigns an id when absent. */

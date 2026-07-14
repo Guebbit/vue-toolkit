@@ -3,8 +3,10 @@
  * fields, so it must NOT be treated as the authoritative per-item value.
  *
  * Effects of mismatch:true:
- *   - fetchAll / fetchSearch: skip seeding the per-item target cache, so a later
- *     fetchTarget(id) still hits the API (it can't trust the partial list).
+ *   - fetchAll / fetchPaginate (and useStructureSearchApi's fetchSearch, built on
+ *     top of it — see tests/structureSearchApi/modifiers/mismatch.spec.ts): skip
+ *     seeding the per-item target cache, so a later fetchTarget(id) still hits
+ *     the API (it can't trust the partial list).
  *   - fetchByParent: additionally merge (editRecord) rather than replace, so the
  *     partial payload does not wipe fields already known for the item.
  *
@@ -13,7 +15,7 @@
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
-import { USERS, FULL_USER, buildArticles, type IUser, type IArticle } from '../_helpers/fixtures';
+import { USERS, FULL_USER, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
 
@@ -31,32 +33,6 @@ describe('MODIFIER · mismatch', () => {
             const c = makeComposable<IUser, number>();
             await c.fetchAll(apiResolve([USERS[0]]), { mismatch: true });
             const get = apiResolve(USERS[0]);
-            await c.fetchTarget(get, 1);
-            expect(get).toHaveBeenCalledTimes(1);
-        });
-    });
-
-    describe('fetchSearch seeding', () => {
-        it('default: seeds target cache → later fetchTarget is a cache hit', async () => {
-            const c = makeComposable<IArticle, number>();
-            await c.fetchSearch(apiResolve(buildArticles(2, 'tech', 1)), { category: 'tech' }, 1);
-            const get = apiResolve(buildArticles(1, 'tech', 1)[0]);
-            await c.fetchTarget(get, 1);
-            expect(get).not.toHaveBeenCalled();
-        });
-
-        it('mismatch: skips seeding → later fetchTarget hits the API', async () => {
-            const c = makeComposable<IArticle, number>();
-            await c.fetchSearch(
-                apiResolve(buildArticles(2, 'tech', 1)),
-                { category: 'tech' },
-                1,
-                10,
-                {
-                    mismatch: true
-                }
-            );
-            const get = apiResolve(buildArticles(1, 'tech', 1)[0]);
             await c.fetchTarget(get, 1);
             expect(get).toHaveBeenCalledTimes(1);
         });

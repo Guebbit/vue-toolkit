@@ -1,6 +1,7 @@
 /**
  * UNIT — pre-flight freshness checks: checkTarget / checkAll / checkByParent /
- * checkAny / checkSearch / checkPaginate / checkMultiple.
+ * checkAny / checkPaginate / checkMultiple.
+ * (checkSearch lives in useStructureSearchApi — see tests/structureSearchApi/unit/checkSearch.spec.ts)
  *
  * Each check mirrors its fetch* counterpart's query key. Contract asserted here:
  *   - cold cache → false (nothing cached yet)
@@ -80,22 +81,14 @@ describe('UNIT · checkAny', () => {
     });
 });
 
-describe('UNIT · checkSearch / checkPaginate', () => {
-    it('false on a cold cache, true after fetchSearch for the same filters/page/pageSize', async () => {
-        const c = make();
-        const filters = { role: 'admin' };
-        expect(c.checkSearch(filters, 1, 10)).toBe(false);
-        await c.fetchSearch(apiResolve([USERS[0]]), filters, 1, 10);
-        expect(c.checkSearch(filters, 1, 10)).toBe(true);
-        // a different page of the same search is a different bucket
-        expect(c.checkSearch(filters, 2, 10)).toBe(false);
-    });
-
-    it('checkPaginate mirrors checkSearch with no filters', async () => {
+describe('UNIT · checkPaginate', () => {
+    it('false on a cold cache, true after fetchPaginate for the same page/pageSize', async () => {
         const c = make();
         expect(c.checkPaginate(1, 10)).toBe(false);
         await c.fetchPaginate(apiResolve([USERS[0]]), 1, 10);
         expect(c.checkPaginate(1, 10)).toBe(true);
+        // a different page is a different bucket
+        expect(c.checkPaginate(2, 10)).toBe(false);
     });
 });
 
