@@ -135,9 +135,9 @@ export const useStructureSearchApi = <
      * @param page - page
      * @param pageSize - page size (must match the value used in fetchSearch)
      */
-    const searchGet = (key: string | object, page = 1, pageSize = 10) => {
+    const searchGet = (key: string | object, page = 1, pageSize = 10): T[] => {
         const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
-        return getRecords(searchCached.value[searchKey + ':' + pageSize]?.[page]);
+        return getRecords(searchCached.value[searchKey + ':' + pageSize]?.[page]) ?? [];
     };
 
     /**
@@ -216,7 +216,7 @@ export const useStructureSearchApi = <
         return fetchPaginate(apiCall, page, pageSize, {
             ...settings,
             lastUpdateKey: combineKey(searchKey, settings.lastUpdateKey ?? '')
-        }).then((items) => {
+        }).then((items = []) => {
             // Reset and repopulate the page-to-ids map
             if (!(searchKey in searchCached.value)) searchCached.value[searchKey] = [];
             searchCached.value[searchKey]![page] = items
@@ -310,7 +310,7 @@ export const useStructureSearchApi = <
     /**
      * Items on the CURRENT search's current page: `searchGet(filters, pageCurrent, pageSize)`.
      */
-    const pageItemList: ComputedRef<(T | undefined)[]> = computed(() =>
+    const pageItemList: ComputedRef<T[]> = computed(() =>
         searchGet(readWatchSource(filtersSource) as object, pageCurrent.value, pageSize.value)
     );
 
