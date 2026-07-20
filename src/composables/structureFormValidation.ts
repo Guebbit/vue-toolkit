@@ -1,4 +1,4 @@
-import { computed, ref, watch, type WatchSource } from 'vue';
+import { computed, ref, toValue, watch, type MaybeRefOrGetter, type WatchSource } from 'vue';
 import { type ZodType } from 'zod';
 
 /**
@@ -6,14 +6,17 @@ import { type ZodType } from 'zod';
  * Handles reactive form state, optional Zod schema validation and submission flow.
  *
  * @param initialData - Initial values for the form fields
- * @param schema      - Optional Zod schema used for validation
+ * @param schema      - Optional Zod schema used for validation. Accepts a plain schema,
+ *                      a ref, or a getter (e.g. `() => createUsersSchema(t)`) so schemas
+ *                      built from i18n-dependent messages stay current after a locale
+ *                      switch instead of being frozen at setup time.
  */
 export const useStructureFormValidation = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     T extends Record<string, any> = Record<string, any>
 >(
     initialData: T = {} as T,
-    schema?: ZodType<T>
+    schema?: MaybeRefOrGetter<ZodType<T> | undefined>
 ) => {
     /**
      * Baseline values resetForm() restores and isDirty compares against.
@@ -121,12 +124,13 @@ export const useStructureFormValidation = <
      * @returns true when validation passes (or no schema is set), false otherwise
      */
     const validate = (): boolean => {
-        if (!schema) {
+        const resolvedSchema = toValue(schema);
+        if (!resolvedSchema) {
             formErrors.value = {};
             return true;
         }
 
-        const result = schema.safeParse(form.value);
+        const result = resolvedSchema.safeParse(form.value);
 
         if (result.success) {
             formErrors.value = {};

@@ -255,6 +255,35 @@ describe('useStructureFormValidation', () => {
         });
     });
 
+    // ─── validate (reactive schema getter) ────────────────────────────────────
+
+    describe('validate (reactive schema getter)', () => {
+        it('re-resolves a getter schema on every validate() call, e.g. after a locale switch', () => {
+            let currentMessage = 'Invalid email address (en)';
+            const getterComposable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, () =>
+                z.object({ email: z.string().email(currentMessage), password: z.string() })
+            );
+
+            getterComposable.validate();
+            expect(getterComposable.formErrors.value.email).toContain('Invalid email address (en)');
+
+            // Simulate a language change: the getter now returns fresh, differently-worded messages
+            currentMessage = 'Indirizzo email non valido (it)';
+            getterComposable.validate();
+            expect(getterComposable.formErrors.value.email).toContain(
+                'Indirizzo email non valido (it)'
+            );
+        });
+
+        it('accepts a ref-wrapped schema the same way', () => {
+            const schemaRef = ref(loginSchema);
+            const refComposable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, schemaRef);
+            const ok = refComposable.validate();
+            expect(ok).toBe(false);
+            expect(refComposable.formErrors.value.email).toBeDefined();
+        });
+    });
+
     // ─── handleSubmit ────────────────────────────────────────────────────────
 
     describe('handleSubmit', () => {
