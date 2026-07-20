@@ -10,7 +10,8 @@ import {
     type WatchStopHandle
 } from 'vue';
 import { QueryClient, CancelledError } from '@tanstack/query-core';
-import { generateFallbackValue, useStructureDataManagement } from '../index';
+import { useStructureDataManagement } from '../index';
+import { generateFallbackValue } from '../utils/generateFallbackValue';
 
 /**
  * Fetch settings customization

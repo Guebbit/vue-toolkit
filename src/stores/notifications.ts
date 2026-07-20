@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { generateFallbackValue } from '../composables/structureDataManagement';
+import { generateFallbackValue } from '../utils/generateFallbackValue';
 
 export enum IToastType {
     PRIMARY = 'primary',
