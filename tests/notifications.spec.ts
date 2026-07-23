@@ -66,4 +66,31 @@ describe('useNotificationsStore', () => {
         const store = useNotificationsStore();
         expect(Object.keys(store.dialogs)).toHaveLength(0);
     });
+
+    describe('auto-hide timeout', () => {
+        beforeEach(() => jest.useFakeTimers());
+        afterEach(() => jest.useRealTimers());
+
+        it('hides a message automatically after a positive timeout', () => {
+            const store = useNotificationsStore();
+            store.addMessage('Temporary', IToastType.PRIMARY, 1000);
+            expect(store.messages).toHaveLength(1);
+
+            jest.advanceTimersByTime(999);
+            expect(store.messages).toHaveLength(1); // not yet
+
+            jest.advanceTimersByTime(1);
+            expect(store.messages).toHaveLength(0); // hidden at the deadline
+            expect(store.history).toHaveLength(1); // but still in history
+        });
+
+        it('does NOT schedule any hide when timeout is <= 0 (the default)', () => {
+            const store = useNotificationsStore();
+            store.addMessage('Sticky', IToastType.PRIMARY); // default timeout -1
+            store.addMessage('AlsoSticky', IToastType.PRIMARY, 0); // explicit 0
+
+            jest.advanceTimersByTime(1_000_000);
+            expect(store.messages).toHaveLength(2); // both remain visible forever
+        });
+    });
 });

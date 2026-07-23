@@ -16,7 +16,10 @@ export default defineConfig({
     sidebar: [
       {
         text: 'Guide',
-        items: [{ text: 'Getting Started', link: '/guide/getting-started' }]
+        items: [
+          { text: 'Getting Started', link: '/guide/getting-started' },
+          { text: 'Testing', link: '/guide/testing' }
+        ]
       },
       {
         text: 'Composables',

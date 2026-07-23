@@ -162,6 +162,16 @@ describe('UNIT · watchSearch', () => {
         stop();
     });
 
+    it('a rejected search with NO callbacks resolves undefined without throwing', async () => {
+        const { searchApi } = make();
+        const apiCall = jest.fn(() => Promise.reject(new Error('network error')));
+        // no onError/onSettled: the optional-chained calls must not blow up
+        const { stop, search } = searchApi.watchSearch(apiCall, { immediate: false });
+
+        await expect(search()).resolves.toBeUndefined();
+        stop();
+    });
+
     it('calls onError/onSettled when the search rejects, and search() does not throw', async () => {
         const { searchApi } = make();
         const error = new Error('network error');

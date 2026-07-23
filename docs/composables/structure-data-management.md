@@ -88,12 +88,13 @@ For child records that need to remember which parent they belong to:
 | `getRecordsByParent(parentId?)`        | Resolves a parent's child ids into a `Record<K, T>` of full records. |
 | `getListByParent(parentId?)`           | Same, as an array.                                                    |
 
-### Standalone export
+### Fallback ids
 
-`generateFallbackValue()` — not part of the composable's return value, exported separately.
-Generates a random id (`crypto.randomUUID()` when available, else a `Date.now()`-based fallback
-for environments without `crypto`). Used internally to fill missing identifiers, and reused by
-`useNotificationsStore` for toast ids.
+Missing identifiers are filled in with `getUuid()` from
+[`@guebbit/js-toolkit`](https://www.npmjs.com/package/@guebbit/js-toolkit) — a random id
+(`crypto.randomUUID()` when available, else a `Date.now()`-based fallback for environments
+without `crypto`). The same helper backs `useNotificationsStore` toast ids. Import it from
+`@guebbit/js-toolkit` if you need it yourself.
 
 ## Gotchas
 

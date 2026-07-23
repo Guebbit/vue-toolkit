@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { generateFallbackValue } from '../utils/generateFallbackValue';
+import { getUuid } from '@guebbit/js-toolkit';
 
 export enum IToastType {
     PRIMARY = 'primary',
@@ -40,7 +40,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
      * @param timeout
      */
     const addMessage = (message: string, type = IToastType.PRIMARY, timeout = -1) => {
-        const id = generateFallbackValue();
+        const id = getUuid();
         // Add to history
         history.value.push({
             id,

@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import { generateFallbackValue } from '../utils/generateFallbackValue';
+import { getUuid } from '@guebbit/js-toolkit';
 
 export const useStructureDataManagement = <
     // type of item
@@ -28,7 +28,7 @@ export const useStructureDataManagement = <
      */
     const fillMissingIdentifiers = <C>(itemData: C, missingKeys: string[]): void => {
         if (typeof itemData !== 'object' || itemData === undefined || itemData === null) return;
-        const fallback = generateFallbackValue();
+        const fallback = getUuid();
         for (const key of missingKeys) (itemData as Record<string, unknown>)[key] = fallback;
         // eslint-disable-next-line no-console
         console.warn(
@@ -55,10 +55,13 @@ export const useStructureDataManagement = <
             }
             return values.join(delimiter) as K;
         }
-        const value = itemData[identifier as keyof C];
+        // Use _identifiers (which honours a custom single identifier), NOT the module-level
+        // default `identifier`: otherwise a custom identifier passed here is silently ignored.
+        const key = _identifiers as string;
+        const value = itemData[key as keyof C];
         if (value === undefined || value === null) {
-            fillMissingIdentifiers(itemData, [identifier]);
-            return itemData[identifier as keyof C] as K;
+            fillMissingIdentifiers(itemData, [key]);
+            return itemData[key as keyof C] as K;
         }
         return value as K;
     };

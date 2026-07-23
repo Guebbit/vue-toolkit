@@ -1,3 +1,12 @@
+# 2.1.4
+
+## Fixed
+- `createIdentifier` (in `useStructureDataManagement`/`useStructureRestApi`) now honours a custom **single** identifier passed as its second argument. Previously the custom value was ignored for non-array identifiers and the default identifier was used instead, so `createIdentifier(item, 'slug')` returned `item.id` rather than `item.slug`. The array form was unaffected.
+
+## Added
+- Added mutation testing with [Stryker](https://stryker-mutator.io/): `stryker.conf.json` and a `test:mutation` npm script. See the new [Testing](/guide/testing) guide page for what mutation testing is and how to read the results.
+- Expanded the test suite with the gaps mutation testing surfaced: effect-stability tests (reactive re-evaluation of `selectedRecord`/`itemList`/pagination computeds and the ref-counted `loading` flag), effect-scope auto-teardown, direct unit tests for `stableNormalize` and `generateFallbackValue`, identifier-resolution/batch-edit/guard branches of `useStructureDataManagement`, and notification auto-hide timeouts.
+
 # 2.1
 
 ## Added

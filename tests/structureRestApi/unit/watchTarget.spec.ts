@@ -93,6 +93,19 @@ describe('UNIT · watchTarget', () => {
         stop();
     });
 
+    it('a rejected fetch with NO callbacks swallows the error (no throw) and clears the selection', async () => {
+        const c = make();
+        const id = ref<number | undefined>(1);
+        const apiCall = jest.fn(() => Promise.reject(new Error('network error')));
+        // no onError/onSettled passed: the optional-chained calls must not blow up
+        const stop = c.watchTarget(id, apiCall);
+        await flush();
+        await flush();
+
+        expect(c.selectedIdentifier.value).toBeUndefined();
+        stop();
+    });
+
     it('calls onError/onSettled when the fetch rejects, and does not select', async () => {
         const c = make();
         const id = ref<number | undefined>(1);

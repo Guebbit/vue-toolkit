@@ -11,7 +11,7 @@ import {
 } from 'vue';
 import { QueryClient, CancelledError } from '@tanstack/query-core';
 import { useStructureDataManagement } from '../index';
-import { generateFallbackValue } from '../utils/generateFallbackValue';
+import { getUuid } from '@guebbit/js-toolkit';
 
 /**
  * Fetch settings customization
@@ -134,7 +134,7 @@ export const useStructureRestApi = <
     P extends string | number = string | number
 >({
     identifiers = 'id',
-    loadingKey = generateFallbackValue(),
+    loadingKey = getUuid(),
     TTL = 3_600_000, // 1 hour
     maxRecords = 100_000,
     delimiter = '|',
@@ -934,7 +934,7 @@ export const useStructureRestApi = <
             fetchLike = true
         }: Omit<IFetchSettings, 'forced' | 'merge' | 'fetchAgain'> = {}
     ): Promise<T | undefined> => {
-        const temporaryId = generateFallbackValue();
+        const temporaryId = getUuid();
         // Create temporary item with temporary id for instantaneity
         if (dummyData) editRecord(dummyData, temporaryId as K, true);
         if (loading) startLoading(lk);

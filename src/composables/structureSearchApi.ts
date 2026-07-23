@@ -7,7 +7,7 @@ import {
     type WatchSource,
     type WatchStopHandle
 } from 'vue';
-import { stableNormalize } from '../utils/stableNormalize';
+import { canonicalize } from '@guebbit/js-toolkit';
 import {
     useStructureRestApi,
     type IFetchSettings,
@@ -123,11 +123,11 @@ export const useStructureSearchApi = <
 
     /**
      * Create a stable and always-the-same key from an object.
-     * Nested objects are supported: see stableNormalize.
+     * Nested objects are supported: see canonicalize.
      * @param object
      */
     // eslint-disable-next-line unicorn/consistent-function-scoping
-    const searchKeyGen = (object: object = {}) => JSON.stringify(stableNormalize(object));
+    const searchKeyGen = (object: object = {}) => JSON.stringify(canonicalize(object));
 
     /**
      * Get search page based on key, pageSize and page number
