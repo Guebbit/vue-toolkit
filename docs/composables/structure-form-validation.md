@@ -33,10 +33,54 @@ await login.handleSubmit(async (data) => {
 return value (`true`/`false`) or read `login.formErrors.value` / `login.isValid.value` to drive
 the UI.
 
+## Translated messages, and errors already on screen
+
+Two separate problems, and it is worth being clear about which is which.
+
+**The next validation's language** is a schema concern. `schema` accepts a plain schema, a ref or
+a getter, and `toValue` is applied inside `validate()` and nowhere else — so a plain schema whose
+messages are *thunks* is resolved exactly as late as a getter would be:
+
+```ts
+const loginSchema = z.object({
+    email: z.string().email({ error: () => t('login.email-invalid') })
+})
+
+const login = useStructureFormValidation<ILoginForm>({ email: '', password: '' }, loginSchema)
+```
+
+Prefer this over `() => createLoginSchema(t)`. A getter that is accidentally *called* at the call
+site — `createLoginSchema(t)` instead of `() => createLoginSchema(t)` — type-checks, runs, and
+silently freezes the language; a thunk inside the schema module has no call site to get wrong.
+
+**Errors already on screen** are not a schema concern at all. `validate()` copies resolved
+*strings* into `formErrors`; once it has returned, those strings are inert text and the schema is
+out of the picture. Switching language re-renders the labels and leaves the error under them in
+the old language until the next keystroke or submit. `revalidateOn` fixes that by re-running
+`validate()` over the unchanged data:
+
+```ts
+const { locale } = useI18n()
+
+const login = useStructureFormValidation<ILoginForm>({ email: '', password: '' }, loginSchema, {
+    revalidateOn: locale
+})
+```
+
+It only fires for a form that currently has errors showing, so a pristine form does not sprout red
+text because someone changed the language. `revalidateOn` takes any `WatchSource` or array of
+them — it is not i18n-specific, and the toolkit deliberately knows nothing about vue-i18n.
+
 ## API
 
-`useStructureFormValidation<T>(initialData: T = {}, schema?: ZodType<T>)` — `schema` is optional;
-without one, `validate()` always passes.
+`useStructureFormValidation<T>(initialData: T = {}, schema?: MaybeRefOrGetter<ZodType<T>>, options?)`
+— `schema` is optional; without one, `validate()` always passes.
+
+`options`:
+
+| Option          | Type                            | Purpose                                                                                 |
+| --------------- | ------------------------------- | --------------------------------------------------------------------------------------- |
+| `revalidateOn`  | `WatchSource \| WatchSource[]`  | Re-runs `validate()` over unchanged data when a source changes, but only while errors are on display. See above. |
 
 | Property / method                      | Purpose                                                                                        |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |

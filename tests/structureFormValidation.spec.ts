@@ -14,6 +14,15 @@ const loginSchema = z.object({
 
 const INITIAL_LOGIN: ILoginForm = { email: '', password: '' };
 
+/**
+ * A login schema whose email message is a thunk, so the wording is decided at parse time.
+ */
+const localizedSchema = (message: () => string) =>
+    z.object({
+        email: z.string().email({ error: message }),
+        password: z.string()
+    });
+
 describe('useStructureFormValidation', () => {
     let composable: ReturnType<typeof useStructureFormValidation<ILoginForm>>;
 
@@ -281,6 +290,125 @@ describe('useStructureFormValidation', () => {
             const ok = refComposable.validate();
             expect(ok).toBe(false);
             expect(refComposable.formErrors.value.email).toBeDefined();
+        });
+
+        it('resolves a schema whose messages are thunks just as late as a getter', () => {
+            let currentMessage = 'Invalid email address (en)';
+            const thunkComposable = useStructureFormValidation<ILoginForm>(
+                INITIAL_LOGIN,
+                // built ONCE, at setup — only the message is deferred
+                z.object({
+                    email: z.string().email({ error: () => currentMessage }),
+                    password: z.string()
+                })
+            );
+
+            thunkComposable.validate();
+            expect(thunkComposable.formErrors.value.email).toContain('Invalid email address (en)');
+
+            currentMessage = 'Indirizzo email non valido (it)';
+            thunkComposable.validate();
+            expect(thunkComposable.formErrors.value.email).toContain(
+                'Indirizzo email non valido (it)'
+            );
+        });
+    });
+
+    // ─── revalidateOn ─────────────────────────────────────────────────────────
+
+    /**
+     * `formErrors` holds resolved strings, so nothing about the schema can re-translate an error
+     * already on screen — only re-running `validate()` can. These cover the two halves of that:
+     * it must re-run when there is something to re-translate, and must NOT run when there is not.
+     */
+    describe('revalidateOn', () => {
+        it('re-translates displayed errors when the watched source changes', async () => {
+            const locale = ref('en');
+            const messages: Record<string, string> = {
+                en: 'Invalid email address',
+                it: 'Indirizzo email non valido'
+            };
+            const localeComposable = useStructureFormValidation<ILoginForm>(
+                INITIAL_LOGIN,
+                localizedSchema(() => messages[locale.value]!),
+                { revalidateOn: locale }
+            );
+
+            localeComposable.validate();
+            expect(localeComposable.formErrors.value.email).toContain('Invalid email address');
+
+            locale.value = 'it';
+            await nextTick();
+
+            expect(localeComposable.formErrors.value.email).toContain('Indirizzo email non valido');
+        });
+
+        it('leaves a pristine form pristine', async () => {
+            const locale = ref('en');
+            const pristineComposable = useStructureFormValidation<ILoginForm>(
+                INITIAL_LOGIN,
+                loginSchema,
+                { revalidateOn: locale }
+            );
+
+            locale.value = 'it';
+            await nextTick();
+
+            // never validated, so nothing is on display and nothing should appear
+            expect(pristineComposable.formErrors.value).toEqual({});
+            expect(pristineComposable.isValid.value).toBe(true);
+        });
+
+        it('does nothing to a form that validated cleanly', async () => {
+            const locale = ref('en');
+            const validComposable = useStructureFormValidation<ILoginForm>(
+                INITIAL_LOGIN,
+                loginSchema,
+                { revalidateOn: locale }
+            );
+
+            validComposable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            expect(validComposable.validate()).toBe(true);
+
+            locale.value = 'it';
+            await nextTick();
+
+            expect(validComposable.formErrors.value).toEqual({});
+        });
+
+        it('accepts several sources', async () => {
+            const locale = ref('en');
+            const unitSystem = ref('metric');
+            let revalidations = 0;
+            const multiComposable = useStructureFormValidation<ILoginForm>(
+                INITIAL_LOGIN,
+                localizedSchema(() => {
+                    revalidations += 1;
+                    return 'Invalid email address';
+                }),
+                { revalidateOn: [locale, unitSystem] }
+            );
+
+            multiComposable.validate();
+            const afterFirstValidate = revalidations;
+
+            locale.value = 'it';
+            await nextTick();
+            unitSystem.value = 'imperial';
+            await nextTick();
+
+            expect(revalidations).toBe(afterFirstValidate + 2);
+        });
+
+        it('is inert when no source is given', async () => {
+            const locale = ref('en');
+            composable.validate();
+            const before = { ...composable.formErrors.value };
+
+            locale.value = 'it';
+            await nextTick();
+
+            expect(composable.formErrors.value).toEqual(before);
         });
     });
 

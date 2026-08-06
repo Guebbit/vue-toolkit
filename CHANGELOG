@@ -1,3 +1,11 @@
+# 2.2.0
+
+## Added
+- `useStructureFormValidation` takes a third `options` argument with a `revalidateOn` option: a `WatchSource` (or array of them) that re-runs `validate()` over the unchanged form data whenever it changes. It exists for language switches — `formErrors` holds resolved strings, so an error already on screen cannot re-translate itself no matter how the schema is shaped, and only re-parsing produces the new wording. It fires only while errors are on display, so a pristine form is not validated just because the language changed. Deliberately generic: the toolkit stays i18n-agnostic and the same hook covers any other reason to re-validate.
+
+## Changed
+- Documented that a schema whose messages are thunks (`error: () => t('…')`) is resolved just as late as a getter schema, and is the safer of the two: `toValue(schema)` runs inside `validate()` and nowhere else, while a getter that is accidentally invoked at the call site type-checks and silently freezes the language.
+
 # 2.1.4
 
 ## Fixed

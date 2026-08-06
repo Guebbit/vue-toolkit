@@ -2,21 +2,49 @@ import { computed, ref, toValue, watch, type MaybeRefOrGetter, type WatchSource 
 import { type ZodType } from 'zod';
 
 /**
+ * Options for {@link useStructureFormValidation}.
+ */
+export interface IStructureFormValidationOptions {
+    /**
+     * Sources that, when they change, re-run validation over the UNCHANGED form data.
+     *
+     * The case this exists for is a language switch. Zod hands back resolved message
+     * *strings*, and {@link useStructureFormValidation} copies them into `formErrors`, so once
+     * `validate()` has returned those strings are inert text: the schema is out of the picture
+     * and re-rendering the component just re-prints the same English error under a now-Italian
+     * label. Re-parsing the same data produces the same set of errors with different strings.
+     *
+     * Deliberately generic rather than a `locale` option: the toolkit must not know that
+     * vue-i18n exists, and "re-validate when X changes" covers other reasons too (a unit
+     * system, a tenant's rules). Pass `i18n.global.locale` and you have the i18n behaviour.
+     *
+     * Only fires for a form that has errors on display. A pristine form the user has not
+     * submitted yet must not sprout red text just because they changed the language.
+     */
+    revalidateOn?: WatchSource | WatchSource[];
+}
+
+/**
  * Form management composable.
  * Handles reactive form state, optional Zod schema validation and submission flow.
  *
  * @param initialData - Initial values for the form fields
- * @param schema      - Optional Zod schema used for validation. Accepts a plain schema,
- *                      a ref, or a getter (e.g. `() => createUsersSchema(t)`) so schemas
- *                      built from i18n-dependent messages stay current after a locale
- *                      switch instead of being frozen at setup time.
+ * @param schema      - Optional Zod schema used for validation. Accepts a plain schema, a ref,
+ *                      or a getter. `toValue` is applied inside `validate()` and nowhere else,
+ *                      so a plain schema whose messages are thunks (`error: () => t('…')`) is
+ *                      resolved just as late as a getter would be — prefer the plain schema,
+ *                      since a getter that is accidentally called at the call site
+ *                      (`schema(t)` instead of `() => schema(t)`) type-checks, runs, and
+ *                      silently freezes the language.
+ * @param options     - See {@link IStructureFormValidationOptions}
  */
 export const useStructureFormValidation = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     T extends Record<string, any> = Record<string, any>
 >(
     initialData: T = {} as T,
-    schema?: MaybeRefOrGetter<ZodType<T> | undefined>
+    schema?: MaybeRefOrGetter<ZodType<T> | undefined>,
+    options: IStructureFormValidationOptions = {}
 ) => {
     /**
      * Baseline values resetForm() restores and isDirty compares against.
@@ -192,6 +220,19 @@ export const useStructureFormValidation = <
             },
             { immediate: true }
         );
+
+    /**
+     * Re-translate what is already on screen — see {@link IStructureFormValidationOptions}.
+     *
+     * `validate()` is deterministic on `form.value`, so re-running it against unchanged data
+     * yields the same set of errors with freshly-resolved messages. The `isValid` guard is what
+     * keeps it from being destructive: with no errors showing there is nothing to re-translate,
+     * and running anyway would splash red onto a form the user has not submitted yet.
+     */
+    if (options.revalidateOn)
+        watch(options.revalidateOn, () => {
+            if (!isValid.value) validate();
+        });
 
     return {
         form,
