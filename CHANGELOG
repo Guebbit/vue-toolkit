@@ -1,3 +1,22 @@
+# 3.0.0
+
+## Removed
+- **BREAKING** — removed `dialogs` from `useNotificationsStore`. It was a bare `Record<string, boolean>` with no actions of its own, so it carried no behaviour worth sharing: dialog visibility is an application concern and belongs in a consumer's own store. Replace `notifications.dialogs[name]` with a local `ref({} as Record<string, boolean>)`.
+
+## Added
+- Added `useStructureCrudApi`, the highest-level entry point: a whole resource — list, filtered search, read, create, update, delete — declared as the API calls that reach it. It is `useStructureSearchApi` with the wiring done, and spreads everything that composable returns, so it is a convenience and never a ceiling. Every operation (`list`, `search`, `get`, `create`, `update`, `remove`) is optional; a method whose operation was not supplied returns a rejection naming it. Owns the `filters` ref, so the filters driving the search and the filters scoping `pageItemList` cannot be two different objects. `optimisticPatch` covers the case where the update payload is not a partial record — a multipart form whose payload carries a `File` the record has no business holding.
+- Added `useUploadProgress`: reactive `progress`/`isUploading` for one upload, plus a `track` wrapper that returns to idle however the request ends. HTTP-client-agnostic — the client-specific part is a single `buildOptions` function passed in, so the toolkit never names axios. `track(send, { enabled: false })` calls `send` with no options at all, for the form whose file is optional.
+- `useStructureFormValidation` now owns `showFormErrors` across the whole submit flow: `handleSubmit` reveals on a validation failure, hides on success, and leaves it off when the handler itself throws (an API failure is not a statement about any field).
+- Added `revealErrors()` to `useStructureFormValidation`: turns `showFormErrors` on, waits for the render, focuses the first invalid field, then calls `onInvalid`. The wait is why it is a method — fields only acquire their invalid markers once the flag has propagated, so focusing any earlier finds nothing.
+- Added `applyServerErrors(error, options?)` to `useStructureFormValidation`: attaches the errors an API rejected a submit with to the fields they belong to. Finds them at the root, under `.data` or under `.response.data`, and understands field maps, `{ field, message }` lists (including `name`/`param`/`path` and `msg` spellings) and bare string lists. Merges rather than replaces, and returns `false` when the rejection carried nothing displayable, so the caller knows it still owes the user a message.
+- Added `formElement`, `invalidFieldSelector` and `onInvalid` options to `useStructureFormValidation`. Focus targets `[aria-invalid="true"]` by default; omitting `formElement` makes `revealErrors` a pure state change with no DOM access, for SSR and node tests.
+- Exported `IStructureFormValidation`, `IStructureCrudApi` and `IUploadProgress` return-type aliases, plus `DEFAULT_INVALID_FIELD_SELECTOR`.
+
+## Changed
+- Documented that `watchTarget` selects the record it fetches while `fetchTarget` does not, and why: `watchTarget` is bound to a screen's id, whereas a prefetch or background refresh through `fetchTarget` must not steal the selection from what the user is looking at. `useStructureCrudApi`'s `fetchOne` is the selecting variant.
+- Added documentation pages for `useStructureSearchApi` (previously undocumented despite being a core composable), `useStructureCrudApi` and `useUploadProgress`.
+- `handleSubmit` is written as a promise chain rather than `async`/`await` with `try`/`finally`, matching the style of the rest of the package. Behaviour is unchanged: the `Promise.resolve()` the chain starts from is what keeps a *synchronous* throw inside the submit handler arriving at the caller as a rejection, exactly as `await` did. `src/` no longer contains `async`/`await` anywhere.
+
 # 2.2.0
 
 ## Added

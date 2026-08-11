@@ -90,14 +90,6 @@ export const useNotificationsStore = defineStore('notifications', () => {
     const removeMessage = (_id: string) =>
         (history.value = history.value.filter(({ id }) => id !== _id));
 
-    // ________________ DIALOGS ________________
-
-    /**
-     * Manage all dialogs
-     * key is dialog name, value is dialog visibility (on/off)
-     */
-    const dialogs = ref({} as Record<string, boolean>);
-
     return {
         history,
         messages,
@@ -105,7 +97,6 @@ export const useNotificationsStore = defineStore('notifications', () => {
         findMessage,
         hideMessage,
         showMessage,
-        removeMessage,
-        dialogs
+        removeMessage
     };
 });

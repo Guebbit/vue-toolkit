@@ -24,9 +24,12 @@ export default defineConfig({
       {
         text: 'Composables',
         items: [
+          { text: 'useStructureCrudApi', link: '/composables/structure-crud-api' },
           { text: 'useStructureRestApi', link: '/composables/structure-rest-api' },
+          { text: 'useStructureSearchApi', link: '/composables/structure-search-api' },
           { text: 'useStructureDataManagement', link: '/composables/structure-data-management' },
-          { text: 'useStructureFormValidation', link: '/composables/structure-form-validation' }
+          { text: 'useStructureFormValidation', link: '/composables/structure-form-validation' },
+          { text: 'useUploadProgress', link: '/composables/upload-progress' }
         ]
       },
       {

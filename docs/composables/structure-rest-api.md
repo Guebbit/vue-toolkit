@@ -152,6 +152,13 @@ Every fetch/mutate method accepts a trailing settings object (`IFetchSettings`):
   whole flight of the refetch.
 - **`mismatch: true`** when a fetch call returns partial fields (e.g. a list endpoint that omits
   some detail-only fields) that shouldn't overwrite a fuller cached record's freshness.
+- **`watchTarget` selects, `fetchTarget` does not.** `watchTarget` sets `selectedIdentifier`
+  before each fetch and clears it on failure, because it is bound to a screen's id: whatever it is
+  watching *is* the current record. `fetchTarget` is the imperative primitive and only stores —
+  loading a record is not the same as putting it on screen, and a prefetch or a background refresh
+  must not steal the selection from what the user is looking at. Assign `selectedIdentifier`
+  yourself when you do want it, or use
+  [`useStructureCrudApi`](./structure-crud-api)'s `fetchOne`, which does exactly that.
 - **`destroy()`** is wired to the current Vue effect scope automatically (component `setup`,
   Pinia setup store, `effectScope`). In standalone usage with no active scope, call it yourself —
   nothing warns you if you don't.

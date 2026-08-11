@@ -15,6 +15,14 @@ const loginSchema = z.object({
 const INITIAL_LOGIN: ILoginForm = { email: '', password: '' };
 
 /**
+ * Stand-in for the form element: the composable only ever asks it for a descendant and tries to
+ * focus what comes back, so a container and a field are all a test needs.
+ */
+const createForm = (field?: unknown) => ({
+    querySelector: jest.fn().mockReturnValue(field)
+});
+
+/**
  * A login schema whose email message is a thunk, so the wording is decided at parse time.
  */
 const localizedSchema = (message: () => string) =>
@@ -457,6 +465,248 @@ describe('useStructureFormValidation', () => {
             const result = await composable.handleSubmit(handler, false);
             expect(result).toBe(true);
             expect(handler).toHaveBeenCalled();
+        });
+
+        // ─── showFormErrors ownership ─────────────────────────────────────────
+        // The composable, not the call site, decides when errors are on screen.
+
+        it('reveals the errors when validation rejects the submit', async () => {
+            await composable.handleSubmit(jest.fn());
+            expect(composable.showFormErrors.value).toBe(true);
+        });
+
+        it('hides the errors once a submit validates', async () => {
+            await composable.handleSubmit(jest.fn());
+            composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            await composable.handleSubmit(jest.fn().mockImplementation(async () => {}));
+            expect(composable.showFormErrors.value).toBe(false);
+        });
+
+        it('leaves the errors hidden when the handler itself fails', async () => {
+            // A rejected API call says nothing about any particular field, so nothing to reveal.
+            composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            const handler = jest.fn().mockRejectedValue(new Error('network error'));
+            await expect(composable.handleSubmit(handler)).rejects.toThrow('network error');
+            expect(composable.showFormErrors.value).toBe(false);
+        });
+
+        it('does not reveal anything when validation is skipped', async () => {
+            await composable.handleSubmit(
+                jest.fn().mockImplementation(async () => {}),
+                false
+            );
+            expect(composable.showFormErrors.value).toBe(false);
+        });
+    });
+
+    // ─── revealErrors ─────────────────────────────────────────────────────────
+
+    describe('revealErrors', () => {
+        it('turns showFormErrors on', async () => {
+            await composable.revealErrors();
+            expect(composable.showFormErrors.value).toBe(true);
+        });
+
+        it('focuses the first invalid field of the given form', async () => {
+            const field = { focus: jest.fn() };
+            const formElement = createForm(field);
+            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+                formElement
+            });
+
+            await withForm.revealErrors();
+
+            expect(formElement.querySelector).toHaveBeenCalledWith('[aria-invalid="true"]');
+            expect(field.focus).toHaveBeenCalled();
+        });
+
+        it('honours a custom selector, for kits that mark the wrapper', async () => {
+            const formElement = createForm({ focus: jest.fn() });
+            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+                formElement,
+                invalidFieldSelector: '.v-input--error input'
+            });
+
+            await withForm.revealErrors();
+
+            expect(formElement.querySelector).toHaveBeenCalledWith('.v-input--error input');
+        });
+
+        it('reads the form element through a ref, so a template ref works', async () => {
+            const field = { focus: jest.fn() };
+            const formElement = ref<ReturnType<typeof createForm>>();
+            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+                formElement
+            });
+
+            // Unmounted: nothing to focus, and nothing to throw either.
+            await withForm.revealErrors();
+            expect(field.focus).not.toHaveBeenCalled();
+
+            formElement.value = createForm(field);
+            await withForm.revealErrors();
+            expect(field.focus).toHaveBeenCalled();
+        });
+
+        it('is a pure state change when no form element was given', async () => {
+            // The SSR / node-test path: no DOM is touched at all.
+            await expect(composable.revealErrors()).resolves.toBeUndefined();
+            expect(composable.showFormErrors.value).toBe(true);
+        });
+
+        it('tolerates a match that cannot be focused', async () => {
+            const formElement = createForm({ notAFocusMethod: true });
+            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+                formElement
+            });
+            await expect(withForm.revealErrors()).resolves.toBeUndefined();
+        });
+
+        it('calls onInvalid with the errors on display', async () => {
+            const onInvalid = jest.fn();
+            const withHook = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+                onInvalid
+            });
+
+            withHook.validate();
+            await withHook.revealErrors();
+
+            expect(onInvalid).toHaveBeenCalledWith(
+                expect.objectContaining({ email: ['Invalid email address'] })
+            );
+        });
+
+        it('is reached by a failed handleSubmit, hook and focus included', async () => {
+            const field = { focus: jest.fn() };
+            const onInvalid = jest.fn();
+            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+                formElement: createForm(field),
+                onInvalid
+            });
+
+            const result = await withForm.handleSubmit(jest.fn());
+
+            expect(result).toBe(false);
+            expect(field.focus).toHaveBeenCalled();
+            expect(onInvalid).toHaveBeenCalled();
+        });
+    });
+
+    // ─── applyServerErrors ────────────────────────────────────────────────────
+
+    describe('applyServerErrors', () => {
+        it('attaches a field map to the matching fields', () => {
+            const applied = composable.applyServerErrors({
+                errors: { email: 'Already taken', password: ['Too short', 'Too common'] }
+            });
+
+            expect(applied).toBe(true);
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+            expect(composable.formErrors.value.password).toEqual(['Too short', 'Too common']);
+        });
+
+        it('reads a list of {field, message} objects', () => {
+            composable.applyServerErrors({
+                errors: [{ field: 'email', message: 'Already taken' }]
+            });
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+        });
+
+        it('reads express-validator’s param/msg spelling', () => {
+            composable.applyServerErrors({
+                errors: [{ param: 'password', msg: 'Too short' }]
+            });
+            expect(composable.formErrors.value.password).toEqual(['Too short']);
+        });
+
+        it('reads a zod-shaped issue list, collapsing nested paths to their root field', () => {
+            composable.applyServerErrors({
+                issues: [{ path: ['email', 'domain'], message: 'Domain not allowed' }]
+            });
+            expect(composable.formErrors.value.email).toEqual(['Domain not allowed']);
+        });
+
+        it('digs the errors out of an unwrapped body', () => {
+            composable.applyServerErrors({ data: { errors: { email: 'Already taken' } } });
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+        });
+
+        it('digs the errors out of a raw axios error', () => {
+            composable.applyServerErrors({
+                response: { data: { errors: { email: 'Already taken' } } }
+            });
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+        });
+
+        it('renames server fields through the map option', () => {
+            composable.applyServerErrors(
+                { errors: { user_email: 'Already taken' } },
+                { map: { user_email: 'email' } }
+            );
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+        });
+
+        it('routes form-level messages to onUnmapped', () => {
+            const onUnmapped = jest.fn();
+            const applied = composable.applyServerErrors(
+                { errors: ['Payment declined'] },
+                { onUnmapped }
+            );
+
+            expect(applied).toBe(false);
+            expect(onUnmapped).toHaveBeenCalledWith(['Payment declined']);
+        });
+
+        it('routes errors about fields this form does not have to onUnmapped', () => {
+            const onUnmapped = jest.fn();
+            composable.applyServerErrors({ errors: { captcha: 'Expired' } }, { onUnmapped });
+
+            expect(onUnmapped).toHaveBeenCalledWith(['Expired']);
+            expect(composable.formErrors.value).toEqual({});
+        });
+
+        it('splits a mixed payload between the fields and onUnmapped', () => {
+            const onUnmapped = jest.fn();
+            const applied = composable.applyServerErrors(
+                { errors: [{ field: 'email', message: 'Already taken' }, 'Payment declined'] },
+                { onUnmapped }
+            );
+
+            expect(applied).toBe(true);
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+            expect(onUnmapped).toHaveBeenCalledWith(['Payment declined']);
+        });
+
+        it('reveals what it applied', () => {
+            expect(composable.showFormErrors.value).toBe(false);
+            composable.applyServerErrors({ errors: { email: 'Already taken' } });
+            expect(composable.showFormErrors.value).toBe(true);
+        });
+
+        it('keeps errors the server said nothing about', () => {
+            // The API answered about `email`; that is not an all-clear for `password`.
+            composable.setFieldError('password', 'Too short');
+            composable.applyServerErrors({ errors: { email: 'Already taken' } });
+
+            expect(composable.formErrors.value.password).toEqual(['Too short']);
+            expect(composable.formErrors.value.email).toEqual(['Already taken']);
+        });
+
+        it('returns false, and changes nothing, for a rejection carrying no errors', () => {
+            const applied = composable.applyServerErrors(new Error('network error'));
+
+            expect(applied).toBe(false);
+            expect(composable.formErrors.value).toEqual({});
+            expect(composable.showFormErrors.value).toBe(false);
+        });
+
+        it('ignores empty and non-string messages', () => {
+            const applied = composable.applyServerErrors({
+                errors: { email: ['', undefined, 42], password: [] }
+            });
+
+            expect(applied).toBe(false);
+            expect(composable.formErrors.value).toEqual({});
         });
     });
 });

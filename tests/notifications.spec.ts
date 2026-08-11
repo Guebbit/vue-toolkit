@@ -62,11 +62,6 @@ describe('useNotificationsStore', () => {
         expect(found?.message).toBe('Find me');
     });
 
-    it('dialogs are empty by default', () => {
-        const store = useNotificationsStore();
-        expect(Object.keys(store.dialogs)).toHaveLength(0);
-    });
-
     describe('auto-hide timeout', () => {
         beforeEach(() => jest.useFakeTimers());
         afterEach(() => jest.useRealTimers());
