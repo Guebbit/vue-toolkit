@@ -1,6 +1,6 @@
 {
     "name": "@guebbit/vue-toolkit",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "license": "AGPLv3.0",
     "type": "module",
     "main": "dist/index.js",
@@ -78,6 +78,6 @@
         }
     },
     "dependencies": {
-        "@guebbit/js-toolkit": "^1.2.1"
+        "@guebbit/js-toolkit": "^2.2.0"
     }
 }

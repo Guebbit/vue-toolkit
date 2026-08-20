@@ -29,7 +29,9 @@ export default defineConfig({
           { text: 'useStructureSearchApi', link: '/composables/structure-search-api' },
           { text: 'useStructureDataManagement', link: '/composables/structure-data-management' },
           { text: 'useStructureFormValidation', link: '/composables/structure-form-validation' },
-          { text: 'useUploadProgress', link: '/composables/upload-progress' }
+          { text: 'useUploadProgress', link: '/composables/upload-progress' },
+          { text: 'useAsyncAction', link: '/composables/async-action' },
+          { text: 'useLivenessProbe', link: '/composables/liveness-probe' }
         ]
       },
       {

@@ -1,3 +1,14 @@
+# 3.1.0
+
+## Added
+- Added `useAsyncAction`: loading/data/error state for ONE async call, and the wrapper that drives it. The counterpart to the `useStructure*` family rather than a competitor — those are about records (identified, cached, mutated), this is about a one-shot call whose answer is just a payload. `fetchAny` already covered the loading half but exposes neither `data` nor `error`, which is what left a dashboard writing the same three-ref block once per endpoint. It never rejects: a failure lands in `error` and the promise still resolves, so one dead endpoint renders one error panel instead of blanking the page. That makes it a composable for READS — a write whose outcome the user asked for should reject and let the view answer with the toast it already writes. Only the newest `run` may write, so a double-clicked Refresh cannot overwrite a fresh answer with a stale one, nor clear `loading` while its successor is still in flight.
+- Added `useLivenessProbe`: a connectivity banner's whole state in one boolean. Probes once on creation, again on every browser `online` event, then retries slowly and ONLY while down — a reachable target is never polled twice. The retry chain has exactly one owner, which is the failure this exists to prevent: two `online` events while down otherwise leave two independent loops running, each spawning its own successor forever, with teardown able to cancel only the last one scheduled. What is being probed is the caller's business — anything that rejects when unreachable will do. Stops with the surrounding effect scope; `stop()` is idempotent and a probe that outlives teardown can no longer write to `down`.
+- Exported `IAsyncAction`, `IAsyncActionSettings`, `TErrorResolver`, `ILivenessProbe` and `ILivenessProbeSettings`.
+- Added documentation pages for `useAsyncAction` and `useLivenessProbe`.
+
+## Changed
+- **BREAKING for anyone pinning it** — `@guebbit/js-toolkit` moved from `^1.2.1` to `^2.2.0`. `useAsyncAction`'s default error resolver is its new `extractErrorMessage`, which is what makes a plain-object rejection work: an interceptor that normalises failures rejects with an object literal rather than an `Error`, and anything testing `instanceof Error` reads a real API refusal as "nothing usable". Nothing else in the package changed behaviour.
+
 # 3.0.0
 
 ## Removed
