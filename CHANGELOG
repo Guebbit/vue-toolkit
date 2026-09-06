@@ -1,3 +1,9 @@
+# 4.0.0
+
+## Changed
+- **BREAKING** — `useCoreStore`'s `isLoading` is a function taking optional key prefixes, not a computed. `isLoading()` still answers "is anything loading at all"; `isLoading(['account', 'cart'])` answers only for the keys starting with one of those. The old computed collapsed an already-granular dictionary back to one bit before any UI saw it, so a background poll lit the same indicator as a user's save. Replace `core.isLoading` with `core.isLoading()`, and note it no longer comes out of `storeToRefs` — destructure it from the store and call it inside a `computed`.
+- `loadings` is typed `Record<string, boolean>`: `Object.entries` never returned the `symbol` half, so a symbol key could be set and then never matched by anything reading the dictionary.
+
 # 3.1.0
 
 ## Added
