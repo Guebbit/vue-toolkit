@@ -11,10 +11,10 @@
  */
 import { computed, readonly, type Ref } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
-import type { IRecordStore } from '../composables/structureDataManagement';
-import { LIST_KINDS, type IResourceKeys, type ITargetEntry } from './resourceKeys';
-import { dropQueries, dropQuery } from './queryRemoval';
-import { isNil } from './plainData';
+import type { IRecordStore } from '../composables/structureDataManagement.js';
+import { LIST_KINDS, type IResourceKeys, type ITargetEntry } from './resourceKeys.js';
+import { dropQueries, dropQuery } from './queryRemoval.js';
+import { isNil } from './plainData.js';
 
 /** What the record store needs from the resource that owns it. */
 export interface IQueryRecordStoreContext {

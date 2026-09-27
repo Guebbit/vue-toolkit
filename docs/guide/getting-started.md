@@ -18,7 +18,7 @@ The package expects these already in your project:
 
 | Package               | Version   |
 | ---------------------- | --------- |
-| `vue`                 | `>=3.3`   |
+| `vue`                 | `>=3.4`   |
 | `pinia`               | `>=2.0.0` |
 | `@tanstack/vue-query` | `^5.103`  |
 | `zod`                 | `>=4.4.3` (optional) |

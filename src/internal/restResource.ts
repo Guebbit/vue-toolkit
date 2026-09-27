@@ -34,22 +34,22 @@ import {
     type QueryKey
 } from '@tanstack/vue-query';
 import { getUuid } from '@guebbit/js-toolkit';
-import { useStructureDataManagement } from '../composables/structureDataManagement';
+import { useStructureDataManagement } from '../composables/structureDataManagement.js';
 import type {
     IFetchSettings,
     IStructureRestApi,
     IWatchHandle,
     IWatchTargetSettings
-} from '../composables/structureRestApi';
-import { isNil, stableKey } from './plainData';
-import { createResourceKeys, type IListCacheEntry, type ITargetEntry } from './resourceKeys';
-import { useResourceActivity } from './resourceActivity';
-import { createQueryRecordStore } from './queryRecordStore';
-import { createParentRelations } from './parentRelations';
-import { watchSettled } from './settleCallbacks';
-import { createFreshnessChecks } from './freshnessChecks';
-import { createResourceMutations } from './resourceMutations';
-import { dropQueries, dropQuery } from './queryRemoval';
+} from '../composables/structureRestApi.js';
+import { isNil, stableKey } from './plainData.js';
+import { createResourceKeys, type IListCacheEntry, type ITargetEntry } from './resourceKeys.js';
+import { useResourceActivity } from './resourceActivity.js';
+import { createQueryRecordStore } from './queryRecordStore.js';
+import { createParentRelations } from './parentRelations.js';
+import { watchSettled } from './settleCallbacks.js';
+import { createFreshnessChecks } from './freshnessChecks.js';
+import { createResourceMutations } from './resourceMutations.js';
+import { dropQueries, dropQuery } from './queryRemoval.js';
 
 /** A list call: resolves the list's items. */
 export type TListCall<T> = () => Promise<(T | undefined)[]>;

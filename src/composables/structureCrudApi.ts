@@ -10,13 +10,17 @@
  * @see docs/composables/structure-crud-api.md
  */
 import { ref, type Ref, type WatchSource } from 'vue';
-import { detachedCopy } from '../internal/plainData';
+import { detachedCopy } from '../internal/plainData.js';
 import {
     useStructureSearchApi,
     type ISearchResult,
     type IWatchSearchSettings
-} from './structureSearchApi';
-import type { IFetchSettings, IStructureRestApi, IWatchTargetSettings } from './structureRestApi';
+} from './structureSearchApi.js';
+import type {
+    IFetchSettings,
+    IStructureRestApi,
+    IWatchTargetSettings
+} from './structureRestApi.js';
 
 /**
  * The API calls a resource is reached through. All optional: a read-only resource supplies

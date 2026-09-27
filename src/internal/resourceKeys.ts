@@ -9,7 +9,7 @@
  *
  * @module internal/resourceKeys
  */
-import { stableKey } from './plainData';
+import { stableKey } from './plainData.js';
 
 /** What a query entry holds: one record (`target`), a list of ids, or anything else (`any`). */
 export type TResourceKind = 'target' | 'all' | 'parent' | 'page' | 'search' | 'any';

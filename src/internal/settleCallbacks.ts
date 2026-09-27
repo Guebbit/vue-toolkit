@@ -11,7 +11,7 @@
  */
 import { getCurrentScope, onScopeDispose, watch } from 'vue';
 import { CancelledError, hashKey, type QueryClient } from '@tanstack/vue-query';
-import type { IWatchCallbacks } from '../composables/structureRestApi';
+import type { IWatchCallbacks } from '../composables/structureRestApi.js';
 
 /** How a watcher reads what its settles report. */
 export interface ISettleReaders<R, C> {

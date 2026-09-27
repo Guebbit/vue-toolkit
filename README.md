@@ -13,7 +13,7 @@ rolled back automatically on failure — Zod-backed form validation, and toast/l
 npm install @guebbit/vue-toolkit @tanstack/vue-query
 ```
 
-Peer dependencies: `vue >= 3.3`, `pinia >= 2.0.0`, `@tanstack/vue-query ^5.103`, and optionally
+Peer dependencies: `vue >= 3.4`, `pinia >= 2.0.0`, `@tanstack/vue-query ^5.103`, and optionally
 `zod >= 4.4.3` (only `useStructureFormValidation` needs it). Install `@tanstack/vue-query` yourself
 (not `@tanstack/query-core`), and give the app one `QueryClient`:
 

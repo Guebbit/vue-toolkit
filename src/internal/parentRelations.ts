@@ -11,8 +11,8 @@
  */
 import { computed, type Ref } from 'vue';
 import type { Query, QueryClient, QueryKey } from '@tanstack/vue-query';
-import type { IListCacheEntry, IResourceKeys } from './resourceKeys';
-import { recordListByIds, recordsByIds } from './recordLookup';
+import type { IListCacheEntry, IResourceKeys } from './resourceKeys.js';
+import { recordListByIds, recordsByIds } from './recordLookup.js';
 
 /** What the relations need from the resource that owns them. */
 export interface IParentRelationsContext<T, K> {

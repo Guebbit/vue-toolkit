@@ -8,8 +8,8 @@
     "types": "dist/types/index.d.ts",
     "exports": {
         ".": {
-            "import": "./dist/index.js",
-            "types": "./dist/types/index.d.ts"
+            "types": "./dist/types/index.d.ts",
+            "import": "./dist/index.js"
         }
     },
     "files": [
@@ -23,6 +23,7 @@
         "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
         "build": "tsc",
         "test": "jest --config jest.config.cjs --passWithNoTests",
+        "test:package": "publint --strict && attw --pack . --profile esm-only && node tests/package/smoke.mjs",
         "test:mutation": "stryker run",
         "test:target": "clear && jest --config jest.config.cjs tests/structureRestApi",
         "lint": "eslint \"*/**/*.{ts,js,json}\"",
@@ -33,12 +34,13 @@
         "docs:build": "vitepress build docs",
         "docs:preview": "vitepress preview docs",
         "update:all": "npx npm-check-updates -u",
-        "complete": "npm run lint:fix && npm run prettier:fix && npm run build && npm run test && npm run docs:build",
-        "complete:check": "npm run lint && npm run prettier && npm run build && npm run test && npm run docs:build",
+        "complete": "npm run lint:fix && npm run prettier:fix && npm run build && npm run test:package && npm run test && npm run docs:build",
+        "complete:check": "npm run lint && npm run prettier && npm run build && npm run test:package && npm run test && npm run docs:build",
         "publish:public": "npm run complete && npm publish --access public",
         "prepare": "husky"
     },
     "devDependencies": {
+        "@arethetypeswrong/cli": "^0.18.5",
         "@commitlint/cli": "^20.5.0",
         "@commitlint/config-conventional": "^20.5.0",
         "@eslint/js": "^9.0.0",
@@ -64,6 +66,7 @@
         "mermaid": "^11.17.2",
         "pinia": "^3.0.4",
         "prettier": "^3.8.1",
+        "publint": "^0.3.24",
         "ts-jest": "^29.4.6",
         "typescript": "^5.9.3",
         "typescript-eslint": "^8.57.2",
@@ -74,7 +77,7 @@
     "peerDependencies": {
         "@tanstack/vue-query": "^5.103",
         "pinia": ">=2.0.0",
-        "vue": ">=3.3",
+        "vue": ">=3.4",
         "zod": ">=4.4.3"
     },
     "peerDependenciesMeta": {

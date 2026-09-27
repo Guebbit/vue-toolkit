@@ -10,7 +10,7 @@
  */
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
-import { matchesAnyPrefix } from '../internal/plainData';
+import { matchesAnyPrefix } from '../internal/plainData.js';
 
 /**
  * Global loading state, readable from components, guards and composables alike.

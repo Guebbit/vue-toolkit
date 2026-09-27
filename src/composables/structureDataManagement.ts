@@ -11,7 +11,7 @@
  */
 import { computed, ref, toRaw, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
-import { recordListByIds, recordsByIds } from '../internal/recordLookup';
+import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
 
 /**
  * The write surface `useStructureDataManagement` stores its records through: a local reactive

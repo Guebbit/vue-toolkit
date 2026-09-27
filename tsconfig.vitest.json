@@ -2,6 +2,11 @@
     "extends": "./tsconfig.json",
     "include": ["src/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx"],
     "compilerOptions": {
-        "types": ["jest", "node"]
+        "types": ["jest", "node"],
+        // Overrides the base config's NodeNext: test files import their `src/` siblings without a
+        // `.js` extension (ts-jest transpiles them as CommonJS, see jest.config.cjs), so type-aware
+        // linting here must resolve them the same permissive way, not the one `dist` ships under.
+        "module": "ESNext",
+        "moduleResolution": "bundler"
     }
 }

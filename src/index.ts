@@ -6,14 +6,14 @@
  *
  * @module index
  */
-export * from './stores/core';
-export * from './stores/notifications';
-export * from './composables/structureDataManagement';
-export * from './composables/structureRestApi';
-export * from './composables/structureSearchApi';
-export * from './composables/structureFormValidation';
-export * from './composables/structureCrudApi';
-export * from './composables/uploadProgress';
-export * from './composables/asyncAction';
-export * from './composables/livenessProbe';
-export * from './composables/isLoading';
+export * from './stores/core.js';
+export * from './stores/notifications.js';
+export * from './composables/structureDataManagement.js';
+export * from './composables/structureRestApi.js';
+export * from './composables/structureSearchApi.js';
+export * from './composables/structureFormValidation.js';
+export * from './composables/structureCrudApi.js';
+export * from './composables/uploadProgress.js';
+export * from './composables/asyncAction.js';
+export * from './composables/livenessProbe.js';
+export * from './composables/isLoading.js';

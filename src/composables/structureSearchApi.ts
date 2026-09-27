@@ -12,16 +12,16 @@
  */
 import { computed, ref, shallowRef, toValue, watch, type WatchSource } from 'vue';
 import type { Query } from '@tanstack/vue-query';
-import { createRestResource } from '../internal/restResource';
-import { detachedCopy, stableKey } from '../internal/plainData';
-import type { IListCacheEntry } from '../internal/resourceKeys';
-import { watchSettled } from '../internal/settleCallbacks';
+import { createRestResource } from '../internal/restResource.js';
+import { detachedCopy, stableKey } from '../internal/plainData.js';
+import type { IListCacheEntry } from '../internal/resourceKeys.js';
+import { watchSettled } from '../internal/settleCallbacks.js';
 import type {
     IFetchSettings,
     IStructureRestApi,
     IWatchCallbacks,
     IWatchHandle
-} from './structureRestApi';
+} from './structureRestApi.js';
 
 /** What a search resolves: one page of items, and the server's total for the whole search. */
 export interface ISearchResult<T> {

@@ -11,7 +11,7 @@
  */
 import type { Ref, WatchStopHandle } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
-import { createRestResource } from '../internal/restResource';
+import { createRestResource } from '../internal/restResource.js';
 
 /**
  * Per-call settings of a fetch. Unset fields fall back to the resource's defaults. Each method

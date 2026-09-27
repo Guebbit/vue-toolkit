@@ -10,7 +10,7 @@
  */
 import { computed, type ComputedRef } from 'vue';
 import { useIsFetching, useIsMutating, type QueryClient } from '@tanstack/vue-query';
-import { matchesAnyPrefix } from '../internal/plainData';
+import { matchesAnyPrefix } from '../internal/plainData.js';
 
 /**
  * True while any query or mutation of the matching resources is in flight. A layout-level

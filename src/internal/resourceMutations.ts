@@ -14,10 +14,10 @@
 import { toRaw } from 'vue';
 import { MutationObserver, type QueryClient } from '@tanstack/vue-query';
 import { getUuid } from '@guebbit/js-toolkit';
-import type { IFetchSettings, IUpdateTargetSettings } from '../composables/structureRestApi';
-import type { IQueryRecordStore, IRecordSnapshot } from './queryRecordStore';
-import { LIST_KINDS, type IResourceKeys } from './resourceKeys';
-import { isNil } from './plainData';
+import type { IFetchSettings, IUpdateTargetSettings } from '../composables/structureRestApi.js';
+import type { IQueryRecordStore, IRecordSnapshot } from './queryRecordStore.js';
+import { LIST_KINDS, type IResourceKeys } from './resourceKeys.js';
+import { isNil } from './plainData.js';
 
 /** The record operations the mutations write through. */
 export interface IRecordOperations<T, K> {

@@ -49,7 +49,8 @@ is an active TanStack observer that reacts to invalidation on its own.
   `useStructureSearchApi`/`useStructureCrudApi` call either takes one explicitly via its
   `queryClient` option or finds it through this injection (which also works inside a Pinia setup
   store). One shared client per app is what makes cross-resource cache invalidation possible at
-  all. `vue` peer moves to `>=3.3` (`vue-query`'s own floor).
+  all. `vue` peer moves to `>=3.4` — one minor past `vue-query`'s own floor (`3.3`): see Fixed,
+  below, for why.
 - **BREAKING** — `loadingKey` → **`resourceKey`**, and it is now **required**, with no random
   fallback. It's the key every query and mutation a resource makes starts with — what
   `queryClient.invalidateQueries({queryKey:[resourceKey]})` addresses from another store, and what
@@ -251,6 +252,17 @@ is an active TanStack observer that reacts to invalidation on its own.
 - `dist`'s `.js.map`/`.d.ts.map` files pointed at `src/`, which the package never ships; a
   debugger stepping into the library, or a bundler resolving a source map, hit a 404. `sourceMap`
   and `declarationMap` are off; `dist`'s `.d.ts` files still carry full types, just no map.
+- Under Vue 3.3, changing `pageSize` on `useStructureSearchApi`/`useStructureCrudApi` could refetch
+  the *old* page number at the *new* page size before resetting to page 1, firing one extra
+  request: Vue 3.3's watcher scheduler could flush the active query's key before the
+  `pageSize`→`pageCurrent` reset watcher runs. `vue` peer floor moves to `>=3.4`, which orders them
+  correctly.
+- `dist` couldn't be loaded by plain Node or by `moduleResolution: node16`/`nodenext`:
+  `tsc` emitted extensionless relative imports (`'./stores/core'`), which Node's own ESM loader
+  refuses (`ERR_MODULE_NOT_FOUND`). A bundler-free consumer — SSR that externalizes the package,
+  some test runners — hit this on every import. `src/` now imports its own modules with a `.js`
+  extension, and `tsconfig.json` builds with `module`/`moduleResolution: NodeNext`, so the compiler
+  refuses a missing one from now on.
 
 # 4.0.0
 

@@ -8,7 +8,11 @@ module.exports = {
         // @tanstack/vue-query's CJS build eagerly requires its devtools module, which require()s
         // @tanstack/match-sorter-utils — an ESM-only package. Node itself loads it (require of
         // ESM); Jest's own module loader does not, so Jest gets a stub instead. See the stub file.
-        '^@tanstack/match-sorter-utils$': '<rootDir>/tests/_stubs/tanstackMatchSorterUtils.cjs'
+        '^@tanstack/match-sorter-utils$': '<rootDir>/tests/_stubs/tanstackMatchSorterUtils.cjs',
+        // src/ imports its own relative modules with a .js extension (NodeNext, so `dist` loads
+        // under Node's own ESM resolver). ts-jest runs the CommonJS transform below, which resolves
+        // extensionless, so strip the extension back off before Jest resolves the module.
+        '^(\\.{1,2}/.*)\\.js$': '$1'
     },
     transform: {
         '^.+\\.tsx?$': [

@@ -13,8 +13,8 @@
  */
 import { computed, getCurrentScope, onScopeDispose, readonly, ref, type Ref } from 'vue';
 import type { QueryCacheNotifyEvent, QueryClient } from '@tanstack/vue-query';
-import { hasKeyPrefix } from './plainData';
-import type { TResourceKind } from './resourceKeys';
+import { hasKeyPrefix } from './plainData.js';
+import type { TResourceKind } from './resourceKeys.js';
 
 /**
  * Cache events that touch data or fetch status. The `observer*` events only track `useQuery`

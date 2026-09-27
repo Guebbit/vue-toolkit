@@ -6,8 +6,8 @@
  * @module internal/freshnessChecks
  */
 import type { QueryClient, QueryKey } from '@tanstack/vue-query';
-import type { IFetchSettings } from '../composables/structureRestApi';
-import type { IResourceKeys } from './resourceKeys';
+import type { IFetchSettings } from '../composables/structureRestApi.js';
+import type { IResourceKeys } from './resourceKeys.js';
 
 /** What the checks need from the resource that owns them. */
 export interface IFreshnessContext {

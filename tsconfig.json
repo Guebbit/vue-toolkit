@@ -9,8 +9,8 @@
         // vitest or other dev-only packages). Does not affect checking of our own source.
         "skipLibCheck": true,
         "target": "ES2023",
-        "module": "ESNext",
-        "moduleResolution": "bundler",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
         "esModuleInterop": true,
         "lib": ["dom", "esnext"],
         "allowSyntheticDefaultImports": true,
