@@ -387,6 +387,9 @@ sequenceDiagram
   way, so `itemList` is unaffected.)
 - Stopping a scope (unmount, store disposal, `stop()`) ends subscriptions and watchers. It never
   removes cache entries.
+- TanStack's own `hydrate()` (what `persistQueryClient` uses to restore a cache persisted on a
+  previous visit) reaches the views like any other write: `getRecord`, `itemList` and the rest see
+  a restored record right away, with nothing else needing to happen first.
 - Removing an entry that an active watcher observes empties it in place instead, so the watcher
   stays attached. `resetAll()` then refetches what active watchers show (views empty, then the
   watched data comes back). `resetRecords()` refetches only active list watchers (it marks the

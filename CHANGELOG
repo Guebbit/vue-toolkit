@@ -233,6 +233,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- TanStack's `hydrate()` — what `persistQueryClient` uses to restore a cache persisted on a
+  previous visit — added a restored query straight into the cache already holding data, without
+  ever going through `.setData()`, so only an `added` cache event fired, never `updated`/`success`.
+  The record view (`itemDictionary`, `itemList`, `getRecord`, …) is a computed keyed off a data
+  counter that only moves on a counted cache event; an uncounted `added` left it stuck on its old
+  (usually empty) value until something unrelated to the restore changed the same kind. An `added`
+  event with data now counts too.
 - `updateTarget`/`deleteTarget` snapshotted the record to roll back to **before** cancelling its
   in-flight read, not right before applying the optimistic edit: two mutations on the same id
   started in the same tick both captured the same "before either ran" snapshot. If the older one

@@ -43,13 +43,19 @@ interface IActivityMeta {
 const keyOf = (meta: unknown): string[] | undefined => (meta as IActivityMeta | undefined)?.key;
 
 /**
- * True when a query-cache event changed an entry's data.
+ * True when a query-cache event changed an entry's data. An `added` event counts too, but only
+ * with data already attached: `hydrate()` and a `persistQueryClient` restore add queries straight
+ * into the cache, already holding data, with no `updated`/`success` action ever firing — without
+ * this, a view built on the data counter (`queryRecordStore`'s dictionary) never learns the restore
+ * happened, and stays empty until something else changes the same kind.
  *
  * @param event - the event
  * @returns whether the entry's data changed
  */
 const changesData = (event: QueryCacheNotifyEvent): boolean =>
-    event.type === 'removed' || (event.type === 'updated' && DATA_ACTIONS.has(event.action.type));
+    event.type === 'removed' ||
+    (event.type === 'updated' && DATA_ACTIONS.has(event.action.type)) ||
+    (event.type === 'added' && event.query.state.data !== undefined);
 
 /**
  * Activity of one resource.
