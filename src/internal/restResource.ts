@@ -59,6 +59,9 @@ import { scopeRegistryFor } from './scopeRegistry.js';
 /** A list call: resolves the list's items. */
 export type TListCall<T> = (context: IFetchContext) => Promise<(T | undefined)[]>;
 
+/** fetchMultiple's apiCall: resolves the ids it was asked to fetch, missing or stale ones only. */
+export type TMultipleCall<T, K> = (ids: K[], context: IFetchContext) => Promise<(T | undefined)[]>;
+
 /** Extra data a list entry stores next to its ids, computed once the ids are known. */
 export type TListExtra<K> = (ids: K[]) => Record<string, unknown>;
 
@@ -931,7 +934,7 @@ export const createRestResource = <
      * @returns the requested records, fetched ones first; `undefined` for an id still missing
      */
     const fetchMultiple = (
-        apiCall: TListCall<T>,
+        apiCall: TMultipleCall<T, K>,
         ids: K[] = [],
         settings: Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'> = {}
     ): Promise<(T | undefined)[]> => {
@@ -943,7 +946,7 @@ export const createRestResource = <
         const readAt = writeGuard.readClock();
         return settleRead(
             runThrowaway(scopeAtStart, (running) =>
-                apiCall(readContextOf(running)).then((items) =>
+                apiCall(expiredIds, readContextOf(running)).then((items) =>
                     storeBatch(items, scopeAtStart, running, settings, readAt)
                 )
             ),

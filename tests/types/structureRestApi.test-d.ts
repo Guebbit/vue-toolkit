@@ -48,6 +48,13 @@ resource.fetchAll((context) => {
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
     return Promise.resolve<IUser[]>([]);
 });
+
+// fetchMultiple's apiCall receives the missing ids first, the context last (V2.2).
+resource.fetchMultiple((ids, context) => {
+    expectTypeOf(ids).toEqualTypeOf<number[]>();
+    expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
+    return Promise.resolve<IUser[]>([]);
+}, [1, 2]);
 resource.watchTarget(
     () => 1,
     (id, context) => {

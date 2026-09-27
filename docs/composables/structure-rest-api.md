@@ -160,10 +160,11 @@ Per method:
     alias: `getRecord('my-slug')`, `selectedRecord` and everything else that reads through
     `getRecord` follow it to `7`'s record, one hop, so it never goes stale as a separate copy.
     `itemDictionary`/`itemList` only ever see the record once, under `7`.
-- **`fetchMultiple`** asks the server only when some of `ids` are missing or stale, with one call
-  of `apiCall` (it receives no arguments; build it from `checkMultiple(ids).expiredIds` to request
-  just those). Resolves one slot per requested id, `[...expired, ...cached]` in that order, with
-  `undefined` for an id the server did not return.
+- **`fetchMultiple`** asks the server only when some of `ids` are missing or stale, with one call of
+  `apiCall(missingIds, context)` — `missingIds` is exactly `checkMultiple(ids).expiredIds`, so
+  building `GET /users?ids=1,2` from it never re-asks for an id already fresh. Resolves one slot
+  per requested id, `[...expired, ...cached]` in that order, with `undefined` for an id the server
+  did not return.
 - **`fetchAny`** is for answers that are not records. With `key`, a normal cached read under
   `[resourceKey, 'any', dependsOn, ...key]`. Without, it always asks the server and caches nothing.
 
@@ -453,8 +454,6 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   you read back.
 - **`partial: true`** for a list endpoint that omits detail-only fields: it merges, and does not
   make the fuller record look freshly fetched.
-- **`fetchMultiple`'s `apiCall` gets no ids.** Use `checkMultiple` to learn which ones it will ask
-  for.
 - **Two *mutations* on the same record race by arrival order, not by which one you called first.**
   The write guard (see the guarantee above) protects a mutation from a *read*'s stale answer, not
   from another mutation on the same id: `updateTarget`'s success is guarded against a newer

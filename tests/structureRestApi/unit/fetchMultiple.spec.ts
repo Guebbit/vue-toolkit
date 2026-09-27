@@ -3,6 +3,7 @@
  *   - no ids → resolves [] without calling the API
  *   - with a cold cache, requests all ids in one call and stores them
  *   - re-throws on error
+ *   - apiCall receives the missing/stale ids (V2.2), not the full requested set
  *
  * (Selective staleness — "only fetch expired ids" — is a freshness concern and
  * lives in staleTime/staleTime.multiple.spec.ts.)
@@ -72,5 +73,19 @@ describe('UNIT · fetchMultiple', () => {
         const api = apiResolve([USERS[0]]);
         await c.fetchMultiple(api, [1]);
         expect(api).not.toHaveBeenCalled(); // still fresh — served from cache, not re-requested
+    });
+
+    // V2.2: apiCall receives the ids it needs to fetch — missing or stale ones only, never the
+    // full requested set — as its first argument, so a caller building `GET /users?ids=1,2` from
+    // it never over-fetches an id already fresh in the cache.
+    it("apiCall receives only the missing/stale ids, matching checkMultiple's expiredIds", async () => {
+        const c = make();
+        await c.fetchTarget(apiResolve(USERS[0]), 1); // 1 is fresh; 2 and 3 are not cached at all
+
+        const api = jest.fn(() => Promise.resolve([USERS[1], USERS[2]]));
+        await c.fetchMultiple(api, [1, 2, 3]);
+
+        expect(api).toHaveBeenCalledTimes(1);
+        expect(api.mock.calls[0][0]).toEqual([2, 3]);
     });
 });

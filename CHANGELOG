@@ -177,6 +177,10 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **`fetchMultiple`'s `apiCall`** now receives the ids it actually needs to fetch —
+  `(missingIds, context) => …`, exactly `checkMultiple(ids).expiredIds` — instead of no arguments
+  at all. Building `GET /users?ids=1,2` from `missingIds` means an id already fresh in the cache is
+  never re-requested; previously this required calling `checkMultiple` yourself first.
 - **Every read `apiCall`** — `fetch*`/`watch*`, `fetchAny`/`watchSearch`, and CRUD's `list`/
   `search`/`get` — now receives an `IFetchContext` (`{ signal }`) as its last argument. `signal` is
   a lazy getter: reading it is what asks TanStack to abort the underlying fetch once nothing needs
