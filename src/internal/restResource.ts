@@ -52,7 +52,7 @@ import { isNil, stableKey } from './plainData.js';
 import { createResourceKeys, type IListCacheEntry, type ITargetEntry } from './resourceKeys.js';
 import { useResourceActivity } from './resourceActivity.js';
 import { createQueryRecordStore } from './queryRecordStore.js';
-import { createParentRelations } from './parentRelations.js';
+import { createQueryRelationStore } from './parentRelations.js';
 import { watchSettled } from './settleCallbacks.js';
 import { createFreshnessChecks } from './freshnessChecks.js';
 import { createResourceMutations } from './resourceMutations.js';
@@ -231,8 +231,21 @@ export const createRestResource = <
         version: activity.version('target')
     });
 
-    /** Records, selection and client-side pagination, written through the store. */
-    const records = useStructureDataManagement<T, K, P>(identifiers, delimiter, store);
+    /** belongsTo relations, stored as TanStack queries — the same seam as `store`, for `records`. */
+    const relationStore = createQueryRelationStore<K, P>({
+        queryClient,
+        keys,
+        dependsOn,
+        version: activity.version('parent')
+    });
+
+    /** Records, selection, pagination and relations, written through the stores. */
+    const records = useStructureDataManagement<T, K, P>(
+        identifiers,
+        delimiter,
+        store,
+        relationStore
+    );
 
     /** Record accessors and state, built on by the operations below and passed through. */
     const {
@@ -258,7 +271,13 @@ export const createRestResource = <
         pageSize,
         pageTotal,
         pageOffset,
-        pageItemList
+        pageItemList,
+        parentHasMany,
+        addToParent,
+        removeFromParent,
+        removeDuplicateChildren,
+        getRecordsByParent,
+        getListByParent
     } = records;
 
     /** "Would this call be served from cache?", plus the freshness test the reads share. */
@@ -271,15 +290,6 @@ export const createRestResource = <
 
     /** Read/mutation write ordering for this resource's records (see the module header). */
     const writeGuard = createWriteGuard<K>();
-
-    /** belongsTo relations, read from the same cache as the records. */
-    const relations = createParentRelations<T, K, P>({
-        queryClient,
-        keys,
-        dependsOn,
-        version: activity.version('parent'),
-        getRecord
-    });
 
     // ------------------------------------------ storing ------------------------------------------
 
@@ -1031,7 +1041,12 @@ export const createRestResource = <
         pageItemList,
 
         // belongsTo relations
-        ...relations,
+        parentHasMany,
+        addToParent,
+        removeFromParent,
+        removeDuplicateChildren,
+        getRecordsByParent,
+        getListByParent,
 
         // loading
         loading: activity.loading,

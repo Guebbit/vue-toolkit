@@ -292,6 +292,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureDataManagement` always built its own local `parentHasMany` state (a plain ref and
+  its editors) even under `useStructureRestApi`, where that state was immediately shadowed by a
+  second, TanStack-backed implementation of the same `hasMany`/`belongsTo` surface built
+  separately in `restResource.ts` — dead reactive state allocated, and silently discarded, on
+  every REST-mode resource. Relations now go through an `IRelationStore` seam, the same pattern
+  `IRecordStore` already uses for records: a local dictionary by default, and the TanStack-backed
+  one `useStructureRestApi` passes, so nothing local is built when the REST store supplies it.
 - `useStructureDataManagement`'s `parentHasMany`/`addToParent`/`removeFromParent`/
   `removeDuplicateChildren` typed a child id as `typeof identifier` — the identifier FIELD NAME
   (always `string`) — instead of `K`, the id's actual value type. Passing a numeric id needed an

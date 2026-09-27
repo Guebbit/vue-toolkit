@@ -31,8 +31,8 @@ users.itemList.value // IUser[] — computed view of the whole store
 
 ### Setup
 
-`useStructureDataManagement<T, K, P>(identifiers = 'id', delimiter = '|', recordStore?)` returns
-`IStructureDataManagementApi<T, K, P>` — an exported, explicit interface (not inferred).
+`useStructureDataManagement<T, K, P>(identifiers = 'id', delimiter = '|', recordStore?, relationStore?)`
+returns `IStructureDataManagementApi<T, K, P>` — an exported, explicit interface (not inferred).
 
 - `T` is the record type, `K` its id type, `P` a parent's id type. `K` defaults to the type of
   `T['id']` when `T` has one (`string | number` otherwise) — the natural default, since the
@@ -45,6 +45,11 @@ users.itemList.value // IUser[] — computed view of the whole store
   default is a local, in-memory dictionary.
   [`useStructureRestApi`](/composables/structure-rest-api) passes a TanStack-backed one, which
   turns the dictionary into a read-only view of the query cache.
+- `relationStore` (type `IRelationStore<P, K>`) is the write surface the `hasMany`/`belongsTo`
+  methods below go through, the same seam as `recordStore` but for parent/child links. Same
+  default and same REST override: a local dictionary unless `useStructureRestApi` passes a
+  TanStack-backed one, so relations live in the same query cache as the records instead of a
+  second, separately-tracked copy nothing outside this composable would ever read.
 
 | `IRecordStore` member        | Meaning                                                                        |
 | ---------------------------- | ------------------------------------------------------------------------------ |
@@ -55,6 +60,14 @@ users.itemList.value // IUser[] — computed view of the whole store
 | `clear()`                    | Removes every record.                                                          |
 | `resolve?(id)`                | Optional. Follows `id` one hop to the id its record actually lives under. `getRecord` calls it when present, and reads `id` as given otherwise (the default store has none). The TanStack-backed store uses it so `fetchTarget`/`watchTarget` by an alternate key (a slug) reads through to the record's own id instead of a second, divergent copy. |
 | `read?(id)`                    | Optional. One record by id, without going through `dictionary`. Both built-in stores implement it (an O(1) plain-object read locally, one `getQueryData` under the REST layer); `editRecord` uses it so merging or partially writing a batch never pays for rebuilding the whole reactive `dictionary` computed on every item. |
+| `isFetching?()`                | Optional. True while the write in progress is a server answer, not a caller-driven create (see the REST store's `asFetched`). Absent on a store with no such distinction (the default one). `addRecord`/`editRecord` read it to decide whether to move `lastInsertedIdentifier` — a record the REST layer stores because the server reported it is not a "just created" record, even though it is the same write path. |
+
+| `IRelationStore` member                | Meaning                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------ |
+| `dictionary`                           | `Ref<Record<P, K[]>>`: the reactive read view, `parentHasMany` below.          |
+| `addToParent(parentId, childId)`       | Links a child to a parent, once.                                               |
+| `removeFromParent(parentId, childId)`  | Unlinks a child from a parent.                                                 |
+| `removeDuplicateChildren(parentId)`    | Drops repeated child ids of a parent.                                          |
 
 ### CRUD
 
@@ -99,7 +112,9 @@ Operates on `itemList` — for offline/already-fetched data. For server-side pag
 
 ### `hasMany` / `belongsTo` relations
 
-For child records that need to remember which parent they belong to:
+For child records that need to remember which parent they belong to. Written through
+`relationStore` (see [Setup](#setup) above) — under `useStructureRestApi`, that store is a view
+over the same query cache the records live in, not a second copy this composable owns:
 
 | Method / property                     | Purpose                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------------- |

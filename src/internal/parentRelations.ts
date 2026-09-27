@@ -1,5 +1,6 @@
 /**
- * belongsTo relations as a view over the cache.
+ * belongsTo relations as a view over the cache, behind the `IRelationStore` seam that
+ * `useStructureDataManagement` writes through under `useStructureRestApi`.
  *
  * A parent's children are the ids in its `[resourceKey, 'parent', scope, parentId, ...key]`
  * entries — every bucket `fetchByParent` filled for it — merged in first-seen order. There is no
@@ -11,11 +12,11 @@
  */
 import { computed, type Ref } from 'vue';
 import type { Query, QueryClient, QueryKey } from '@tanstack/vue-query';
+import type { IRelationStore } from '../composables/structureDataManagement.js';
 import type { IListCacheEntry, IResourceKeys } from './resourceKeys.js';
-import { recordListByIds, recordsByIds } from './recordLookup.js';
 
-/** What the relations need from the resource that owns them. */
-export interface IParentRelationsContext<T, K> {
+/** What the relation store needs from the resource that owns it. */
+export interface IParentRelationsContext {
     /** The client the parent lists live on. */
     queryClient: QueryClient;
 
@@ -27,9 +28,6 @@ export interface IParentRelationsContext<T, K> {
 
     /** Moves when a parent list gets new data or leaves the cache. */
     version: Readonly<Ref<number>>;
-
-    /** Reads one record from the resource's record view. */
-    getRecord: (id: K) => T | undefined;
 }
 
 /**
@@ -49,18 +47,17 @@ const uniqueIds = <K>(ids: readonly K[]): K[] => {
 };
 
 /**
- * Relations of one resource.
+ * Relation store over a `QueryClient`.
  *
  * @param context - see IParentRelationsContext
- * @returns the relation view and its local editors
+ * @returns the store
  */
-export const createParentRelations = <T, K extends string | number, P extends string | number>({
+export const createQueryRelationStore = <K extends string | number, P extends string | number>({
     queryClient,
     keys,
     dependsOn,
-    version,
-    getRecord
-}: IParentRelationsContext<T, K>) => {
+    version
+}: IParentRelationsContext): IRelationStore<P, K> => {
     /**
      * The ids a list entry holds.
      *
@@ -95,7 +92,7 @@ export const createParentRelations = <T, K extends string | number, P extends st
     };
 
     /** Every parent's child ids under the current scope: the union of its buckets. */
-    const parentHasMany = computed<Record<P, K[]>>(() => {
+    const dictionary = computed<Record<P, K[]>>(() => {
         void version.value;
         const result = {} as Record<P, K[]>;
         const current = keys.inScope(dependsOn(), ['parent']);
@@ -107,21 +104,13 @@ export const createParentRelations = <T, K extends string | number, P extends st
     });
 
     /**
-     * A parent's child ids.
-     *
-     * @param parentId - the parent id
-     * @returns the ids, empty when none are cached
-     */
-    const childIds = (parentId: P): K[] => parentHasMany.value[String(parentId) as P] ?? [];
-
-    /**
      * Links a child to a parent, once: into the parent's plain (keyless) entry.
      *
      * @param parentId - the parent id
      * @param childId - the child record id
      */
     const addToParent = (parentId: P, childId: K): void => {
-        if (childIds(parentId).some((id) => String(id) === String(childId))) return;
+        if ((dictionary.value[parentId] ?? []).some((id) => String(id) === String(childId))) return;
         const plainKey = keys.parent(parentId);
         const ids = queryClient.getQueryData<IListCacheEntry<K>>(plainKey)?.ids ?? [];
         writeIds(plainKey, [...ids, childId]);
@@ -150,31 +139,10 @@ export const createParentRelations = <T, K extends string | number, P extends st
         for (const query of bucketsOf(parentId)) writeIds(query.queryKey, uniqueIds(idsOf(query)));
     };
 
-    /**
-     * A parent's children, by id. Ids whose record is not cached are skipped.
-     *
-     * @param parentId - the parent id
-     * @returns the child records, by id
-     */
-    const getRecordsByParent = (parentId?: P): Record<K, T> =>
-        parentId === undefined ? ({} as Record<K, T>) : recordsByIds(childIds(parentId), getRecord);
-
-    /**
-     * A parent's children, as a list in the relation's order. Ids whose record is not cached are
-     * skipped.
-     *
-     * @param parentId - the parent id
-     * @returns the child records
-     */
-    const getListByParent = (parentId?: P): T[] =>
-        parentId === undefined ? [] : recordListByIds(childIds(parentId), getRecord);
-
     return {
-        parentHasMany,
+        dictionary,
         addToParent,
         removeFromParent,
-        removeDuplicateChildren,
-        getRecordsByParent,
-        getListByParent
+        removeDuplicateChildren
     };
 };

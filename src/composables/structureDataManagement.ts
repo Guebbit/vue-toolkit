@@ -2,9 +2,10 @@
  * Client-side record management: a dictionary of records keyed by identifier, selection,
  * "last inserted" tracking, client-side pagination and belongsTo relations.
  *
- * Every write goes through an `IRecordStore`. The default one is a plain reactive dictionary;
- * `useStructureRestApi` passes a TanStack-backed one, which turns the dictionary into a
- * read-only view of its query cache.
+ * Every write goes through an `IRecordStore` and an `IRelationStore`. The default ones are plain
+ * reactive dictionaries; `useStructureRestApi` passes TanStack-backed ones, which turn both into
+ * read-only views of its query cache — so this composable never builds local state the REST layer
+ * would only shadow.
  *
  * @module composables/structureDataManagement
  * @see docs/composables/structure-data-management.md
@@ -96,6 +97,54 @@ const createLocalRecordStore = <
         writeAll: (items: Record<K, T>) => (dictionary.value = items),
         clear: () => (dictionary.value = {} as Record<K, T>),
         read: (id: K) => (dictionary.value as Record<K, T>)[id]
+    };
+};
+
+/**
+ * The write surface `useStructureDataManagement` stores parent/child links through: a local
+ * reactive dictionary by default, a TanStack-backed one under `useStructureRestApi`.
+ */
+export interface IRelationStore<
+    P extends string | number | symbol = string | number | symbol,
+    K extends string | number | symbol = string | number | symbol
+> {
+    /** Reactive read view: every parent's child ids under the current scope. */
+    dictionary: Ref<Record<P, K[]>>;
+
+    /** Links a child to a parent, once (a no-op if already linked). */
+    addToParent(parentId: P, childId: K): void;
+
+    /** Unlinks a child from a parent. */
+    removeFromParent(parentId: P, childId: K): void;
+
+    /** Drops repeated child ids of a parent. */
+    removeDuplicateChildren(parentId: P): void;
+}
+
+/**
+ * Default relation store: a plain reactive dictionary.
+ *
+ * @returns the store
+ */
+const createLocalRelationStore = <
+    P extends string | number | symbol = string | number | symbol,
+    K extends string | number | symbol = string | number | symbol
+>(): IRelationStore<P, K> => {
+    // Cast past UnwrapRef, same reason as createLocalRecordStore's dictionary.
+    const dictionary = ref({} as Record<P, K[]>) as Ref<Record<P, K[]>>;
+    return {
+        dictionary,
+        addToParent: (parentId: P, childId: K) => {
+            (dictionary.value[parentId] ??= []).push(childId);
+        },
+        removeFromParent: (parentId: P, childId: K) => {
+            dictionary.value[parentId] = (dictionary.value[parentId] ?? []).filter(
+                (id) => id !== childId
+            );
+        },
+        removeDuplicateChildren: (parentId: P) => {
+            dictionary.value[parentId] = [...new Set(dictionary.value[parentId])];
+        }
     };
 };
 
@@ -221,7 +270,8 @@ export const useStructureDataManagement = <
 >(
     identifiers: string | string[] = 'id',
     delimiter = '|',
-    recordStore: IRecordStore<T, K> = createLocalRecordStore<T, K>()
+    recordStore: IRecordStore<T, K> = createLocalRecordStore<T, K>(),
+    relationStore: IRelationStore<P, K> = createLocalRelationStore<P, K>()
 ): IStructureDataManagementApi<T, K, P> => {
     /**
      * Fills the given (missing) identifier field(s) directly on itemData with a random fallback
@@ -495,12 +545,8 @@ export const useStructureDataManagement = <
 
     // ----------------------------- hasMany & belongsTo relationships -----------------------------
 
-    /** Child ids by parent id: the local "parent hasMany" relation. Cast past UnwrapRef, same
-     * reason as `dictionary`. */
-    const parentHasMany = ref({} as Record<P, K[]>) as Ref<Record<P, K[]>>;
-
-    /** parentHasMany's dictionary, typed for writing. */
-    const relations = () => parentHasMany.value as Record<P, K[]>;
+    /** Child ids by parent id, read through `relationStore` (see its docs). */
+    const parentHasMany = relationStore.dictionary;
 
     /**
      * Links a child to a parent.
@@ -508,9 +554,7 @@ export const useStructureDataManagement = <
      * @param parentId - the parent id
      * @param childId - the child record id
      */
-    const addToParent = (parentId: P, childId: K) => {
-        (relations()[parentId] ??= []).push(childId);
-    };
+    const addToParent = (parentId: P, childId: K) => relationStore.addToParent(parentId, childId);
 
     /**
      * Unlinks a child from a parent.
@@ -519,8 +563,10 @@ export const useStructureDataManagement = <
      * @param childId - the child record id
      * @returns the parent's remaining child ids
      */
-    const removeFromParent = (parentId: P, childId: K) =>
-        (relations()[parentId] = (relations()[parentId] ?? []).filter((id) => id !== childId));
+    const removeFromParent = (parentId: P, childId: K): K[] => {
+        relationStore.removeFromParent(parentId, childId);
+        return parentHasMany.value[parentId] ?? [];
+    };
 
     /**
      * Drops repeated child ids of a parent.
@@ -528,8 +574,10 @@ export const useStructureDataManagement = <
      * @param parentId - the parent id
      * @returns the parent's child ids
      */
-    const removeDuplicateChildren = (parentId: P) =>
-        (relations()[parentId] = [...new Set(relations()[parentId])]);
+    const removeDuplicateChildren = (parentId: P): K[] => {
+        relationStore.removeDuplicateChildren(parentId);
+        return parentHasMany.value[parentId] ?? [];
+    };
 
     /**
      * A parent's children, by id. Ids whose record is not stored are skipped.
@@ -540,7 +588,7 @@ export const useStructureDataManagement = <
     const getRecordsByParent = (parentId?: P): Record<K, T> =>
         parentId === undefined
             ? ({} as Record<K, T>)
-            : recordsByIds(relations()[parentId] ?? [], (id) => getRecord(id));
+            : recordsByIds(parentHasMany.value[parentId] ?? [], (id) => getRecord(id));
 
     /**
      * A parent's children, as a list in the relation's order. Ids whose record is not stored are
@@ -552,7 +600,7 @@ export const useStructureDataManagement = <
     const getListByParent = (parentId?: P): T[] =>
         parentId === undefined
             ? []
-            : recordListByIds(relations()[parentId] ?? [], (id) => getRecord(id));
+            : recordListByIds(parentHasMany.value[parentId] ?? [], (id) => getRecord(id));
 
     return {
         createIdentifier,
