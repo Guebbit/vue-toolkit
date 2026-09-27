@@ -219,6 +219,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **`queryOptions`**: a narrow, explicit pick of TanStack's own `useQuery` options (`retry`,
+  `retryDelay`, `refetchInterval`, `refetchOnWindowFocus`, `refetchOnReconnect`). Set on the
+  resource as a default for every `watch*` call it makes, or per watcher (`watchTarget`,
+  `watchAll`, `watchByParent`, `watchAny`, `watchSearch`) to override that default for one call.
+  `queryFn`/`queryKey`/`gcTime` stay the engine's, as always. Reaches only ACTIVE queries
+  (`watch*`), not one-shot `fetch*` reads, which have no observer for these options to mean
+  anything on.
 - **`isSaving(id)`**: `true` while an `updateTarget`/`deleteTarget` mutation on record `id` is
   running — a per-row pending signal for a row's own spinner, distinct from `loading`/`isLoading`,
   which cover the whole resource. A plain function, like `isLoading`: call it inside a `computed`

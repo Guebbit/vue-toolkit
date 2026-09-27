@@ -15,6 +15,37 @@ import { createRestResource } from '../internal/restResource.js';
 import type { TIdOf } from './structureDataManagement.js';
 
 /**
+ * A narrow, explicit pick of TanStack's own `useQuery` options — everything the engine does not
+ * own. `queryFn`/`queryKey`/`gcTime` stay the engine's: they encode the cache layout every
+ * fetch/watch method relies on, and letting a caller override them would break it. Set on the
+ * resource as a default for every query it makes, or per watcher to override it there.
+ *
+ * Hand-declared, matching TanStack's own shapes, rather than picked from its types: those are
+ * generic over the query's data (`Query<TQueryFnData, ...>`), which would force this option
+ * itself to carry that generic through every composable and watcher setting it appears on, for a
+ * dynamic per-query callback form this package has no need to support.
+ */
+export interface ITanStackQueryOptions {
+    /**
+     * Retries a failed fetch this many times (default varies by call: TanStack's own default is
+     * 3 for an active query, 0 for a one-shot read), or a predicate deciding whether to.
+     */
+    retry?: boolean | number | ((failureCount: number, error: unknown) => boolean);
+
+    /** Delay (ms) before each retry, or a function of the failure count and the error. */
+    retryDelay?: number | ((failureCount: number, error: unknown) => number);
+
+    /** Re-fetches on this interval (ms) while mounted; `false` (the default) disables it. */
+    refetchInterval?: number | false;
+
+    /** Re-fetches when the window regains focus. */
+    refetchOnWindowFocus?: boolean | 'always';
+
+    /** Re-fetches when the network reconnects. */
+    refetchOnReconnect?: boolean | 'always';
+}
+
+/**
  * The context every read `apiCall` receives, as its last parameter. `signal` is a lazy getter:
  * TanStack only aborts the underlying fetch once something actually reads it, so an `apiCall`
  * that ignores the context loses nothing, while one that forwards `signal` to `fetch`/axios gets
@@ -127,6 +158,13 @@ export interface IStructureRestApiOptions {
      * app is what lets resources invalidate each other.
      */
     queryClient?: QueryClient;
+
+    /**
+     * TanStack `useQuery` options, applied to every ACTIVE query this resource's `watch*` methods
+     * make (not one-shot `fetch*` reads, which TanStack's own `retry`/`refetch*` options do not
+     * apply to). A watcher's own `queryOptions` setting overrides this per call.
+     */
+    queryOptions?: ITanStackQueryOptions;
 }
 
 /** Callbacks an active watcher reports each settle through. */
@@ -173,7 +211,10 @@ export interface IWatchHandle<R> {
 export interface IWatchTargetSettings<T, K>
     extends
         Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'>,
-        IWatchCallbacks<T | undefined, K> {}
+        IWatchCallbacks<T | undefined, K> {
+    /** TanStack `useQuery` options for this call; overrides the resource's own default. */
+    queryOptions?: ITanStackQueryOptions;
+}
 
 /**
  * watchAll's/watchByParent's settings: `IFetchSettings`, but `key` and `enabled` may be reactive
@@ -188,6 +229,9 @@ export interface IWatchListSettings extends Omit<IFetchSettings, 'key'> {
 
     /** Whether the query may fetch on its own (default true). May be reactive. */
     enabled?: MaybeRefOrGetter<boolean>;
+
+    /** TanStack `useQuery` options for this call; overrides the resource's own default. */
+    queryOptions?: ITanStackQueryOptions;
 }
 
 /**
@@ -200,6 +244,9 @@ export interface IWatchAnySettings extends Pick<IFetchSettings, 'forced' | 'stal
 
     /** Whether the query may fetch on its own (default true). May be reactive. */
     enabled?: MaybeRefOrGetter<boolean>;
+
+    /** TanStack `useQuery` options for this call; overrides the resource's own default. */
+    queryOptions?: ITanStackQueryOptions;
 }
 
 /**

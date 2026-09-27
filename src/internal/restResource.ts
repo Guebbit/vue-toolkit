@@ -41,6 +41,7 @@ import type {
     IFetchContext,
     IFetchSettings,
     IStructureRestApiOptions,
+    ITanStackQueryOptions,
     IWatchAnySettings,
     IWatchHandle,
     IWatchListSettings,
@@ -150,6 +151,9 @@ export interface IWatchQueryOptions<E> {
 
     /** The caller's key, which `isLoading(key)` matches the query by. */
     key?: MaybeRefOrGetter<string[] | undefined>;
+
+    /** TanStack `useQuery` options for this call; the resource's own default when omitted. */
+    queryOptions?: ITanStackQueryOptions;
 }
 
 /**
@@ -170,7 +174,8 @@ export const createRestResource = <
     dependsOn = () => [],
     maxRecords = 10_000,
     delimiter = '|',
-    queryClient: queryClientOption
+    queryClient: queryClientOption,
+    queryOptions: resourceQueryOptions = {}
 }: IStructureRestApiOptions) => {
     // Every cache subscription this resource makes (resourceActivity, the scope registry claim
     // below) is torn down through onScopeDispose — with no effect scope active, there is nothing
@@ -604,12 +609,18 @@ export const createRestResource = <
         enabled = true,
         forced,
         staleTime: custom,
-        key
+        key,
+        queryOptions: callQueryOptions
     }: IWatchQueryOptions<E>) => {
         const scope = effectScope();
         const query = scope.run(() =>
             useQuery<E>(
                 {
+                    // Caller options passed through as-is (retry, retryDelay, refetchInterval,
+                    // refetchOnWindowFocus, refetchOnReconnect — see ITanStackQueryOptions); a
+                    // per-call setting overrides the resource's own default, never the reverse.
+                    ...resourceQueryOptions,
+                    ...callQueryOptions,
                     queryKey: computed(queryKey),
                     queryFn: (context) => fetch(runningQueryOf(context)),
                     enabled: computed(() => toValue(enabled)),
@@ -761,7 +772,8 @@ export const createRestResource = <
             },
             enabled: () => currentId() !== undefined,
             forced: settings.forced,
-            staleTime: settings.staleTime
+            staleTime: settings.staleTime,
+            queryOptions: settings.queryOptions
         });
 
         scope.run(() => {
@@ -837,7 +849,8 @@ export const createRestResource = <
             enabled: settings.enabled,
             forced: settings.forced,
             staleTime: settings.staleTime,
-            key: settings.key
+            key: settings.key,
+            queryOptions: settings.queryOptions
         });
         return {
             stop: () => scope.stop(),
@@ -951,7 +964,8 @@ export const createRestResource = <
             enabled: settings.enabled,
             forced: settings.forced,
             staleTime: settings.staleTime,
-            key: settings.key
+            key: settings.key,
+            queryOptions: settings.queryOptions
         });
         const handle: IWatchHandle<F | undefined> = {
             stop: () => scope.stop(),

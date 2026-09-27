@@ -111,6 +111,7 @@ package keeps internal ever has to appear in your own `.d.ts` output to describe
 | `dependsOn`   | `() => []`                | The values this resource's data depends on (`() => [session.userId, locale.value]`). See [dependsOn](#dependson). |
 | `maxRecords`  | `10_000`                  | Critical-mass backstop on cached records. `0` disables it. See [maxRecords](#maxrecords).                 |
 | `queryClient` | `useQueryClient()`        | The client this resource lives on. The default needs an injection context (component `setup()`, or a Pinia setup store in an app with `VueQueryPlugin`); pass the client explicitly anywhere else. |
+| `queryOptions` | none                      | TanStack `useQuery` options (`retry`, `retryDelay`, `refetchInterval`, `refetchOnWindowFocus`, `refetchOnReconnect`), applied to every `watch*` call this resource makes. A watcher's own `queryOptions` setting overrides this per call. See [TanStack option passthrough](#tanstack-option-passthrough). |
 
 `T` is the record type, `K` its id type, `P` a parent's id type (for `fetchByParent` and the
 relations). `K` defaults to the type of `T['id']` when `T` has one (`string | number` otherwise);
@@ -180,10 +181,10 @@ component or store that created it, or with `stop()`.
 
 | Method                                         | Arguments                                                                                   | Returns                                     |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `watchTarget(apiCall, idSource, settings?)`    | `apiCall: (id, context) => Promise<T \| undefined>`. `idSource`: Ref or getter of `K \| undefined \| null`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
-| `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchTarget(apiCall, idSource, settings?)`    | `apiCall: (id, context) => Promise<T \| undefined>`. `idSource`: Ref or getter of `K \| undefined \| null`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `queryOptions`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
+| `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled`, `queryOptions` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
 | `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles). `settings: IWatchListSettings` | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
+| `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled?, queryOptions? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
 
 Each fetch sends what its own query was built from: `watchTarget`'s `apiCall` receives the id,
 and `watchByParent`'s the parent id, of the query that is running, never a live value that has
@@ -273,6 +274,31 @@ render to check if it needs to handle that case explicitly. A watcher that is no
 enabled (`watchTarget` with a nullish id, `watchByParent` with a nullish parent, `enabled: false`)
 resolves right away with whatever is cached instead of fetching — vue-query's own `suspense()` on
 a disabled query never resolves at all, since it only starts once `enabled` later turns true.
+
+### TanStack option passthrough
+
+`queryOptions` is a narrow, explicit pick of TanStack's own `useQuery` options — `retry`,
+`retryDelay`, `refetchInterval`, `refetchOnWindowFocus`, `refetchOnReconnect`. Set it on the
+resource as a default for every `watch*` call it makes, or on a specific watcher's own `settings`
+to override that default for just that call:
+
+```ts
+const users = useStructureRestApi<IUser, number>({
+    resourceKey: 'users',
+    queryOptions: { refetchOnWindowFocus: false } // applies to every watcher below
+})
+
+users.watchTarget(fetchUser, userId) // no refetch on window focus (the resource default)
+users.watchAll(fetchUsers, {
+    queryOptions: { refetchOnWindowFocus: true } // this one watcher opts back in
+})
+```
+
+`queryFn`/`queryKey`/`gcTime` are never part of this: they encode the cache layout every
+fetch/watch method relies on, and letting a caller override them would break it. `queryOptions`
+only reaches ACTIVE queries (`watch*`) — a one-shot `fetch*` read has no observer for
+`refetchInterval`/`refetchOnWindowFocus`/`refetchOnReconnect` to mean anything on, and its own
+`forced`/`staleTime` settings already cover `retry`-adjacent freshness concerns.
 
 ### Pre-flight checks
 

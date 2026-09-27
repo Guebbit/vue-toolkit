@@ -340,4 +340,23 @@ describe('UNIT · watchSearch refetch', () => {
         await expect(handle.suspense()).resolves.toEqual({ items: [], totalItems: 0 });
         expect(apiCall).not.toHaveBeenCalled();
     });
+
+    it("queryOptions passes through to the underlying query, and a call's own overrides the resource default", async () => {
+        // The test QueryClient defaults to retry: false, so a retry only happens if queryOptions
+        // actually reaches the underlying useQuery call.
+        const { searchApi } = makeSearchComposable<IArticle, number, { category?: string }>(
+            { queryOptions: { retry: 1, retryDelay: 0 } },
+            { category: 'tech' }
+        );
+        const failing = jest.fn(() => Promise.reject(new Error('boom')));
+
+        searchApi.watchSearch(failing);
+        await flush(10);
+        expect(failing).toHaveBeenCalledTimes(2); // 1 initial + the resource's 1 retry
+
+        failing.mockClear();
+        searchApi.watchSearch(failing, { queryOptions: { retry: 0 } });
+        await flush(10);
+        expect(failing).toHaveBeenCalledTimes(1); // overridden: no retry
+    });
 });

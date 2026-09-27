@@ -31,6 +31,7 @@ import type {
     IFetchSettings,
     IStructureRestApi,
     IStructureRestApiOptions,
+    ITanStackQueryOptions,
     IWatchCallbacks,
     IWatchHandle
 } from './structureRestApi.js';
@@ -53,6 +54,9 @@ export interface IWatchSearchSettings<
     extends IFetchSettings, IWatchCallbacks<(T | undefined)[], F> {
     /** Search right away with the current filters (default true); otherwise wait for `search()`. */
     immediate?: boolean;
+
+    /** TanStack `useQuery` options for this call; overrides the resource's own default. */
+    queryOptions?: ITanStackQueryOptions;
 }
 
 /** What watchSearch returns: a watcher handle, plus `search()`. */
@@ -501,7 +505,8 @@ export const useStructureSearchApi = <
             enabled: hasStarted,
             forced: searchSettings.forced,
             staleTime: searchSettings.staleTime,
-            key: () => current().key
+            key: () => current().key,
+            queryOptions: searchSettings.queryOptions
         });
 
         /**

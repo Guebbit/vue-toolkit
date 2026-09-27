@@ -122,6 +122,7 @@ watchDebounced(filters, applyFilters, { debounce: 300, deep: true })
 | ----------------------------------------------- | ------- | ------------------------------------------------------------------------------------ |
 | `immediate`                                     | `true`  | Search now with the current filters. `false`: the query stays disabled until `search()`. |
 | `forced`, `merge`, `partial`, `staleTime`, `key` |         | As on [`useStructureRestApi`](./structure-rest-api#settings-reference). `key` is part of the search it applies. |
+| `queryOptions`                                  |         | TanStack `useQuery` options for this call; overrides the resource's own default. See [TanStack option passthrough](./structure-rest-api#tanstack-option-passthrough). |
 | `onSuccess(items, filters)`                     |         | After a successful fetch, or a switch to a page already cached and fresh.            |
 | `onError(error, filters)`                       |         | After a failed fetch.                                                                |
 | `onSettled(items, error, filters)`              |         | After either.                                                                        |
