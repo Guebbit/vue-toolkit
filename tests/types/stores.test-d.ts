@@ -24,6 +24,8 @@ expectTypeOf(core.isLoading).returns.toEqualTypeOf<boolean>();
 const notifications = useNotificationsStore();
 expectTypeOf(notifications.history).toEqualTypeOf<IToastMessage[]>();
 expectTypeOf(notifications.messages).toEqualTypeOf<IToastMessage[]>();
+// addMessage returns the new message's id (V2.12), for a later hideMessage/showMessage/removeMessage.
+expectTypeOf(notifications.addMessage('hi')).toEqualTypeOf<string>();
 
 // @ts-expect-error -- isLoading takes key prefixes, not a plain boolean
 core.isLoading(true);

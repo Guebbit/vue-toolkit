@@ -64,8 +64,9 @@ export const useNotificationsStore = defineStore('notifications', () => {
      * @param message - text to display
      * @param type    - visual variant, default PRIMARY
      * @param timeout - milliseconds before auto-hiding; 0 or negative (default -1) = stays shown
+     * @returns the new message's id, for a later `hideMessage`/`showMessage`/`removeMessage`
      */
-    const addMessage = (message: string, type = EToastType.PRIMARY, timeout = -1) => {
+    const addMessage = (message: string, type = EToastType.PRIMARY, timeout = -1): string => {
         const id = getUuid();
         history.value.push({
             id,
@@ -77,6 +78,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
             setTimeout(() => {
                 hideMessage(id);
             }, timeout);
+        return id;
     };
 
     /**

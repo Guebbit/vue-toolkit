@@ -21,6 +21,17 @@ describe('useNotificationsStore', () => {
         expect(store.history[0].visible).toBe(true);
     });
 
+    // V2.12: the returned id is what lets a caller hide/show/remove the message it just added
+    // without re-reading history to find it.
+    it("returns the new message's id", () => {
+        const store = useNotificationsStore();
+        const id = store.addMessage('Hello');
+        expect(id).toBe(store.history[0].id);
+
+        store.hideMessage(id);
+        expect(store.history[0].visible).toBe(false);
+    });
+
     it('shows visible messages in computed messages', () => {
         const store = useNotificationsStore();
         store.addMessage('Visible', EToastType.PRIMARY);

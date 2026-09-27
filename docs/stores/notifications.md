@@ -43,7 +43,7 @@ interface IToastMessage {
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `history`                                   | Ref — every toast ever added, including hidden ones.                                     |
 | `messages`                                  | Computed — only `visible: true` entries from `history`.                                  |
-| `addMessage(message, type?, timeout?)`      | Adds a toast. `type` defaults to `PRIMARY`. When `timeout > 0` (ms), it auto-hides via `hideMessage` after that delay; the default `-1` means it persists until hidden/removed manually. |
+| `addMessage(message, type?, timeout?)`      | Adds a toast and returns its id. `type` defaults to `PRIMARY`. When `timeout > 0` (ms), it auto-hides via `hideMessage` after that delay; the default `-1` means it persists until hidden/removed manually. |
 | `findMessage(id)`                           | Finds a toast in `history` by id.                                                        |
 | `hideMessage(id)`                           | Sets `visible = false` — the toast stays in `history`.                                   |
 | `showMessage(id)`                           | Sets `visible = true`.                                                                    |

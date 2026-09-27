@@ -206,6 +206,9 @@ is an active TanStack observer that reacts to invalidation on its own.
 - **`watchAll`/`watchByParent`/`watchAny`** accept `enabled` and a reactive `key` (a Ref,
   ComputedRef or getter for either). `watchByParent` also idles automatically — no fetch, `apiCall`
   never called — while its `parentId` is nullish, instead of calling `apiCall(undefined)`.
+- **`useNotificationsStore.addMessage`** returns the new message's id, matching what the docs
+  already promised as the argument to `hideMessage`/`showMessage`/`removeMessage` — previously a
+  caller had to re-read `history[history.length - 1].id` to get it.
 - **`fetchMultiple`'s `apiCall`** now receives the ids it actually needs to fetch —
   `(missingIds, context) => …`, exactly `checkMultiple(ids).expiredIds` — instead of no arguments
   at all. Building `GET /users?ids=1,2` from `missingIds` means an id already fresh in the cache is
