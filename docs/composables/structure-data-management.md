@@ -41,8 +41,8 @@ returns `IStructureDataManagementApi<T, K, P>` — an exported, explicit interfa
 - `identifiers` is a single field name, or an array of fields for composite keys (order matters);
   `delimiter` joins composite key parts into one dictionary key. With two or more identifiers, a
   part containing `delimiter` itself (or a backslash) is escaped before joining, so `['a|b', 'c']`
-  and `['a', 'b|c']` never collide into the same joined key — a single identifier is never escaped
-  (there is nothing to collide with), so the common case looks exactly as it did before.
+  and `['a', 'b|c']` never collide into the same joined key. A single identifier is never escaped
+  (there is nothing to collide with), so the common case stays a plain, readable id.
 - `recordStore` (type `IRecordStore<T, K>`) is the write surface `addRecord`/`editRecord`/
   `deleteRecord`/`setRecords`/`resetRecords` go through. You will not normally pass one: the
   default is a local, in-memory dictionary.
@@ -53,6 +53,25 @@ returns `IStructureDataManagementApi<T, K, P>` — an exported, explicit interfa
   default and same REST override: a local dictionary unless `useStructureRestApi` passes a
   TanStack-backed one, so relations live in the same query cache as the records instead of a
   second, separately-tracked copy nothing outside this composable would ever read.
+
+```mermaid
+flowchart LR
+    subgraph Direct["useStructureDataManagement(id) — no networking"]
+        L1["createLocalRecordStore()"] --> D1["plain reactive dictionary"]
+        L2["createLocalRelationStore()"] --> D1
+    end
+    subgraph REST["useStructureRestApi(...) — records fetched from a server"]
+        Q1["createQueryRecordStore()"] --> C["one QueryClient cache"]
+        Q2["createQueryRelationStore()"] --> C
+    end
+    A["useStructureDataManagement<T, K, P>(identifiers, delimiter, recordStore?, relationStore?)"]
+    Direct -. "default, when called directly" .-> A
+    REST -. "passed in by useStructureRestApi" .-> A
+```
+
+Every read/write method (`addRecord`, `getListByParent`, ...) is the same either way — only what
+sits behind the seam changes: a plain object under a local ref, or a computed view over the shared
+`QueryClient` cache that every other resource on the same client can also invalidate.
 
 | `IRecordStore` member        | Meaning                                                                        |
 | ---------------------------- | ------------------------------------------------------------------------------ |

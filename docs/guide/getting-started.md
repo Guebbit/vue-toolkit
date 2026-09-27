@@ -69,6 +69,19 @@ What the client's `defaultOptions` reach:
   (so it reaches `error`/`onError` only after the retries) while a one-shot `fetch*` call does not
   retry; `retry: false` makes watchers report a failure at once too.
 
+```mermaid
+flowchart TD
+    C["new QueryClient({ defaultOptions })"]
+    C -->|staleTime| Q["queries YOU write yourself with useQuery"]
+    C -->|gcTime| L["a resource's list/page/search/any entries, once unobserved"]
+    C -->|retry, retryDelay, ...| A["every resource query — overridable per watcher via queryOptions"]
+    R["a resource's OWN staleTime option (default 1 hour)"] -->|always wins over the client default| Records["record/parent-list entries · never garbage-collected"]
+```
+
+A resource's records and parent lists never read `gcTime` at all — they live for the
+`QueryClient`'s lifetime (or until a scope/`dependsOn` change removes them), regardless of what the
+client default says. See [cache lifetime](/composables/structure-rest-api#cache-lifetime).
+
 ## What to use, and when
 
 - **[`useStructureDataManagement`](/composables/structure-data-management)** — the base: a
