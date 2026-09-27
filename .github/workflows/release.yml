@@ -1,0 +1,109 @@
+name: Release
+
+on:
+    push:
+        tags:
+            # A version tag, e.g. v5.0.0 — CHANGELOG's matching heading has no leading 'v'.
+            - 'v*'
+
+concurrency:
+    # One release run per tag; a second push of the same tag replaces, never races, the first.
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+env:
+    NODE_VERSION: 22
+
+jobs:
+    gate:
+        # Re-runs the full quality gate against the exact tagged commit, independent of whatever
+        # ci.yml already said about it — a tag can be pushed to a commit ci.yml never ran on.
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: package-lock.json
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Full gate (lint, prettier, build, test:package, test, test:types, docs:build)
+              run: npm run complete:check
+
+    publish:
+        needs: gate
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            # id-token: write is what lets `npm publish --provenance` get a GitHub OIDC token to
+            # attest "this exact commit, this exact workflow run, built this tarball" — needed
+            # whether authenticating with NPM_TOKEN or with npm's own trusted-publisher OIDC flow.
+            id-token: write
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: package-lock.json
+                  registry-url: 'https://registry.npmjs.org'
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Build
+              run: npm run build
+
+            # Uses NPM_TOKEN when the repo has one configured; with npm's own trusted publishing
+            # set up instead (registry-side, no secret to manage), this authenticates via the
+            # id-token above and NPM_TOKEN can be left unset.
+            - name: Publish to npm
+              run: npm publish --provenance --access public
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    github-release:
+        needs: publish
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Extract this version's CHANGELOG section
+              id: notes
+              run: |
+                  version="${GITHUB_REF_NAME#v}"
+                  # Prints everything between this version's own "# x.y.z" heading and the next
+                  # one — CHANGELOG's own section format, no leading 'v' on the heading.
+                  awk -v ver="# $version" '
+                      $0 == ver { found=1; next }
+                      found && /^# / { exit }
+                      found { print }
+                  ' CHANGELOG > release-notes.md
+                  if [ ! -s release-notes.md ]; then
+                      echo "No CHANGELOG section found for $GITHUB_REF_NAME — add one before tagging." >&2
+                      exit 1
+                  fi
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  name: ${{ github.ref_name }}
+                  body_path: release-notes.md
+                  generate_release_notes: false
