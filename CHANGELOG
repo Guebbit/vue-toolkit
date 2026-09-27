@@ -239,6 +239,12 @@ is an active TanStack observer that reacts to invalidation on its own.
   first. `createIdentifier`, `getRecord`'s multi-argument form and `editRecord`'s array `id` now
   escape the delimiter (and a literal backslash) inside each value before joining, so different
   tuples never produce the same id. An id whose values contain neither character is unchanged.
+- `updateTarget`'s success handler applied the server response unconditionally once its scope was
+  still current, with no check for a newer mutation on the same id: a `deleteTarget` removing a
+  record while an older `updateTarget` for it was still in flight could be undone by that update's
+  late, stale success — resurrecting a record the app had just deleted. Success now applies only
+  while the record still holds exactly what this call's own optimistic edit left it as, the same
+  rule the rollback path already followed for a failure.
 - `createTarget` left the `dummyData` placeholder on screen when the API resolved empty; it is now
   removed whatever the call resolved, and the lists are marked stale on any success.
 - A failed `fetchOne` cleared the selection even when a newer `fetchOne` had selected another id

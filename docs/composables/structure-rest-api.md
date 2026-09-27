@@ -238,9 +238,10 @@ so `loading`, `isLoading` and `useIsLoading` see it.
      back.
   2. Apply the change locally: `updateTarget` merges `itemData` into the record, `deleteTarget`
      removes it. Skipped if `dependsOn` changed in the meantime.
-  3. Send the request. On failure, put the record back as it was, freshness included (a record
-     that did not exist is removed), but only if it still holds this call's change: a newer change
-     owns it otherwise, so a failed older update never undoes a newer one.
+  3. Send the request. Once it settles, only touch the record if it still holds exactly this
+     call's own change: a newer mutation on the same id owns it otherwise, so neither a failed
+     older update nor a stale older success can undo what that newer one did. On failure the
+     record goes back to what it was before this call (removed, if it did not exist).
   4. Once the request settles, success or failure, mark this resource's lists stale.
 - **`updateTarget`** on success stores the response as the record's new, full data (`merge: true`
   merges it in instead). A response that is not a record object (`undefined`, `null`, an array, a

@@ -63,6 +63,22 @@ describe('UNIT · updateTarget', () => {
         expect(c.getRecord(1)).toEqual(original);
     });
 
+    it('a late update response does not resurrect a record a concurrent delete already removed', async () => {
+        const c = make();
+        await seedAlice(c);
+
+        const { call: updateCall, control: updateControl } = deferredApi<IUser>();
+        const updatePromise = c.updateTarget(updateCall, { name: 'Late Update' }, 1);
+
+        await c.deleteTarget(apiResolve({ id: 1 }), 1);
+        expect(c.getRecord(1)).toBeUndefined();
+
+        updateControl.resolve({ id: 1, name: 'Late Update', email: 'alice@example.com' });
+        await updatePromise;
+
+        expect(c.getRecord(1)).toBeUndefined();
+    });
+
     it('cancels an in-flight fetchTarget of the same id: the read settles, the edit shows', async () => {
         const c = make();
         await c.fetchTarget(apiResolve(USERS[0]), 1);

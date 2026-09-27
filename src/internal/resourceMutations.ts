@@ -191,7 +191,12 @@ export const createResourceMutations = <
             .then(
                 (result) => {
                     if (!keys.isCurrent(scopeAtStart)) return result;
-                    onSuccess?.(result);
+                    // A success is a write too: only apply it while the record still holds exactly
+                    // what this call's own optimistic apply left it as. A newer mutation on the
+                    // same id (a delete, another update) has since changed or removed it, and this
+                    // call's answer is now stale — applying it would resurrect what the newer
+                    // mutation just did, undoing it the same way a stale rollback would.
+                    if (rawRecord(id) === written) onSuccess?.(result);
                     invalidateLists(scopeAtStart);
                     return result;
                 },
