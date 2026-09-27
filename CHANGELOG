@@ -257,6 +257,11 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `fetchSearch(apiCall, filters, page, pageSize)` fetched and cached the requested page, but never
+  applied `page`/`pageSize` to the live `pageCurrent`/`pageSize` refs — `pageItemList`/`totalItems`
+  kept showing whatever page was current *before* the call, not the one it just fetched, until
+  something else moved `pageCurrent`. It now applies both itself, so the screen shows the page it
+  asked for.
 - `watchByParent` called `apiCall(undefined)` when its `parentId` was nullish, instead of idling:
   a screen whose parent id starts out unknown (still loading from a route param, say) fired a
   request for `undefined` on mount. It now idles — no fetch, `apiCall` never called — exactly like

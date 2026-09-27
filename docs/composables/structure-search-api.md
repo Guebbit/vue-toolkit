@@ -162,22 +162,20 @@ served from cache still has it.
 - Makes `filters` (and `settings.key`) the applied search, replacing whatever was applied,
   `watchSearch`'s included: an active `watchSearch` then follows it.
 - Resolves `{ items, totalItems }` for the page it was asked for, from cache on a hit.
-- `pageItemList` and `totalItems` still read `pageCurrent` and `pageSize`, not `fetchSearch`'s own
-  `page` and `pageSize` arguments. For the screen to show the fetched page, pass the refs' values
-  (inside the store of the quickstart):
+- Also applies `page` and `pageSize` to `pageCurrent`/`pageSize`: `pageItemList`/`totalItems`
+  show the very page this call fetched, never a page left over from before it.
 
 ```ts
-const { pageCurrent, pageSize } = api
-
 api.fetchSearch(
-    () =>
-        listProducts({ ...filters.value, page: pageCurrent.value, pageSize: pageSize.value }).then(
+    (context) =>
+        listProducts({ ...filters.value, page: 2, pageSize: 20 }, { signal: context.signal }).then(
             (r) => ({ items: r.data.items, totalItems: r.data.total })
         ),
     filters.value,
-    pageCurrent.value,
-    pageSize.value
+    2,
+    20
 )
+// api.pageCurrent.value === 2, api.pageSize.value === 20, api.pageItemList shows that page
 ```
 
 - Nothing observes a page fetched this way: in a browser it is dropped 5 minutes later (see

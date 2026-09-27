@@ -10,7 +10,7 @@
  * @module composables/structureSearchApi
  * @see docs/composables/structure-search-api.md
  */
-import { computed, ref, shallowRef, toValue, watch, type WatchSource } from 'vue';
+import { computed, nextTick, ref, shallowRef, toValue, watch, type WatchSource } from 'vue';
 import type { Query } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 import { detachedCopy, stableKey } from '../internal/plainData.js';
@@ -260,7 +260,8 @@ export const useStructureSearchApi = <
 
     /**
      * Fetches one page of a filtered search and makes it the applied search. apiCall resolves
-     * `{ items, totalItems }`.
+     * `{ items, totalItems }`. Also applies `page`/`size` to `pageCurrent`/`pageSize`, so
+     * `pageItemList` shows the very page this call fetched, not whatever page was current before.
      *
      * @param apiCall - resolves the page
      * @param filters - the search filters
@@ -277,17 +278,30 @@ export const useStructureSearchApi = <
         settings: IFetchSettings = {}
     ): Promise<ISearchResult<T>> => {
         const snapshot = applySearch(filters as unknown as F, settings.key) as object;
-        const { call, extra } = asListCall(apiCall);
-        return engine
-            .runListQuery(searchQueryKey(snapshot, size, page, settings.key), call, settings, extra)
-            .then((items) => ({
-                items,
-                // A cache hit never ran the call: read the total from the entry itself.
-                totalItems:
-                    queryClient.getQueryData<ISearchCacheEntry<K>>(
-                        searchQueryKey(snapshot, size, page, settings.key)
-                    )?.totalItems ?? 0
-            }));
+        // Applies the page it is about to fetch, so pageItemList (which reads pageCurrent/pageSize)
+        // shows the same page this call resolves. pageSize's own watcher resets pageCurrent to 1
+        // whenever pageSize changes; waiting a tick lets that run FIRST, so the explicit page below
+        // is what sticks, not overwritten by it.
+        pageSize.value = size;
+        return nextTick().then(() => {
+            pageCurrent.value = page;
+            const { call, extra } = asListCall(apiCall);
+            return engine
+                .runListQuery(
+                    searchQueryKey(snapshot, size, page, settings.key),
+                    call,
+                    settings,
+                    extra
+                )
+                .then((items) => ({
+                    items,
+                    // A cache hit never ran the call: read the total from the entry itself.
+                    totalItems:
+                        queryClient.getQueryData<ISearchCacheEntry<K>>(
+                            searchQueryKey(snapshot, size, page, settings.key)
+                        )?.totalItems ?? 0
+                }));
+        });
     };
 
     /**

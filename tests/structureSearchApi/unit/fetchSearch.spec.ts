@@ -6,6 +6,7 @@
  *   - handles an empty result set
  *   - re-throws on error without polluting the cache
  *   - a cache hit still reports the right totalItems (it travels with the cached page)
+ *   - applies page/pageSize itself, so pageItemList shows what it just fetched (V2.6)
  */
 
 import { makeSearchComposable, clearAllInstances } from '../_helpers/harness';
@@ -75,5 +76,31 @@ describe('UNIT · fetchSearch', () => {
         expect(second).not.toHaveBeenCalled(); // served from cache
         expect(secondResult.totalItems).toBe(TECH.length); // not 0 — read from the cache entry
         expect(searchApi.totalItems.value).toBe(TECH.length);
+    });
+
+    it('applies page/pageSize, so pageItemList shows the page it just fetched', async () => {
+        const { searchApi } = make();
+        const PAGE1 = buildArticles(5, 'tech', 1);
+        const PAGE2 = buildArticles(5, 'tech', 100);
+
+        await searchApi.fetchSearch(
+            apiResolve({ items: PAGE1, totalItems: 10 }),
+            { category: 'tech' },
+            1,
+            5
+        );
+        expect(searchApi.pageItemList.value).toEqual(PAGE1);
+
+        // fetching page 2 must not leave pageItemList still showing page 1
+        await searchApi.fetchSearch(
+            apiResolve({ items: PAGE2, totalItems: 10 }),
+            { category: 'tech' },
+            2,
+            5
+        );
+
+        expect(searchApi.pageCurrent.value).toBe(2);
+        expect(searchApi.pageSize.value).toBe(5);
+        expect(searchApi.pageItemList.value).toEqual(PAGE2);
     });
 });
