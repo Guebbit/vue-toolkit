@@ -279,7 +279,7 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | Type                             | Shape                                             | What it's for                                       |
 | -------------------------------- | ----------------------------------------------------| ----------------------------------------------------- |
 | `IApplyServerErrorsOptions<T>`  | `{ map?, onUnmapped? }`                           | The options object `applyServerErrors`'s second argument takes. |
-| `IStructureFormValidation<T>`   | `ReturnType<typeof useStructureFormValidation<T>>` | The whole return value, for a store or component prop that needs to name it. |
+| `IStructureFormValidation<T>`   | An explicit interface (not inferred)               | The whole return value, for a store or component prop that needs to name it. |
 | `IValidationSchema<T>`          | `{ safeParse(data: unknown) => ... }`             | What `schema` must structurally match — Zod's own `safeParse` contract. See [API](#api) above. |
 | `IValidationIssue`              | `{ path: PropertyKey[], message: string }`        | One entry of `safeParse`'s failure `error.issues` — Zod's own `ZodIssue` shape. |
 

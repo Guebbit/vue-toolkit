@@ -292,6 +292,15 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `IStructureFormValidation<T>` was `ReturnType<typeof useStructureFormValidation<T>>`: because
+  `T` can involve `any` (the record constraint every structure composable uses), Vue's own ref
+  inference could not fully resolve, and the published `.d.ts` fell back to `import("@vue/shared")`
+  and `import("@vue/reactivity")` type references — packages this package does not depend on
+  directly, which do not resolve under a strict (pnpm-style) `node_modules` layout. Replaced with
+  an explicit, hand-written interface (the same fix V2.8 already applied to REST/Search/
+  DataManagement/CRUD), with no shape change. `tests/package/dtsGuard.mjs` (added in V4.1) now
+  also scans every public `.d.ts` for `@vue/reactivity`/`@vue/shared` and this package's own
+  `internal/` modules, so a future leak fails the build instead of shipping.
 - `useStructureFormValidation`'s `schema` option was typed with Zod's own `ZodType<T>`, imported
   from `zod` — an OPTIONAL peer. The published `.d.ts` carried that import, which breaks
   type-checking for any app that has not installed `zod`, whether or not it uses this composable.
