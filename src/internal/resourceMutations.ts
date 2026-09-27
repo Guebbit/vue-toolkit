@@ -340,7 +340,9 @@ export const createResourceMutations = <
         return runOptimistic(
             targetId,
             () => editRecord(itemData, targetId, true),
-            () => runMutation(['update', targetId], apiCall, settings.key),
+            // String(id): mutation keys address the same id the same way query keys do
+            // (resourceKeys.ts's target()), so a filter matching one by id matches the other.
+            () => runMutation(['update', String(targetId)], apiCall, settings.key),
             (data) => applyUpdateResponse(data, id, settings)
         );
     };
@@ -361,7 +363,8 @@ export const createResourceMutations = <
         runOptimistic(
             id,
             () => deleteRecord(id),
-            () => runMutation(['delete', id], apiCall, key)
+            // String(id): see updateTarget's own mutationKey, above.
+            () => runMutation(['delete', String(id)], apiCall, key)
         );
 
     return { mutateAny, createTarget, updateTarget, deleteTarget };

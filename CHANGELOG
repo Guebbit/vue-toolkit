@@ -178,6 +178,11 @@ is an active TanStack observer that reacts to invalidation on its own.
 - **BREAKING** — `watchTarget(apiCall, idSource, settings?)`: `apiCall` first, `idSource` second —
   the same order `fetchTarget` and `watchByParent` already use. Swap the first two arguments at
   every call site: `watchTarget(userId, get)` → `watchTarget(get, userId)`.
+- **BREAKING** — `updateTarget`/`deleteTarget`'s mutation key now carries the id as `String(id)`,
+  the same form a record's query key already uses, instead of the raw `K` value. Only visible to a
+  hand-written `isMutating`/`isLoading` filter matching on the mutation key's id segment directly —
+  match `String(id)` instead of `id`. This is what a future per-record `isSaving(id)` needs to
+  filter reliably regardless of whether `id` was passed as a number or a string.
 - **BREAKING** — `K`'s default type, on every structure composable, is now `TIdOf<T>` — the type of
   `T['id']` when `T` has one, `string | number` otherwise — instead of `keyof T` (the union of
   field names). The default `identifiers` is `'id'`, so this is the type its value naturally has;

@@ -178,6 +178,26 @@ describe('UNIT · updateTarget', () => {
     });
 });
 
+describe('UNIT · updateTarget mutation key', () => {
+    // V2.10: a numeric id must produce the same string form a query key uses (resourceKeys.ts's
+    // target()), so a filter matching one by id matches the other — what V5.3's isSaving(id) needs.
+    it('stringifies a numeric id, like query keys do', async () => {
+        const c = makeComposable<IUser, number>();
+        const { call, control } = deferredApi<IUser>();
+        const pending = c.updateTarget(call, { name: 'Edited' }, 1);
+        await flush();
+
+        const mutation = c.queryClient
+            .getMutationCache()
+            .getAll()
+            .find((m) => m.options.mutationKey?.[1] === 'update');
+        expect(mutation?.options.mutationKey).toEqual(['resource', 'update', '1']);
+
+        control.resolve({ ...USERS[0], name: 'Edited' });
+        await pending;
+    });
+});
+
 describe('UNIT · updateTarget with an empty response', () => {
     it('keeps the optimistic patch instead of failing after the server succeeded', async () => {
         const c = make();

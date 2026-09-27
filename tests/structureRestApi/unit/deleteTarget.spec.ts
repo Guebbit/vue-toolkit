@@ -82,4 +82,22 @@ describe('UNIT · deleteTarget', () => {
 
         expect(c.getRecord(1)).toBeUndefined();
     });
+
+    // V2.10: a numeric id must produce the same string form a query key uses (resourceKeys.ts's
+    // target()), so a filter matching one by id matches the other — what V5.3's isSaving(id) needs.
+    it('stringifies a numeric id, like query keys do', async () => {
+        const c = make();
+        const { call, control } = deferredApi<{ ok: boolean }>();
+        const pending = c.deleteTarget(call, 1);
+        await flush();
+
+        const mutation = c.queryClient
+            .getMutationCache()
+            .getAll()
+            .find((m) => m.options.mutationKey?.[1] === 'delete');
+        expect(mutation?.options.mutationKey).toEqual(['resource', 'delete', '1']);
+
+        control.resolve({ ok: true });
+        await pending;
+    });
 });

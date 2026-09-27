@@ -256,8 +256,9 @@ invalidated entry counts as stale. There is no `forced` variant: a forced call a
 | `deleteTarget(apiCall, id, settings?)`               | `key`                               | `apiCall`'s result                         |
 | `mutateAny(apiCall, settings?)`                      | `key`                               | `apiCall`'s result                         |
 
-Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'delete' | 'any', id?]`,
-so `loading`, `isLoading` and `useIsLoading` see it.
+Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'delete' | 'any', id?]`
+(`id` as `String(id)`, the same form a record's query key uses), so `loading`, `isLoading` and
+`useIsLoading` see it.
 
 - **`createTarget`**: `dummyData`, if given, renders at once under a temporary id and is removed
   when the call settles, whatever it resolved. On success the returned record is stored as freshly
