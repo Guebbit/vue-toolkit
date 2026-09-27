@@ -114,6 +114,9 @@ jobs:
             - name: Check the built package (exports map, types resolution, plain-Node load)
               run: npm run test:package
 
+            - name: Type-level tests (tests/types)
+              run: npm run test:types
+
     test-peer-floor:
         # Installs the exact declared floor of each peer (vue, pinia, @tanstack/vue-query) and runs
         # the suite against it. Dev tooling (vitepress, eslint-plugin-vue) wants a newer Vue, hence

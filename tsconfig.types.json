@@ -1,0 +1,11 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true,
+        // Overrides the base config's `src`-only rootDir: this program also includes tests/types.
+        // `declaration`/`declarationDir` stay as inherited — harmless, since noEmit above means
+        // nothing is ever written.
+        "rootDir": "."
+    },
+    "include": ["src", "tests/types"]
+}
