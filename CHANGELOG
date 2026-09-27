@@ -177,6 +177,12 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **Every read `apiCall`** — `fetch*`/`watch*`, `fetchAny`/`watchSearch`, and CRUD's `list`/
+  `search`/`get` — now receives an `IFetchContext` (`{ signal }`) as its last argument. `signal` is
+  a lazy getter: reading it is what asks TanStack to abort the underlying fetch once nothing needs
+  it any more (an unmounted watcher, a mutation cancelling that same record's read). Forward it to
+  `fetch`/axios for a request that is genuinely cancelled, not just an answer later discarded.
+  Non-breaking: an `apiCall` that ignores the new argument keeps working exactly as before.
 - **`dependsOn`** — a getter returning the values a resource's data depends on (whose data, which
   language): `dependsOn: () => [session.viewer?.id ?? 'guest', locale.value]`. Read fresh at the
   start of every call; when it changes, the resource's entries under the old value — records
@@ -206,7 +212,7 @@ is an active TanStack observer that reacts to invalidation on its own.
   under a `key` bucket.
 - `resourceKey` and `editRecords` on the object `useStructureRestApi` returns.
 - Exported types: `IWatchHandle`, `IWatchCallbacks`, `IWatchTargetSettings`, `IWatchSearchHandle`,
-  `ISearchResult`, `IUpdateTargetSettings`, `IRecordStore`.
+  `ISearchResult`, `IUpdateTargetSettings`, `IRecordStore`, `IFetchContext`.
 - `useStructureDataManagement` gains an optional, advanced third parameter, `recordStore`: the
   write surface its CRUD methods go through instead of owning a plain `ref` directly. Defaults to a
   local, in-memory store (so the composable is unaffected on its own) — `useStructureRestApi`

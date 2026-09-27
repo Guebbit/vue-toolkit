@@ -32,3 +32,28 @@ resource.getRecord('1');
 resource.updateTarget(() => Promise.resolve<IUser>({} as IUser), { name: 'Ada' }, 1);
 // @ts-expect-error -- `nope` is not a field of IUser, so the patch isn't Partial<IUser>
 resource.updateTarget(() => Promise.resolve<IUser>({} as IUser), { nope: true }, 1);
+
+// Every read apiCall's last parameter is a { signal } context (V2.1); ignoring it still compiles.
+resource.fetchTarget((context) => {
+    expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
+    // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+    return Promise.resolve<IUser | undefined>(undefined);
+}, 1);
+resource.fetchTarget(
+    // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+    () => Promise.resolve<IUser | undefined>(undefined),
+    1
+);
+resource.fetchAll((context) => {
+    expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
+    return Promise.resolve<IUser[]>([]);
+});
+resource.watchTarget(
+    () => 1,
+    (id, context) => {
+        expectTypeOf(id).toEqualTypeOf<number>();
+        expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
+        // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+        return Promise.resolve<IUser | undefined>(undefined);
+    }
+);

@@ -23,11 +23,13 @@ expectTypeOf(
 expectTypeOf(search.totalItems.value).toEqualTypeOf<number>();
 expectTypeOf(search.pageItemList.value).toEqualTypeOf<IUser[]>();
 
-// watchSearch's handle: stop/refetch/error plus search().
-const handle = search.watchSearch((watchedFilters, page, pageSize) => {
+// watchSearch's handle: stop/refetch/error plus search(). Its apiCall's last argument is the
+// { signal } read context (V2.1).
+const handle = search.watchSearch((watchedFilters, page, pageSize, context) => {
     expectTypeOf(watchedFilters).toEqualTypeOf<IUserFilters>();
     expectTypeOf(page).toEqualTypeOf<number>();
     expectTypeOf(pageSize).toEqualTypeOf<number>();
+    expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
     return Promise.resolve({ items: [], totalItems: 0 });
 });
 expectTypeOf(handle.search).returns.toEqualTypeOf<

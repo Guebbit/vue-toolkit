@@ -110,9 +110,9 @@ flowchart LR
 
 | Operation         | Signature                                                                  | Powers                                                |
 | ----------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `list`            | `() => Promise<(T \| undefined)[]>`                                        | `fetchList`                                           |
-| `search`          | `(filters: F, page: number, pageSize: number) => Promise<ISearchResult<T>>` | `watchList`, `searchNow`, `resetFilters`, `fetchPage` |
-| `get`             | `(id: K) => Promise<T \| undefined>`                                       | `fetchOne`, `watchOne`                                |
+| `list`            | `(context: IFetchContext) => Promise<(T \| undefined)[]>`                  | `fetchList`                                           |
+| `search`          | `(filters: F, page: number, pageSize: number, context: IFetchContext) => Promise<ISearchResult<T>>` | `watchList`, `searchNow`, `resetFilters`, `fetchPage` |
+| `get`             | `(id: K, context: IFetchContext) => Promise<T \| undefined>`               | `fetchOne`, `watchOne`                                |
 | `create`          | `(data: C, options?: O) => Promise<T \| undefined>`                        | `createOne`                                           |
 | `update`          | `(id: K, data: U, options?: O) => Promise<T \| undefined>`                 | `updateOne`                                           |
 | `remove`          | `(id: K, options?: O) => Promise<unknown>`                                 | `deleteOne`                                           |
@@ -127,8 +127,11 @@ promise, `Error('useStructureCrudApi - no "search" operation was supplied')`; on
 `watchOne` that failure shows in `error` and `onError`.
 
 `options` is yours: `createOne`/`updateOne`/`deleteOne` forward it untouched to the operation,
-which is how per-call client config (`onUploadProgress`, `signal`) reaches a request. `list`,
-`search` and `get` take no `options`.
+which is how per-call client config (`onUploadProgress`, a client's own cancellation token) reaches
+a request. `list`, `search` and `get` take no `options`, but do receive `IFetchContext` — a
+`{ signal }` (see [structure-rest-api](./structure-rest-api#reading)) — as their last argument,
+which is the read-side equivalent for cancellation: forward `context.signal` to `fetch`/axios so an
+abandoned read is genuinely cancelled.
 
 ### `optimisticPatch`
 

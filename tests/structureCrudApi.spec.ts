@@ -32,6 +32,9 @@ interface IProductUpdate {
 const PRODUCT: IProduct = { id: 'p1', title: 'First', price: 10 };
 const OTHER: IProduct = { id: 'p2', title: 'Second', price: 20 };
 
+/** Matches the trailing `{ signal }` context every read operation now receives (see V2.1). */
+const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
+
 /**
  * A read-only resource: the methods with no counterpart must fail in a way that names what is
  * missing, rather than deeper down with a less obvious message.
@@ -130,7 +133,7 @@ describe('useStructureCrudApi', () => {
 
             await api.searchNow();
 
-            expect(operations.search).toHaveBeenCalledWith({ text: 'chair' }, 1, 10);
+            expect(operations.search).toHaveBeenCalledWith({ text: 'chair' }, 1, 10, anyContext);
         });
 
         it('does not search on its own when edited', async () => {
@@ -178,7 +181,7 @@ describe('useStructureCrudApi', () => {
             const { api, operations } = makeCrud();
             api.watchList();
             await nextTick();
-            expect(operations.search).toHaveBeenCalledWith({}, 1, 10);
+            expect(operations.search).toHaveBeenCalledWith({}, 1, 10, anyContext);
         });
 
         it('re-searches when the page changes', async () => {
@@ -189,7 +192,7 @@ describe('useStructureCrudApi', () => {
             api.pageCurrent.value = 2;
             await nextTick();
 
-            expect(operations.search).toHaveBeenLastCalledWith({}, 2, 10);
+            expect(operations.search).toHaveBeenLastCalledWith({}, 2, 10, anyContext);
         });
 
         it('reports failures through onError instead of swallowing them', async () => {
@@ -228,7 +231,7 @@ describe('useStructureCrudApi', () => {
             await api.searchNow();
 
             expect(api.pageCurrent.value).toBe(1);
-            expect(operations.search).toHaveBeenCalledWith({}, 1, 10);
+            expect(operations.search).toHaveBeenCalledWith({}, 1, 10, anyContext);
         });
     });
 
@@ -240,7 +243,7 @@ describe('useStructureCrudApi', () => {
             await api.resetFilters();
 
             expect(api.filters.value).toEqual({});
-            expect(operations.search).toHaveBeenLastCalledWith({}, 1, 10);
+            expect(operations.search).toHaveBeenLastCalledWith({}, 1, 10, anyContext);
         });
 
         it('returns to initialFilters, not to empty, when the resource has defaults', async () => {
@@ -278,7 +281,7 @@ describe('useStructureCrudApi', () => {
         it('fetches an unfiltered page', async () => {
             const { api, operations } = makeCrud();
             await api.fetchPage(3, 25);
-            expect(operations.search).toHaveBeenCalledWith({}, 3, 25);
+            expect(operations.search).toHaveBeenCalledWith({}, 3, 25, anyContext);
         });
 
         it('resolves plain items, discarding totalItems', async () => {
@@ -320,7 +323,7 @@ describe('useStructureCrudApi', () => {
         it('forwards the id to the operation', async () => {
             const { api, operations } = makeCrud();
             await api.fetchOne('p1');
-            expect(operations.get).toHaveBeenCalledWith('p1');
+            expect(operations.get).toHaveBeenCalledWith('p1', anyContext);
         });
     });
 
@@ -337,8 +340,8 @@ describe('useStructureCrudApi', () => {
             await nextTick();
             await nextTick();
 
-            expect(operations.get).toHaveBeenCalledWith('p1');
-            expect(operations.get).toHaveBeenCalledWith('p2');
+            expect(operations.get).toHaveBeenCalledWith('p1', anyContext);
+            expect(operations.get).toHaveBeenCalledWith('p2', anyContext);
         });
     });
 

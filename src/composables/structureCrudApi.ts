@@ -17,6 +17,7 @@ import {
     type IWatchSearchSettings
 } from './structureSearchApi.js';
 import type {
+    IFetchContext,
     IFetchSettings,
     IStructureRestApi,
     IWatchTargetSettings
@@ -40,16 +41,21 @@ export interface IStructureCrudOperations<
     O = unknown
 > {
     /** Every record, unpaginated. Powers fetchList. */
-    list?: () => Promise<(T | undefined)[]>;
+    list?: (context: IFetchContext) => Promise<(T | undefined)[]>;
 
     /**
      * One page of a filtered search, with the server's total — what keeps "124 orders" and the
      * pager right even on a cache hit. Powers watchList, searchNow, resetFilters, fetchPage.
      */
-    search?: (filters: F, page: number, pageSize: number) => Promise<ISearchResult<T>>;
+    search?: (
+        filters: F,
+        page: number,
+        pageSize: number,
+        context: IFetchContext
+    ) => Promise<ISearchResult<T>>;
 
     /** One record by id. Powers fetchOne, watchOne. */
-    get?: (id: K) => Promise<T | undefined>;
+    get?: (id: K, context: IFetchContext) => Promise<T | undefined>;
 
     /** Creates a record, resolving with it as stored. */
     create?: (data: C, options?: O) => Promise<T | undefined>;
@@ -147,7 +153,7 @@ export const useStructureCrudApi = <
      * @returns the records
      */
     const fetchList = (fetchSettings: IFetchSettings = {}) =>
-        withOperation('list', (list) => api.fetchAll(() => list(), fetchSettings));
+        withOperation('list', (list) => api.fetchAll(list, fetchSettings));
 
     /**
      * Fetch one unfiltered page without touching the applied search: it goes through
@@ -161,7 +167,7 @@ export const useStructureCrudApi = <
     const fetchPage = (page = 1, pageSize = 10, fetchSettings: IFetchSettings = {}) =>
         withOperation('search', (search) =>
             api.fetchPaginate(
-                () => search({} as F, page, pageSize).then(({ items }) => items),
+                (context) => search({} as F, page, pageSize, context).then(({ items }) => items),
                 page,
                 pageSize,
                 fetchSettings
@@ -177,8 +183,10 @@ export const useStructureCrudApi = <
      */
     const watchList = (watchSettings: IWatchSearchSettings<T, F> = {}) =>
         api.watchSearch(
-            (currentFilters, page, pageSize) =>
-                withOperation('search', (search) => search(currentFilters, page, pageSize)),
+            (currentFilters, page, pageSize, context) =>
+                withOperation('search', (search) =>
+                    search(currentFilters, page, pageSize, context)
+                ),
             watchSettings
         );
 
@@ -192,7 +200,7 @@ export const useStructureCrudApi = <
         api.pageCurrent.value = 1;
         return withOperation('search', (search) =>
             api.fetchSearch(
-                () => search(filters.value, 1, api.pageSize.value),
+                (context) => search(filters.value, 1, api.pageSize.value, context),
                 filters.value,
                 1,
                 api.pageSize.value,
@@ -229,7 +237,7 @@ export const useStructureCrudApi = <
         withOperation('get', (get) => {
             api.selectedIdentifier.value = id;
             return api
-                .fetchTarget(() => get(id), id, fetchSettings)
+                .fetchTarget((context) => get(id, context), id, fetchSettings)
                 .catch((error: unknown) => {
                     if (api.selectedIdentifier.value === id)
                         api.selectedIdentifier.value = undefined;
@@ -248,7 +256,12 @@ export const useStructureCrudApi = <
     const watchOne = (
         idSource: WatchSource<K | undefined | null>,
         watchSettings: IWatchTargetSettings<T, K> = {}
-    ) => api.watchTarget(idSource, (id) => withOperation('get', (get) => get(id)), watchSettings);
+    ) =>
+        api.watchTarget(
+            idSource,
+            (id, context) => withOperation('get', (get) => get(id, context)),
+            watchSettings
+        );
 
     /**
      * Create a record and store it.

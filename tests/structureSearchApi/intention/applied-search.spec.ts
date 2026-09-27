@@ -19,6 +19,9 @@ interface IItem {
     name: string;
 }
 
+/** Matches the trailing `{ signal }` context every apiCall now receives (see V2.1). */
+const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
+
 interface IFilters {
     name?: string;
 }
@@ -62,7 +65,7 @@ describe('INTENTION · the applied search', () => {
         filters.value.name = 'second';
         await search();
 
-        expect(operation).toHaveBeenLastCalledWith({ name: 'second' }, 1, 10);
+        expect(operation).toHaveBeenLastCalledWith({ name: 'second' }, 1, 10, anyContext);
         expect(searchApi.pageItemList.value).toEqual([{ id: 1, name: 'second' }]);
     });
 

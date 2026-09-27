@@ -14,6 +14,17 @@ import type { QueryClient } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 
 /**
+ * The context every read `apiCall` receives, as its last parameter. `signal` is a lazy getter:
+ * TanStack only aborts the underlying fetch once something actually reads it, so an `apiCall`
+ * that ignores the context loses nothing, while one that forwards `signal` to `fetch`/axios gets
+ * a request that is genuinely cancelled on unmount or a superseding call.
+ */
+export interface IFetchContext {
+    /** Aborted once nothing needs this fetch any more. Reading it opts into that. */
+    readonly signal: AbortSignal;
+}
+
+/**
  * Per-call settings of a fetch. Unset fields fall back to the resource's defaults. Each method
  * accepts the subset that means something for it (see its signature).
  */

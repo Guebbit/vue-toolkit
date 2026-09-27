@@ -17,6 +17,7 @@ import { detachedCopy, stableKey } from '../internal/plainData.js';
 import type { IListCacheEntry } from '../internal/resourceKeys.js';
 import { watchSettled } from '../internal/settleCallbacks.js';
 import type {
+    IFetchContext,
     IFetchSettings,
     IStructureRestApi,
     IWatchCallbacks,
@@ -245,11 +246,11 @@ export const useStructureSearchApi = <
      * @param apiCall - resolves one search page
      * @returns the list call, and the extra data to store with its ids
      */
-    const asListCall = (apiCall: () => Promise<ISearchResult<T>>) => {
+    const asListCall = (apiCall: (context: IFetchContext) => Promise<ISearchResult<T>>) => {
         let reported = 0;
         return {
-            call: () =>
-                apiCall().then(({ items, totalItems: total }) => {
+            call: (context: IFetchContext) =>
+                apiCall(context).then(({ items, totalItems: total }) => {
                     reported = total;
                     return items;
                 }),
@@ -269,7 +270,7 @@ export const useStructureSearchApi = <
      * @returns the page, with the search's total
      */
     const fetchSearch = <FF = F>(
-        apiCall: () => Promise<ISearchResult<T>>,
+        apiCall: (context: IFetchContext) => Promise<ISearchResult<T>>,
         filters: FF = {} as FF,
         page = 1,
         size = 10,
@@ -335,7 +336,12 @@ export const useStructureSearchApi = <
      * @returns the watcher handle, plus `search()`
      */
     const watchSearch = (
-        apiCall: (filters: F, page: number, pageSize: number) => Promise<ISearchResult<T>>,
+        apiCall: (
+            filters: F,
+            page: number,
+            pageSize: number,
+            context: IFetchContext
+        ) => Promise<ISearchResult<T>>,
         {
             immediate = true,
             onSuccess,
@@ -374,7 +380,9 @@ export const useStructureSearchApi = <
                     page: number;
                     size: number;
                 };
-                const { call, extra } = asListCall(() => apiCall(filters, page, size));
+                const { call, extra } = asListCall((context) =>
+                    apiCall(filters, page, size, context)
+                );
                 return engine.listQueryFunction(call, searchSettings, running, extra) as Promise<
                     ISearchCacheEntry<K>
                 >;

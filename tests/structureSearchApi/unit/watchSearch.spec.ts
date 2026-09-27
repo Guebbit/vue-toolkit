@@ -44,6 +44,9 @@ const fakeApiCall = (items: IArticle[] = TECH) =>
         Promise.resolve({ items, totalItems: items.length })
     );
 
+/** Matches the trailing `{ signal }` context every apiCall now receives (see V2.1). */
+const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
+
 describe('UNIT · watchSearch', () => {
     it('fires immediately, reading the current filters/page/pageSize', () => {
         const { searchApi } = make();
@@ -51,7 +54,7 @@ describe('UNIT · watchSearch', () => {
         const { stop } = searchApi.watchSearch(apiCall);
 
         expect(apiCall).toHaveBeenCalledTimes(1);
-        expect(apiCall).toHaveBeenCalledWith({ category: 'tech' }, 1, 10);
+        expect(apiCall).toHaveBeenCalledWith({ category: 'tech' }, 1, 10, anyContext);
         stop();
     });
 
@@ -67,7 +70,7 @@ describe('UNIT · watchSearch', () => {
         const apiCall = fakeApiCall();
         const { stop } = searchApi.watchSearch(apiCall);
 
-        expect(apiCall).toHaveBeenCalledWith({ category: 'tech' }, 1, 10);
+        expect(apiCall).toHaveBeenCalledWith({ category: 'tech' }, 1, 10, anyContext);
         stop();
     });
 
@@ -90,7 +93,7 @@ describe('UNIT · watchSearch', () => {
         await flush();
 
         expect(apiCall).toHaveBeenCalledTimes(2);
-        expect(apiCall).toHaveBeenLastCalledWith({}, 2, 10);
+        expect(apiCall).toHaveBeenLastCalledWith({}, 2, 10, anyContext);
         stop();
     });
 
@@ -104,7 +107,7 @@ describe('UNIT · watchSearch', () => {
         await flush();
 
         expect(apiCall).toHaveBeenCalledTimes(2);
-        expect(apiCall).toHaveBeenLastCalledWith({}, 1, 25);
+        expect(apiCall).toHaveBeenLastCalledWith({}, 1, 25, anyContext);
         stop();
     });
 
@@ -121,7 +124,7 @@ describe('UNIT · watchSearch', () => {
         await flush();
 
         expect(searchApi.pageCurrent.value).toBe(1);
-        expect(apiCall.mock.calls).toEqual([[{}, 1, 25]]);
+        expect(apiCall.mock.calls).toEqual([[{}, 1, 25, anyContext]]);
         stop();
     });
 
@@ -140,9 +143,9 @@ describe('UNIT · watchSearch', () => {
         await flush();
 
         expect(apiCall.mock.calls).toEqual([
-            [{ category: 'tech' }, 1, 10],
-            [{ category: 'tech' }, 2, 10],
-            [{ category: 'tech' }, 3, 10]
+            [{ category: 'tech' }, 1, 10, anyContext],
+            [{ category: 'tech' }, 2, 10, anyContext],
+            [{ category: 'tech' }, 3, 10, anyContext]
         ]);
         stop();
     });
@@ -169,7 +172,7 @@ describe('UNIT · watchSearch', () => {
         await search();
 
         expect(apiCall).toHaveBeenCalledTimes(1);
-        expect(apiCall).toHaveBeenCalledWith({ category: 'design' }, 1, 10);
+        expect(apiCall).toHaveBeenCalledWith({ category: 'design' }, 1, 10, anyContext);
         stop();
     });
 

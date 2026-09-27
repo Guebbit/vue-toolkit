@@ -103,9 +103,11 @@ watchDebounced(filters, applyFilters, { debounce: 300, deep: true })
 
 `watchSearch(apiCall, settings?)` returns `IWatchSearchHandle<T>`.
 
-- `apiCall: (filters, page, pageSize) => Promise<{ items, totalItems }>` receives the **applied**
-  filters, never the live ones: each fetch sends the filters, page and page size its own query was
-  built from, even if `pageCurrent` or the applied search has moved on since.
+- `apiCall: (filters, page, pageSize, context) => Promise<{ items, totalItems }>` receives the
+  **applied** filters, never the live ones: each fetch sends the filters, page and page size its
+  own query was built from, even if `pageCurrent` or the applied search has moved on since.
+  `context` is the same `{ signal }` read context every `apiCall` gets (see
+  [structure-rest-api](./structure-rest-api#reading)).
 - The active query follows the applied search, `pageCurrent` and `pageSize`. It re-runs when any
   of them changes, when its entry is invalidated (a mutation of this resource, or
   `invalidateQueries` from anywhere), and when `dependsOn` changes. It stops with the scope that
@@ -154,8 +156,8 @@ served from cache still has it.
 ## fetchSearch
 
 `fetchSearch(apiCall, filters = {}, page = 1, pageSize = 10, settings?)`, with
-`apiCall: () => Promise<{ items, totalItems }>` and `settings`: `forced`, `merge`, `partial`,
-`staleTime`, `key`.
+`apiCall: (context) => Promise<{ items, totalItems }>` and `settings`: `forced`, `merge`,
+`partial`, `staleTime`, `key`.
 
 - Makes `filters` (and `settings.key`) the applied search, replacing whatever was applied,
   `watchSearch`'s included: an active `watchSearch` then follows it.

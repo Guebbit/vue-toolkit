@@ -38,6 +38,7 @@ import {
 import { getUuid } from '@guebbit/js-toolkit';
 import { useStructureDataManagement } from '../composables/structureDataManagement.js';
 import type {
+    IFetchContext,
     IFetchSettings,
     IStructureRestApi,
     IWatchHandle,
@@ -56,7 +57,7 @@ import { createWriteGuard } from './writeGuard.js';
 import { scopeRegistryFor } from './scopeRegistry.js';
 
 /** A list call: resolves the list's items. */
-export type TListCall<T> = () => Promise<(T | undefined)[]>;
+export type TListCall<T> = (context: IFetchContext) => Promise<(T | undefined)[]>;
 
 /** Extra data a list entry stores next to its ids, computed once the ids are known. */
 export type TListExtra<K> = (ids: K[]) => Record<string, unknown>;
@@ -71,6 +72,9 @@ export interface IRunningQuery {
 
     /** True once TanStack cancelled it: its answer must not be stored. */
     isCancelled: () => boolean;
+
+    /** Aborted by TanStack on cancel. Read lazily — see runningQueryOf. */
+    readonly signal: AbortSignal;
 }
 
 /**
@@ -90,7 +94,25 @@ const runningQueryOf = (context: {
 }): IRunningQuery => ({
     queryKey: context.queryKey,
     meta: context.meta,
-    isCancelled: () => context.signal.aborted
+    isCancelled: () => context.signal.aborted,
+    get signal() {
+        return context.signal;
+    }
+});
+
+/**
+ * The `{ signal }` context a read `apiCall` receives (see IFetchContext), built from anything
+ * exposing a lazy `signal` — a running query, or TanStack's own query-function context. Its own
+ * `signal` stays a getter, so an `apiCall` that never reads it never forces TanStack's abort
+ * wiring on its own.
+ *
+ * @param source - a running query, or TanStack's raw query-function context
+ * @returns the context to hand the caller's `apiCall`
+ */
+const readContextOf = (source: { signal: AbortSignal }): IFetchContext => ({
+    get signal() {
+        return source.signal;
+    }
 });
 
 /**
@@ -471,7 +493,7 @@ export const createRestResource = <
     ): Promise<IListCacheEntry<K>> => {
         const scopeAtStart = dependsOn();
         const readAt = writeGuard.readClock();
-        return apiCall().then((items) => {
+        return apiCall(readContextOf(running)).then((items) => {
             const ids = storeBatch(items, scopeAtStart, running, settings, readAt);
             return { ids, ...extra?.(ids) };
         });
@@ -489,14 +511,14 @@ export const createRestResource = <
      * @returns the record's entry
      */
     const targetQueryFunction = (
-        apiCall: () => Promise<T | undefined>,
+        apiCall: (context: IFetchContext) => Promise<T | undefined>,
         id: K,
         running: IRunningQuery,
         merge = false
     ): Promise<ITargetEntry<T>> => {
         const scopeAtStart = dependsOn();
         const readAt = writeGuard.readClock();
-        return apiCall().then((item) => {
+        return apiCall(readContextOf(running)).then((item) => {
             // Cancelled (an update or delete of this record started) or late: store nothing.
             if (isNil(item) || running.isCancelled() || !keys.isCurrent(scopeAtStart))
                 return { data: item };
@@ -639,7 +661,7 @@ export const createRestResource = <
      * @returns the stored record
      */
     const fetchTarget = (
-        apiCall: () => Promise<T | undefined>,
+        apiCall: (context: IFetchContext) => Promise<T | undefined>,
         id?: K,
         settings: Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'> = {}
     ): Promise<T | undefined> => {
@@ -648,7 +670,9 @@ export const createRestResource = <
             const readAt = writeGuard.readClock();
             return settleRead(
                 // Wrapped: TanStack refuses a query function that resolves undefined.
-                runThrowaway(scopeAtStart, () => apiCall().then((item) => ({ data: item }))),
+                runThrowaway(scopeAtStart, (running) =>
+                    apiCall(readContextOf(running)).then((item) => ({ data: item }))
+                ),
                 ({ data: item }): T | undefined => {
                     if (isNil(item) || !keys.isCurrent(scopeAtStart)) return item;
                     const itemId = createIdentifier(item);
@@ -684,7 +708,7 @@ export const createRestResource = <
      */
     const watchTarget = (
         idSource: WatchSource<K | undefined | null>,
-        apiCall: (id: K) => Promise<T | undefined>,
+        apiCall: (id: K, context: IFetchContext) => Promise<T | undefined>,
         { onSuccess, onError, onSettled, ...settings }: IWatchTargetSettings<T, K> = {}
     ): IWatchHandle<T | undefined> => {
         /** The watched id; nullish reads as undefined. */
@@ -701,7 +725,12 @@ export const createRestResource = <
             meta: () => ({ id: currentId() }),
             fetch: (running) => {
                 const id = running.meta?.id as K;
-                return targetQueryFunction(() => apiCall(id), id, running, settings.merge);
+                return targetQueryFunction(
+                    (context) => apiCall(id, context),
+                    id,
+                    running,
+                    settings.merge
+                );
             },
             enabled: () => currentId() !== undefined,
             forced: settings.forced,
@@ -795,7 +824,7 @@ export const createRestResource = <
         watchList(
             () => keys.entry('all', dependsOn(), [], settings.key),
             undefined,
-            () => apiCall(),
+            (running) => apiCall(readContextOf(running)),
             settings
         );
 
@@ -809,14 +838,14 @@ export const createRestResource = <
      * @returns the watcher handle
      */
     const watchByParent = (
-        apiCall: (parentId: P) => Promise<(T | undefined)[]>,
+        apiCall: (parentId: P, context: IFetchContext) => Promise<(T | undefined)[]>,
         parentId: MaybeRefOrGetter<P>,
         settings: IFetchSettings = {}
     ) =>
         watchList(
             () => keys.parent(toValue(parentId), dependsOn(), settings.key),
             () => ({ parentId: toValue(parentId) }),
-            (running) => apiCall(running.meta?.parentId as P),
+            (running) => apiCall(running.meta?.parentId as P, readContextOf(running)),
             settings
         );
 
@@ -830,11 +859,13 @@ export const createRestResource = <
      * @returns the data
      */
     const fetchAny = <F = unknown>(
-        apiCall: () => Promise<F>,
+        apiCall: (context: IFetchContext) => Promise<F>,
         settings: Pick<IFetchSettings, 'forced' | 'staleTime' | 'key'> = {}
     ): Promise<F | undefined> => {
-        // Wrapped: TanStack refuses a query function that resolves undefined.
-        const wrapped = () => apiCall().then((data) => ({ data }));
+        // Wrapped: TanStack refuses a query function that resolves undefined. Accepts either a
+        // running query or TanStack's own raw context — both expose a lazy `signal`.
+        const wrapped = (source: { signal: AbortSignal }) =>
+            apiCall(readContextOf(source)).then((data) => ({ data }));
         if (!settings.key)
             return settleRead(
                 runThrowaway(dependsOn(), wrapped),
@@ -864,13 +895,13 @@ export const createRestResource = <
      * @returns the watcher handle, plus `data`
      */
     const watchAny = <F = unknown>(
-        apiCall: () => Promise<F>,
+        apiCall: (context: IFetchContext) => Promise<F>,
         settings: Pick<IFetchSettings, 'forced' | 'staleTime'> & { key: string[] }
     ) => {
         const { query, scope, refetch } = watchQuery<{ data: F }>({
             queryKey: () => keys.entry('any', dependsOn(), [], settings.key),
             // Wrapped: TanStack refuses a query function that resolves undefined.
-            fetch: () => apiCall().then((data) => ({ data })),
+            fetch: (running) => apiCall(readContextOf(running)).then((data) => ({ data })),
             forced: settings.forced,
             staleTime: settings.staleTime,
             key: settings.key
@@ -912,7 +943,7 @@ export const createRestResource = <
         const readAt = writeGuard.readClock();
         return settleRead(
             runThrowaway(scopeAtStart, (running) =>
-                apiCall().then((items) =>
+                apiCall(readContextOf(running)).then((items) =>
                     storeBatch(items, scopeAtStart, running, settings, readAt)
                 )
             ),

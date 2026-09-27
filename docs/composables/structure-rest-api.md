@@ -128,6 +128,13 @@ relations).
 
 What they share:
 
+- Every `apiCall` receives a `{ signal }` context as its **last** argument (`IFetchContext`).
+  `signal` is a lazy getter: reading it is what asks TanStack to abort the underlying fetch once
+  nothing needs it any more (an unmounted watcher, a mutation cancelling this same record's read).
+  Forward it to `fetch`/axios for a request that is genuinely cancelled, not just an answer that's
+  later discarded; ignoring it costs nothing. `fetchTarget(apiCall, id)`'s `apiCall` takes only the
+  context; `fetchByParent`/`watchByParent` and `fetchTarget`/`watchTarget`'s active counterparts
+  put it after their own id/filters argument (see the tables below for exact positions).
 - A cached entry that is still fresh is served without calling `apiCall`. Concurrent calls for
   the same entry join one request.
 - A failure rejects. An entry that already held data keeps it (stale data still renders); an entry
@@ -168,9 +175,9 @@ component or store that created it, or with `stop()`.
 
 | Method                                         | Arguments                                                                                   | Returns                                     |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `watchTarget(idSource, apiCall, settings?)`    | `idSource`: Ref or getter of `K \| undefined \| null`. `apiCall: (id) => Promise<T \| undefined>`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
+| `watchTarget(idSource, apiCall, settings?)`    | `idSource`: Ref or getter of `K \| undefined \| null`. `apiCall: (id, context) => Promise<T \| undefined>`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
 | `watchAll(apiCall, settings?)`                 | `settings: IFetchSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`                 | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes). `settings: IFetchSettings` | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes). `settings: IFetchSettings` | `IWatchHandle<(T \| undefined)[]>`          |
 | `watchAny(apiCall, settings)`                  | `settings`: `{ key, forced?, staleTime? }`. `key` is **required**: an active query needs a stable identity | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
 
 Each fetch sends what its own query was built from: `watchTarget`'s `apiCall` receives the id,
