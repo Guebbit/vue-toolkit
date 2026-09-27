@@ -1,0 +1,56 @@
+name: Mutation testing
+
+on:
+    # Too slow for every PR (a full run takes minutes even incremental) — nightly and on-demand
+    # only. Not part of the required `ci` gate (.github/workflows/ci.yml).
+    schedule:
+        - cron: '0 3 * * *'
+    workflow_dispatch:
+
+env:
+    NODE_VERSION: 22
+    # fast-check's own property runs must be deterministic under Stryker: a mutant that only
+    # changes behaviour for an unlucky random case must be caught the same way on every run.
+    FC_SEED: 20260927
+
+jobs:
+    mutation:
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: package-lock.json
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Restore the incremental mutation report
+              uses: actions/cache@v4
+              with:
+                  path: reports/stryker-incremental.json
+                  # Always written fresh (below) under a run-specific key, so the cache actually
+                  # updates every night instead of sticking to whatever first created this key;
+                  # restore-keys picks up the most recent prior run's report to diff against.
+                  key: stryker-incremental-${{ github.run_id }}
+                  restore-keys: |
+                      stryker-incremental-
+
+            - name: Run mutation testing (incremental)
+              run: npx stryker run --incremental
+
+            - name: Upload the mutation report
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: mutation-report
+                  path: reports/mutation/
+                  retention-days: 30

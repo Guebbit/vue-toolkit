@@ -26,6 +26,7 @@
         "test:package": "publint --strict && attw --pack . --profile esm-only && node tests/package/smoke.mjs",
         "test:types": "tsc -p tsconfig.types.json",
         "test:mutation": "stryker run",
+        "test:mutation:incremental": "stryker run --incremental",
         "test:target": "clear && jest --config jest.config.cjs tests/structureRestApi",
         "lint": "eslint \"*/**/*.{ts,js,json}\"",
         "lint:fix": "eslint \"*/**/*.{ts,js,json}\" --fix",

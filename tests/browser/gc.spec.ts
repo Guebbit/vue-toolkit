@@ -1,5 +1,9 @@
 /**
- * @jest-environment jsdom
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/jsdom
+ *
+ * Plain 'jsdom' also runs under `npm test`, but Stryker's jest-runner needs its own
+ * coverage-instrumented wrapper around jest-environment-jsdom to mutation-test this file —
+ * see stryker-mutator.io/docs/stryker-js/jest-runner#coverage-analysis.
  *
  * BROWSER — garbage collection. Untestable under Jest's default Node environment: TanStack reads
  * `typeof window === 'undefined'` once, at import time, to decide "server" (`gcTime` defaults to
