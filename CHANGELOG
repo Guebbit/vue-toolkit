@@ -178,6 +178,12 @@ is an active TanStack observer that reacts to invalidation on its own.
 - **BREAKING** — `watchTarget(apiCall, idSource, settings?)`: `apiCall` first, `idSource` second —
   the same order `fetchTarget` and `watchByParent` already use. Swap the first two arguments at
   every call site: `watchTarget(userId, get)` → `watchTarget(get, userId)`.
+- **BREAKING** — `K`'s default type, on every structure composable, is now `TIdOf<T>` — the type of
+  `T['id']` when `T` has one, `string | number` otherwise — instead of `keyof T` (the union of
+  field names). The default `identifiers` is `'id'`, so this is the type its value naturally has;
+  `keyof T` never described what a caller actually got back from `createIdentifier`/`getRecord`.
+  Code that relied on the old default (calling `getRecord('id')` with the literal field name, say)
+  passes `K` explicitly now: `useStructureRestApi<IUser, keyof IUser>(...)`.
 - **BREAKING** — `useStructureCrudApi`'s `createOne`/`updateOne`/`deleteOne` take one settings
   object instead of a bare per-call `options` argument: `createOne(data, { requestOptions, key? })`,
   `updateOne(id, data, { requestOptions, merge?, applyResponse?, key? })`,
@@ -230,7 +236,9 @@ is an active TanStack observer that reacts to invalidation on its own.
   under a `key` bucket.
 - `resourceKey` and `editRecords` on the object `useStructureRestApi` returns.
 - Exported types: `IWatchHandle`, `IWatchCallbacks`, `IWatchTargetSettings`, `IWatchSearchHandle`,
-  `ISearchResult`, `IUpdateTargetSettings`, `IRecordStore`, `IFetchContext`.
+  `ISearchResult`, `IUpdateTargetSettings`, `IRecordStore`, `IFetchContext`, `TIdOf`,
+  `ICreateOneSettings`, `IUpdateOneSettings`, `IDeleteOneSettings`, `IWatchListSettings`,
+  `IWatchAnySettings`.
 - `useStructureDataManagement` gains an optional, advanced third parameter, `recordStore`: the
   write surface its CRUD methods go through instead of owning a plain `ref` directly. Defaults to a
   local, in-memory store (so the composable is unaffected on its own) — `useStructureRestApi`

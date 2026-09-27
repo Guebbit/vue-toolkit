@@ -11,6 +11,7 @@
  */
 import { ref, type Ref, type WatchSource } from 'vue';
 import { detachedCopy } from '../internal/plainData.js';
+import type { TIdOf } from './structureDataManagement.js';
 import {
     useStructureSearchApi,
     type ISearchResult,
@@ -35,7 +36,7 @@ import type {
 export interface IStructureCrudOperations<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
-    K extends string | number = Extract<keyof T, string | number>,
+    K extends string | number = TIdOf<T>,
     F = object,
     C = Partial<T>,
     U = Partial<T>,
@@ -121,7 +122,7 @@ export interface IDeleteOneSettings<O> {
 export const useStructureCrudApi = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
-    K extends string | number = Extract<keyof T, string | number>,
+    K extends string | number = TIdOf<T>,
     F = object,
     C = Partial<T>,
     U = Partial<T>,
@@ -358,7 +359,7 @@ export const useStructureCrudApi = <
 export type IStructureCrudApi<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
-    K extends string | number = Extract<keyof T, string | number>,
+    K extends string | number = TIdOf<T>,
     F = object,
     C = Partial<T>,
     U = Partial<T>,

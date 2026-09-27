@@ -36,7 +36,7 @@ import {
     type QueryKey
 } from '@tanstack/vue-query';
 import { getUuid } from '@guebbit/js-toolkit';
-import { useStructureDataManagement } from '../composables/structureDataManagement.js';
+import { useStructureDataManagement, type TIdOf } from '../composables/structureDataManagement.js';
 import type {
     IFetchContext,
     IFetchSettings,
@@ -165,7 +165,7 @@ export interface IWatchQueryOptions<E> {
 export const createRestResource = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
-    K extends string | number = Extract<keyof T, string | number>,
+    K extends string | number = TIdOf<T>,
     P extends string | number = string | number
 >({
     identifiers = 'id',

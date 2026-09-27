@@ -33,8 +33,10 @@ users.itemList.value // IUser[] — computed view of the whole store
 
 `useStructureDataManagement<T, K, P>(identifiers = 'id', delimiter = '|', recordStore?)`
 
-- `T` is the record type, `K` its id type, `P` a parent's id type. Pass `K` explicitly: its
-  default is `keyof T` (the record's field names), not the type of its id field.
+- `T` is the record type, `K` its id type, `P` a parent's id type. `K` defaults to the type of
+  `T['id']` when `T` has one (`string | number` otherwise) — the natural default, since the
+  default `identifiers` is `'id'`. Pass `K` explicitly for a composite id, or one under a
+  different field name.
 - `identifiers` is a single field name, or an array of fields for composite keys (order matters);
   `delimiter` joins composite key parts into one dictionary key.
 - `recordStore` (type `IRecordStore<T, K>`) is the write surface `addRecord`/`editRecord`/

@@ -111,7 +111,9 @@ flowchart LR
 | `queryClient` | `useQueryClient()`        | The client this resource lives on. The default needs an injection context (component `setup()`, or a Pinia setup store in an app with `VueQueryPlugin`); pass the client explicitly anywhere else. |
 
 `T` is the record type, `K` its id type, `P` a parent's id type (for `fetchByParent` and the
-relations).
+relations). `K` defaults to the type of `T['id']` when `T` has one (`string | number` otherwise);
+pass it explicitly for a composite id, or one under a different field name (see `identifiers`
+below).
 
 ## Reading
 

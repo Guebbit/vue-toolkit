@@ -16,6 +16,7 @@ import { createRestResource } from '../internal/restResource.js';
 import { detachedCopy, stableKey } from '../internal/plainData.js';
 import type { IListCacheEntry } from '../internal/resourceKeys.js';
 import { watchSettled } from '../internal/settleCallbacks.js';
+import type { TIdOf } from './structureDataManagement.js';
 import type {
     IFetchContext,
     IFetchSettings,
@@ -90,7 +91,7 @@ const settledResult = <R>(failed: boolean, current: () => R): R | undefined =>
 export const useStructureSearchApi = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
-    K extends string | number = Extract<keyof T, string | number>,
+    K extends string | number = TIdOf<T>,
     P extends string | number = string | number,
     F = object
 >(

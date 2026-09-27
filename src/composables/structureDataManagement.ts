@@ -15,13 +15,21 @@ import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
 import { joinIdentifiers } from '../internal/identifierJoin.js';
 
 /**
+ * The type of `T`'s own `id` field, when it has one shaped like a record identifier; `string |
+ * number` otherwise. The default `K` of every structure composable: the default `identifiers` is
+ * `'id'`, so its type is the natural default for the id a caller gets back from `createIdentifier`/
+ * `getRecord` — the type of the *values* records are keyed by, not the union of field names.
+ */
+export type TIdOf<T> = T extends { id: infer I extends string | number } ? I : string | number;
+
+/**
  * The write surface `useStructureDataManagement` stores its records through: a local reactive
  * dictionary by default, a TanStack-backed one under `useStructureRestApi`.
  */
 export interface IRecordStore<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number | symbol, any> = Record<string, any>,
-    K extends string | number | symbol = keyof T
+    K extends string | number | symbol = TIdOf<T>
 > {
     /**
      * Reactive read view of the whole dictionary: a `Ref` locally, a `ComputedRef` under the
@@ -65,7 +73,7 @@ export interface IRecordStore<
 const createLocalRecordStore = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number | symbol, any> = Record<string, any>,
-    K extends string | number | symbol = keyof T
+    K extends string | number | symbol = TIdOf<T>
 >(): IRecordStore<T, K> => {
     // Cast past UnwrapRef: T can involve `any`, which defeats Vue's ref-unwrapping inference and
     // would otherwise widen `.value` to something IRecordStore's plain `Ref<Record<K, T>>` can't
@@ -96,7 +104,7 @@ const createLocalRecordStore = <
 export const useStructureDataManagement = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number | symbol, any> = Record<string, any>,
-    K extends string | number | symbol = keyof T,
+    K extends string | number | symbol = TIdOf<T>,
     P extends string | number | symbol = string | number | symbol
 >(
     identifiers: string | string[] = 'id',

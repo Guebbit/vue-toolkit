@@ -12,6 +12,7 @@
 import type { MaybeRefOrGetter, Ref, WatchStopHandle } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
+import type { TIdOf } from './structureDataManagement.js';
 
 /**
  * The context every read `apiCall` receives, as its last parameter. `signal` is a lazy getter:
@@ -195,7 +196,7 @@ export interface IWatchAnySettings extends Pick<IFetchSettings, 'forced' | 'stal
 export const useStructureRestApi = <
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
-    K extends string | number = Extract<keyof T, string | number>,
+    K extends string | number = TIdOf<T>,
     P extends string | number = string | number
 >(
     options: IStructureRestApi
