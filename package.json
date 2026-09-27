@@ -66,6 +66,7 @@
         "fast-check": "^4.10.2",
         "husky": "^9.1.7",
         "jest": "^30.3.0",
+        "jest-environment-jsdom": "^30.5.2",
         "mermaid": "^11.17.2",
         "pinia": "^3.0.4",
         "prettier": "^3.8.1",
