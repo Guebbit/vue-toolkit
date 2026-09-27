@@ -415,15 +415,19 @@ sequenceDiagram
 A critical-mass backstop, not an eviction policy: records are never evicted for being old.
 
 - When a list-shaped fetch (`fetchAll`, `fetchByParent`, `fetchPaginate`, `fetchSearch`, their
-  watchers) or `fetchMultiple` is about to write a batch, and the records cached under the current
-  `dependsOn` plus the batch's **new** records would exceed `maxRecords`, every other entry of the
-  current scope is dropped first (records, lists, searches).
-- Only records not cached yet count: refetching a list that is already cached adds nothing, so it
-  never triggers the wipe.
-- The fetch that crosses the bound keeps its own entry: it resolves its items and caches its list.
-  Queries still fetching are spared too: their answers are on the way.
-- Single-record writes (`fetchTarget`, `watchTarget`, the mutations, `addRecord`/`editRecord`)
-  never trigger it.
+  watchers), `fetchMultiple`, or `fetchTarget`/`watchTarget` fetching a record not cached yet is
+  about to write, and the records cached under the current `dependsOn` plus the incoming **new**
+  ones would exceed `maxRecords`, every other entry of the current scope is dropped first (records,
+  lists, searches) — one detail page at a time crosses the bound exactly like a list does.
+- Only records not cached yet count: refetching a list, or a record, that is already cached adds
+  nothing, so it never triggers the wipe.
+- The fetch that crosses the bound keeps its own entry: it resolves its items (or record) and
+  caches it. Queries still fetching are spared too: their answers are on the way.
+- **A record something is actively watching is never dropped by the wipe** — it still counts
+  toward the bound, it is just never the one evicted. Dropping it would empty a detail view with
+  nothing telling it to refetch.
+- The mutations and `addRecord`/`editRecord` never trigger it: they write one record you already
+  hold data for, not a batch of possibly-new ones.
 - Harmless for server-paginated screens. An infinite-scroll screen rendering `itemList` sees the
   list collapse to the last batch: set `maxRecords: 0` and prune yourself if that matters.
 

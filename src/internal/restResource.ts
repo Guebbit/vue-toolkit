@@ -300,7 +300,9 @@ export const createRestResource = <
 
     /**
      * Past `maxRecords`, removes every query of the current scope except `keep` (the call writing
-     * right now) and the ones still fetching (their answers are on the way).
+     * right now), the ones still fetching (their answers are on the way), and the ones something is
+     * actively watching (they're on screen — a wipe would empty a detail view with nothing to
+     * refetch it). Those still count toward the bound; they're just never the ones evicted.
      *
      * @param incoming - how many records not cached yet are about to be written
      * @param keep - key of the query writing them
@@ -320,10 +322,13 @@ export const createRestResource = <
             );
         if (cached.length + incoming <= maxRecords) return;
         const kept = queryClient.getQueryCache().find({ queryKey: keep, exact: true });
-        // No refetch of watched queries: that would write records again and cross the bound anew.
         dropQueries(
             queryClient,
-            (query) => inCurrent(query) && query !== kept && query.state.fetchStatus !== 'fetching'
+            (query) =>
+                inCurrent(query) &&
+                query !== kept &&
+                query.state.fetchStatus !== 'fetching' &&
+                query.getObserversCount() === 0
         );
     };
 
@@ -481,6 +486,13 @@ export const createRestResource = <
             // (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`): storing it a second time
             // under the requested id would leave two independent, divergent copies in the cache.
             const realId = createIdentifier(item);
+            const targetKey = keys.target(realId);
+            // Single-record fetches never went through enforceMaxRecords (only list-shaped ones
+            // did): browsing many detail pages one at a time, each cached with gcTime: Infinity,
+            // grew the cache without bound. Only a genuinely new id counts — a refetch of one
+            // already cached doesn't grow the total.
+            if (queryClient.getQueryData<ITargetEntry<T>>(targetKey)?.data === undefined)
+                enforceMaxRecords(1, targetKey);
             storeItem(item, realId, { merge }, readAt);
             if (realId === id)
                 return queryClient.getQueryData<ITargetEntry<T>>(keys.target(id)) ?? { data: item };

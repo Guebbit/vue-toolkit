@@ -233,6 +233,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- A `maxRecords` wipe could empty a record `watchTarget` was actively showing on screen, with
+  nothing telling it to refetch — the crossing batch kept its own entry, but any other cached
+  record, watched or not, was dropped the same way. A record with an active observer is no longer
+  evicted by the wipe (it still counts toward the bound, it is just never the one removed). Single-
+  record fetches (`fetchTarget`/`watchTarget`) also never enforced the bound at all: browsing many
+  detail pages one at a time, each cached with `gcTime: Infinity`, grew the cache without limit;
+  they now enforce it exactly like a list-shaped fetch does, for a genuinely new id.
 - A resource's start-up sweep dropped every cache entry of its `resourceKey` under any other
   `dependsOn` value, and a `dependsOn` switch dropped everything under the old value the same way —
   both on the assumption that nothing still alive could be using it. True for an ordinary scope

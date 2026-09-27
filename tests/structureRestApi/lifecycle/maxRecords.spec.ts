@@ -7,10 +7,13 @@
  * dependsOn is dropped BEFORE the batch is stored — lists too, not just the records: a
  * list next to a wiped dictionary would list ids that resolve to nothing. The freshest
  * items (the incoming batch) always survive; the crossing query itself is kept (see
- * maxRecords-crossing.spec.ts).
+ * maxRecords-crossing.spec.ts). A record something is actively watching is never dropped
+ * (still counts toward the cap, just never evicted), and single-record fetches enforce the
+ * bound too, not only list-shaped ones.
  */
 
-import { makeComposable, clearAllInstances } from '../_helpers/harness';
+import { ref } from 'vue';
+import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
 import { buildArticles, type IArticle } from '../_helpers/fixtures';
 
@@ -52,5 +55,35 @@ describe('LIFECYCLE · maxRecords', () => {
 
     it('defaults to 10k', () => {
         expect(makeComposable<IArticle, number>().maxRecords).toBe(10_000);
+    });
+
+    it('never empties a record something is actively watching, even past the cap', async () => {
+        const c = make(3);
+        const watched = c.watchTarget(ref(1), () =>
+            Promise.resolve(buildArticles(1, 'tech', 1)[0])
+        );
+        await flush();
+        expect(c.getRecord(1)).toBeDefined();
+
+        // a batch that would push well past the cap
+        await c.fetchAll(apiResolve(buildArticles(5, 'tech', 10)));
+
+        // the watched record survives, still showing its data, instead of being emptied
+        // with nothing telling it to refetch
+        expect(c.getRecord(1)).toBeDefined();
+        watched.stop();
+    });
+
+    it('single-record fetchTarget calls enforce the bound too, one id at a time', async () => {
+        const c = make(3);
+        await c.fetchTarget(apiResolve(buildArticles(1, 'tech', 1)[0]), 1);
+        await c.fetchTarget(apiResolve(buildArticles(1, 'tech', 2)[0]), 2);
+        await c.fetchTarget(apiResolve(buildArticles(1, 'tech', 3)[0]), 3);
+
+        // a 4th new record crosses the cap: gcTime: Infinity means nothing else would ever
+        // evict the earlier ones on its own
+        await c.fetchTarget(apiResolve(buildArticles(1, 'tech', 4)[0]), 4);
+
+        expect(c.itemList.value.length).toBeLessThanOrEqual(3);
     });
 });
