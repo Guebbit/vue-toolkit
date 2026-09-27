@@ -292,6 +292,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureFormValidation`'s `schema` option was typed with Zod's own `ZodType<T>`, imported
+  from `zod` — an OPTIONAL peer. The published `.d.ts` carried that import, which breaks
+  type-checking for any app that has not installed `zod`, whether or not it uses this composable.
+  `schema` is now typed with a new, exported `IValidationSchema<T>`: Zod's `safeParse` contract
+  described **structurally**, so this package's types never reference `zod`. Any real Zod schema
+  satisfies it as-is. A new `tests/package/dtsGuard.mjs`, run as part of `test:package`, fails the
+  build if a published `.d.ts` ever references `zod` again.
 - `useStructureSearchApi`'s `knownTotal` used `Array.prototype.toSorted`, which needs Safari 16
   (September 2022) — unusably recent for a library with no stated browser floor. Replaced with a
   single-pass max over `dataUpdatedAt`, with no behaviour change: both picked the single most

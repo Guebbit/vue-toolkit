@@ -17,7 +17,6 @@ import {
     type MaybeRefOrGetter,
     type WatchSource
 } from 'vue';
-import { type ZodType } from 'zod';
 import { detachedCopy } from '../internal/plainData.js';
 
 /**
@@ -26,6 +25,35 @@ import { detachedCopy } from '../internal/plainData.js';
 export interface IFieldContainer {
     /** Finds the field to focus; the result is only runtime-checked for a callable `focus`. */
     querySelector: (selectors: string) => unknown;
+}
+
+/**
+ * One validation failure at a specific path into the value (Zod's own `ZodIssue` shape). An empty
+ * `path` is a root-level issue — see {@link IStructureFormValidationOptions.revalidateOn}.
+ */
+export interface IValidationIssue {
+    /** The key trail to the failing value; empty for a root-level issue. */
+    path: PropertyKey[];
+
+    /** A human-readable description of the failure. */
+    message: string;
+}
+
+/**
+ * The minimal shape {@link useStructureFormValidation}'s `schema` option needs: Zod's own
+ * `safeParse` contract, described structurally so this package's `.d.ts` never imports Zod's
+ * types (Zod is an OPTIONAL peer — an app without it installed must still type-check). Any real
+ * Zod schema (`z.object({...})`, `ZodType<T>`) satisfies this as-is; nothing to wrap or convert.
+ */
+export interface IValidationSchema<T> {
+    /**
+     * Parses `data`, never throwing.
+     *
+     * @param data - the value to validate
+     */
+    safeParse(
+        data: unknown
+    ): { success: true; data: T } | { success: false; error: { issues: IValidationIssue[] } };
 }
 
 /**
@@ -211,9 +239,11 @@ const normalizeServerErrors = (collection: unknown): IServerErrorEntry[] => {
  * Handles reactive form state, optional Zod schema validation and submission flow.
  *
  * @param initialData - initial values for the form fields, and the first reset baseline
- * @param schema      - optional Zod schema: plain, ref or getter, resolved inside `validate()`
- *                      only. Prefer a plain schema with thunk messages (`error: () => t('…')`):
- *                      a getter accidentally called at the call site freezes the language.
+ * @param schema      - optional Zod schema (or anything structurally matching
+ *                      {@link IValidationSchema}): plain, ref or getter, resolved inside
+ *                      `validate()` only. Prefer a plain schema with thunk messages
+ *                      (`error: () => t('…')`): a getter accidentally called at the call site
+ *                      freezes the language.
  * @param options     - see {@link IStructureFormValidationOptions}
  * @returns form state (`form`, `formErrors`, flags) and the actions that drive it
  */
@@ -222,7 +252,7 @@ export const useStructureFormValidation = <
     T extends Record<string, any> = Record<string, any>
 >(
     initialData: T = {} as T,
-    schema?: MaybeRefOrGetter<ZodType<T> | undefined>,
+    schema?: MaybeRefOrGetter<IValidationSchema<T> | undefined>,
     options: IStructureFormValidationOptions<T> = {}
 ) => {
     /**

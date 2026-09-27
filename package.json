@@ -23,7 +23,7 @@
         "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
         "build": "tsc",
         "test": "jest --config jest.config.cjs --passWithNoTests",
-        "test:package": "publint --strict && attw --pack . --profile esm-only && node tests/package/smoke.mjs",
+        "test:package": "publint --strict && attw --pack . --profile esm-only && node tests/package/smoke.mjs && node tests/package/dtsGuard.mjs",
         "test:types": "tsc -p tsconfig.types.json",
         "test:mutation": "stryker run",
         "test:mutation:incremental": "stryker run --incremental",

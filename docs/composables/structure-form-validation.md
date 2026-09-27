@@ -236,8 +236,13 @@ flowchart TD
 
 ## API
 
-`useStructureFormValidation<T>(initialData: T = {}, schema?: MaybeRefOrGetter<ZodType<T>>, options?)`
+`useStructureFormValidation<T>(initialData: T = {}, schema?: MaybeRefOrGetter<IValidationSchema<T>>, options?)`
 — `schema` is optional; without one, `validate()` always passes.
+
+`IValidationSchema<T>` is Zod's own `safeParse` contract, described **structurally** rather than
+imported from `zod` — `zod` is an optional peer, and importing its types would break
+type-checking for an app that has not installed it. Any real Zod schema (`z.object({...})`,
+`ZodType<T>`) satisfies it as-is; there is nothing to wrap or convert.
 
 `options`:
 
@@ -275,6 +280,8 @@ flowchart TD
 | -------------------------------- | ----------------------------------------------------| ----------------------------------------------------- |
 | `IApplyServerErrorsOptions<T>`  | `{ map?, onUnmapped? }`                           | The options object `applyServerErrors`'s second argument takes. |
 | `IStructureFormValidation<T>`   | `ReturnType<typeof useStructureFormValidation<T>>` | The whole return value, for a store or component prop that needs to name it. |
+| `IValidationSchema<T>`          | `{ safeParse(data: unknown) => ... }`             | What `schema` must structurally match — Zod's own `safeParse` contract. See [API](#api) above. |
+| `IValidationIssue`              | `{ path: PropertyKey[], message: string }`        | One entry of `safeParse`'s failure `error.issues` — Zod's own `ZodIssue` shape. |
 
 ## Gotchas
 
