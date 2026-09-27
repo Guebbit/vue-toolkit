@@ -69,15 +69,6 @@ interface IAppliedSearch<F> {
 }
 
 /**
- * Canonical string of a filters object: the filters' segment of a search key. Property order
- * never changes it.
- *
- * @param filters - the filters
- * @returns the canonical string
- */
-const searchKeyGen = (filters: object = {}): string => stableKey(filters);
-
-/**
  * Resolves a watcher's fetch into its result: the current page, or undefined when it failed.
  *
  * @param failed - whether the fetch failed
@@ -121,7 +112,7 @@ export const useStructureSearchApi = <
     /**
      * A search page's query key.
      *
-     * @param filters - the filters, or their searchKeyGen string
+     * @param filters - the filters, or their stableKey string
      * @param size - page size
      * @param page - page number
      * @param key - the bucket key
@@ -136,7 +127,7 @@ export const useStructureSearchApi = <
         keys.entry(
             'search',
             dependsOn(),
-            [typeof filters === 'string' ? filters : searchKeyGen(filters), size, page],
+            [typeof filters === 'string' ? filters : stableKey(filters), size, page],
             key
         );
 
@@ -177,7 +168,7 @@ export const useStructureSearchApi = <
      */
     const isPageOf = (search: IAppliedSearch<F>) => {
         const inCurrent = keys.inScope(dependsOn(), ['search']);
-        const filtersKey = searchKeyGen(search.filters as object);
+        const filtersKey = stableKey(search.filters as object);
         return (query: Query): boolean => {
             if (!inCurrent(query) || query.queryKey[3] !== filtersKey) return false;
             const [size, page] = query.queryKey.slice(4, 6);
@@ -222,7 +213,7 @@ export const useStructureSearchApi = <
     /**
      * A cached search page, by filters.
      *
-     * @param filters - the filters, or their searchKeyGen string
+     * @param filters - the filters, or their stableKey string
      * @param page - page number
      * @param size - page size (as used when fetching)
      * @param settings - key
@@ -469,7 +460,6 @@ export const useStructureSearchApi = <
         pageItemList,
         totalItems,
 
-        searchKeyGen,
         searchGet,
         fetchSearch,
         checkSearch,

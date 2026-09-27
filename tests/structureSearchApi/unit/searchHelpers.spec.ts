@@ -1,7 +1,13 @@
 /**
- * UNIT — search helper functions (pure-ish, cache-adjacent).
- *   - searchKeyGen: stable, order-independent, value/property sensitive
- *   - searchGet: empty when nothing cached; accepts object or pre-serialised key
+ * UNIT — searchGet (pure-ish, cache-adjacent): empty when nothing cached; accepts a filters
+ * object or a pre-serialised key.
+ *
+ * A search page's key embeds its filters as `stableKey(filters)` (order-independent,
+ * value-sensitive) — the same canonicalization every other cache key in the toolkit uses; its own
+ * properties are covered once, generally, in tests/internal/plainData.property.spec.ts. There is
+ * no public `searchKeyGen` any more (V2.7): callers always have the filters object on hand, so
+ * `searchGet`/`checkSearch` accept it directly, with the pre-serialised form reachable here only
+ * through the internal `stableKey` for the one test that needs it.
  *
  * The page→ids index is a read-only view derived from the cache, so there is nothing to prune
  * or cap by hand; the record bound is covered in lifecycle/maxRecords.spec.ts.
@@ -10,40 +16,11 @@
 import { makeSearchComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../../structureRestApi/_helpers/fakeApi';
 import { buildArticles, type IArticle } from '../../structureRestApi/_helpers/fixtures';
+import { stableKey } from '../../../src/internal/plainData';
 
 afterEach(clearAllInstances);
 
 const make = () => makeSearchComposable<IArticle, number>();
-
-describe('UNIT · searchKeyGen', () => {
-    it('is stable for identical objects', () => {
-        const { searchApi } = make();
-        expect(searchApi.searchKeyGen({ category: 'tech', page: 1 })).toBe(
-            searchApi.searchKeyGen({ category: 'tech', page: 1 })
-        );
-    });
-
-    it('is independent of property insertion order', () => {
-        const { searchApi } = make();
-        expect(searchApi.searchKeyGen({ category: 'tech', status: 'active' })).toBe(
-            searchApi.searchKeyGen({ status: 'active', category: 'tech' })
-        );
-    });
-
-    it('differs for different values', () => {
-        const { searchApi } = make();
-        expect(searchApi.searchKeyGen({ category: 'tech' })).not.toBe(
-            searchApi.searchKeyGen({ category: 'sport' })
-        );
-    });
-
-    it('differs for different properties', () => {
-        const { searchApi } = make();
-        expect(searchApi.searchKeyGen({ category: 'tech' })).not.toBe(
-            searchApi.searchKeyGen({ tag: 'tech' })
-        );
-    });
-});
 
 describe('UNIT · searchGet', () => {
     it('returns [] when nothing is cached', () => {
@@ -60,6 +37,6 @@ describe('UNIT · searchGet', () => {
             filters,
             1
         );
-        expect(searchApi.searchGet(searchApi.searchKeyGen(filters), 1)).toHaveLength(5);
+        expect(searchApi.searchGet(stableKey(filters), 1)).toHaveLength(5);
     });
 });

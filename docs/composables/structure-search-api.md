@@ -186,11 +186,15 @@ api.fetchSearch(
 
 | Method                                                          | Purpose                                                                                     |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `searchGet(filters, page = 1, pageSize = 10, { key? })`         | The cached items of one page, without fetching. `filters` is an object or a `searchKeyGen` string; `key` must match the one the page was fetched with. |
+| `searchGet(filters, page = 1, pageSize = 10, { key? })`         | The cached items of one page, without fetching. `filters` is an object; `key` must match the one the page was fetched with. |
 | `checkSearch(filters = {}, page = 1, pageSize = 10, { key?, staleTime? })` | Would that `fetchSearch` be served from cache?                                   |
 | `isPageCached({ key?, staleTime? })`                            | `checkSearch` for the **live** filters and the current `pageCurrent`/`pageSize`: would applying the edited filters fetch? |
 | `isPaginateCached({ key?, staleTime? })`                        | `checkPaginate(pageCurrent, pageSize)`, for `fetchPaginate`.                                |
-| `searchKeyGen(filters)`                                         | The canonical string a filters object maps to. Property order and `undefined` properties do not change it. |
+
+A search page's key embeds its filters as a canonical string — order-independent, sensitive to
+every value and property, the same canonicalization every cache key in the toolkit uses. Pass
+`searchGet`/`checkSearch` the filters object itself; there is no need to (and no public way to)
+build that string by hand.
 
 ## API
 
@@ -209,7 +213,7 @@ Returns everything `useStructureRestApi` returns, with these redefined or added:
 | `pageTotal`                                                      | `ComputedRef<number>`: `Math.ceil(totalItems / pageSize)`.           |
 | `totalItems`                                                     | `ComputedRef<number>`: the applied search's server-reported total.   |
 | `watchSearch`, `fetchSearch`                                     | See above.                                                           |
-| `searchGet`, `checkSearch`, `isPageCached`, `isPaginateCached`, `searchKeyGen` | See [Reading the cache](#reading-the-cache).           |
+| `searchGet`, `checkSearch`, `isPageCached`, `isPaginateCached`   | See [Reading the cache](#reading-the-cache).                         |
 
 ## Gotchas
 

@@ -254,6 +254,10 @@ is an active TanStack observer that reacts to invalidation on its own.
     `updateTarget` does with its response; `updateTarget` opts out with `applyResponse: false`.
   - The search page→ids index: a search's pages are cache entries now, read directly; there is no
     separate index to clean up or cap.
+  - **`searchKeyGen`**, from `useStructureSearchApi`'s returned object: internal machinery (a thin
+    wrapper over the same canonicalization every cache key in the toolkit already uses), not
+    something a caller ever needs — `searchGet`/`checkSearch` already accept the filters object
+    directly. If you were building a pre-serialised key by hand, pass the filters object instead.
 
 ## Fixed
 
