@@ -54,6 +54,32 @@ describe('UNIT · watchTarget', () => {
         expect(onError).toHaveBeenCalledTimes(1);
         expect(c.selectedIdentifier.value).toBeUndefined();
     });
+
+    // A throwing onSuccess/onError/onSettled must not reach TanStack's own notify dispatch: that
+    // would corrupt the query's own state transition mid-flight. Proven here by the ordering: the
+    // callback runs strictly after the cache event that triggered it has fully finished dispatching
+    // to every subscriber, never synchronously inside it (settleCallbacks.ts's queueMicrotask).
+    it('a settle callback runs after the cache event has finished dispatching, not synchronously inside it', async () => {
+        const c = makeComposable<IUser, number>();
+        const order: string[] = [];
+
+        c.watchTarget(ref(1), () => Promise.resolve(USERS[0]), {
+            onSuccess: () => order.push('onSuccess')
+        });
+        // Registered after watchTarget's own subscription: within one synchronous dispatch, every
+        // subscriber to the same event fires in registration order, so this runs right after
+        // settleCallbacks' subscriber returns — before its deferred callback gets a turn.
+        const stop = c.queryClient.getQueryCache().subscribe((event) => {
+            // manual: the query function's own storeItem write, not the fetch's real success —
+            // settleCallbacks ignores it too (see settleCallbacks.ts).
+            if (event.type === 'updated' && event.action.type === 'success' && !event.action.manual)
+                order.push('cache-event-dispatched');
+        });
+        await flush();
+        stop();
+
+        expect(order).toEqual(['cache-event-dispatched', 'onSuccess']);
+    });
 });
 
 describe('UNIT · watchAll / watchByParent', () => {

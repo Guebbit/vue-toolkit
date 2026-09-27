@@ -233,6 +233,12 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- A watcher's `onSuccess`/`onError`/`onSettled` ran synchronously inside TanStack's own query-cache
+  notify dispatch. A callback that threw there corrupted that dispatch mid-flight — TanStack read
+  it as the fetch itself failing, putting the query into an error state, firing `onError` for a
+  fetch that had actually succeeded, and (on `watchTarget`) clearing the selection. The callbacks
+  now run a microtask after the dispatch that triggered them has fully finished, so a throw inside
+  one surfaces as an ordinary uncaught error instead.
 - TanStack's `hydrate()` — what `persistQueryClient` uses to restore a cache persisted on a
   previous visit — added a restored query straight into the cache already holding data, without
   ever going through `.setData()`, so only an `added` cache event fired, never `updated`/`success`.

@@ -5,7 +5,8 @@
  * settles once when a fetch of the query it watches right now lands (a `success` or `error`
  * action on that exact query — a cancelled, paused or superseded fetch never lands), and once
  * when its key switches to data already cached and fresh with no fetch running — that switch
- * runs no fetch at all.
+ * runs no fetch at all. The callbacks always run a microtask after the event that triggered them,
+ * never inside TanStack's own notify dispatch: see `succeed`/`fail` below.
  *
  * @module internal/settleCallbacks
  */
@@ -51,21 +52,34 @@ export const watchSettled = <R, C>(
     /** The hash the key watcher last handled. */
     let handledHash: string | undefined;
 
-    /** Reports a success. */
+    /**
+     * Reports a success. Read eagerly (result and context reflect this exact settle), called
+     * through `queueMicrotask`: the query-cache subscription below fires from inside TanStack's own
+     * notify dispatch, and a callback that throws there would corrupt that dispatch — putting the
+     * query into an error state and firing `onError` for a fetch that actually succeeded. Deferred
+     * a microtask out, a throw here surfaces as an ordinary uncaught error instead, and the query's
+     * own state is left alone.
+     */
     const succeed = (): void => {
         const result = readers.result();
-        callbacks.onSuccess?.(result, readers.context());
-        callbacks.onSettled?.(result, undefined, readers.context());
+        const context = readers.context();
+        queueMicrotask(() => {
+            callbacks.onSuccess?.(result, context);
+            callbacks.onSettled?.(result, undefined, context);
+        });
     };
 
     /**
-     * Reports a failure.
+     * Reports a failure (see `succeed` for why the callbacks run through `queueMicrotask`).
      *
      * @param error - the failure
      */
     const fail = (error: unknown): void => {
-        callbacks.onError?.(error, readers.context());
-        callbacks.onSettled?.(undefined, error, readers.context());
+        const context = readers.context();
+        queueMicrotask(() => {
+            callbacks.onError?.(error, context);
+            callbacks.onSettled?.(undefined, error, context);
+        });
     };
 
     /**

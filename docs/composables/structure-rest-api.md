@@ -179,7 +179,10 @@ A watcher never rejects, so a failure shows only in `error`, and in `onError` on
 that take callbacks (`watchTarget`, and `watchSearch` on the search layer). Those three callbacks
 are `IWatchCallbacks<R, C>` — `onSuccess(result, context)`, `onError(error, context)`,
 `onSettled(result, error, context)` — where `R` is what the watcher resolves and `C` is what it
-was watching (an id for `watchTarget`, the filters for `watchSearch`).
+was watching (an id for `watchTarget`, the filters for `watchSearch`). They run a microtask after
+the fetch that triggered them settles, never synchronously inside TanStack's own notification of
+it, so a callback that throws surfaces as an ordinary uncaught error and never corrupts the query
+it was reporting on.
 
 ```ts
 const userId = ref<number | null>(null)
