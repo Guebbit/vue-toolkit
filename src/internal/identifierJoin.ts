@@ -36,7 +36,7 @@ const escapeSegment = (value: unknown, delimiter: string): string =>
 /**
  * Joins identifier values into one composite id, escaping `delimiter` inside each value first so
  * two different tuples never collide. A single value, or a value containing neither `delimiter`
- * nor a backslash, is unchanged, so nearly every id looks exactly as it did before.
+ * nor a backslash, passes through unescaped — the common case stays a plain, readable id.
  *
  * @param values - the identifier values, in order
  * @param delimiter - the separator joining them

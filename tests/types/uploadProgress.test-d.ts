@@ -16,4 +16,4 @@ expectTypeOf(upload.progress.value).toEqualTypeOf<number | undefined>();
 expectTypeOf(upload.track).parameter(0).parameter(0).toEqualTypeOf<IRequestOptions | undefined>();
 
 // @ts-expect-error -- `send` must accept the built IRequestOptions, not an arbitrary shape
-upload.track((options: { wrongShape: true }) => Promise.resolve());
+void upload.track((options: { wrongShape: true }) => Promise.resolve());

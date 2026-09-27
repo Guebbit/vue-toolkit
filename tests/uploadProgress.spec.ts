@@ -122,7 +122,7 @@ describe('useUploadProgress', () => {
                 firstOnProgress = options!.onProgress;
                 return first;
             });
-            composable.track(() => new Promise<void>(() => {}));
+            void composable.track(() => new Promise<void>(() => {}));
 
             // The stale (first) call reports after being superseded by the second.
             firstOnProgress(0.9);

@@ -90,7 +90,11 @@ export const watchSettled = <R, C>(
         if (running !== 'fetching' && readers.isFresh()) succeed();
     };
 
-    // A fetch of the watched query landed. `manual` successes are writes, not fetches.
+    /**
+     * TanStack: fires on every query-cache change; filtered to the watched key's own fetches.
+     * `manual` successes are writes (`setQueryData`), not fetches — excluded, same as a settle
+     * already served from cache above.
+     */
     const stop = queryClient.getQueryCache().subscribe((event) => {
         if (event.type !== 'updated' || event.query.queryHash !== watchedHash()) return;
         const { action } = event;

@@ -81,9 +81,15 @@ const writable = useStructureCrudApi<
     },
     { resourceKey: 'users' }
 );
-writable.createOne({ name: 'Ada' }, { requestOptions: { signal: new AbortController().signal } });
-writable.createOne({ name: 'Ada' }, { dummyData: { id: 1, name: 'Ada', email: 'ada@x.com' } });
-writable.updateOne(1, { name: 'Ada' }, { merge: true, applyResponse: false, key: ['x'] });
-writable.deleteOne(1, { requestOptions: { signal: new AbortController().signal } });
+void writable.createOne(
+    { name: 'Ada' },
+    { requestOptions: { signal: new AbortController().signal } }
+);
+void writable.createOne(
+    { name: 'Ada' },
+    { dummyData: { id: 1, name: 'Ada', email: 'ada@x.com' } }
+);
+void writable.updateOne(1, { name: 'Ada' }, { merge: true, applyResponse: false, key: ['x'] });
+void writable.deleteOne(1, { requestOptions: { signal: new AbortController().signal } });
 // @ts-expect-error -- requestOptions, never a bare per-call argument
-writable.createOne({ name: 'Ada' }, { signal: new AbortController().signal });
+void writable.createOne({ name: 'Ada' }, { signal: new AbortController().signal });

@@ -86,9 +86,11 @@ const createLocalRecordStore = <
     T extends Record<string | number | symbol, any> = Record<string, any>,
     K extends string | number | symbol = TIdOf<T>
 >(): IRecordStore<T, K> => {
-    // Cast past UnwrapRef: T can involve `any`, which defeats Vue's ref-unwrapping inference and
-    // would otherwise widen `.value` to something IRecordStore's plain `Ref<Record<K, T>>` can't
-    // structurally match. Purely a type-level fix — ref() doesn't act on this at runtime.
+    /**
+     * Cast past UnwrapRef: `T` can involve `any`, which defeats Vue's ref-unwrapping inference
+     * and would otherwise widen `.value` to something `IRecordStore`'s plain `Ref<Record<K, T>>`
+     * can't structurally match. Purely a type-level fix — `ref()` doesn't act on this at runtime.
+     */
     const dictionary = ref({} as Record<K, T>) as Ref<Record<K, T>>;
     return {
         dictionary,

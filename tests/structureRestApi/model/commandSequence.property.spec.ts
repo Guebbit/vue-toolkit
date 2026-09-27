@@ -109,6 +109,10 @@ describe('MODEL · structureRestApi command sequences', () => {
                     const allow = (id: number): void => {
                         idsByGeneration.get(generation)!.add(id);
                     };
+                    /** `allow`, for every id in one go — keeps a command's own case body flat. */
+                    const allowAll = (ids: Iterable<number>): void => {
+                        for (const id of ids) allow(id);
+                    };
                     // Two same-record races this model doesn't fully reconcile (see the file header):
                     // two mutations (create/update/delete) on the SAME id — the resurrection half is
                     // fixed (src/internal/resourceMutations.ts), a failed mutation's OWN rollback can
@@ -143,7 +147,9 @@ describe('MODEL · structureRestApi command sequences', () => {
                                         : server.get(command.id)()
                                 );
                                 if (!command.fail) allow(command.id);
-                                track(
+                                // Fire-and-forget: track() pushes the outcome into `outcomes`,
+                                // awaited together at the end of the run (see below).
+                                void track(
                                     composable.fetchTarget(apiCall, command.id, {
                                         forced: command.forced
                                     })
@@ -156,12 +162,13 @@ describe('MODEL · structureRestApi command sequences', () => {
                                         ? Promise.reject(new Error('fail'))
                                         : server.list()()
                                 );
-                                if (!command.fail) for (const id of server.store.keys()) allow(id);
+                                if (!command.fail) allowAll(server.store.keys());
                                 // Invariant 3: only list-shaped fetches enforce maxRecords (a
                                 // fetchTarget/createTarget/updateTarget never does — CHANGELOG 5.0.0),
                                 // so the bound is checked right where it is actually enforced: the
-                                // instant this call's own storeBatch has run, not at the end of the run.
-                                track(composable.fetchAll(apiCall).then(checkMaxRecordsBound));
+                                // instant this call's own storeBatch has run, not at the end of the
+                                // run. Fire-and-forget, like fetchTarget above.
+                                void track(composable.fetchAll(apiCall).then(checkMaxRecordsBound));
                                 break;
                             }
                             case 'fetchMultiple': {
@@ -170,9 +177,9 @@ describe('MODEL · structureRestApi command sequences', () => {
                                         ? Promise.reject(new Error('fail'))
                                         : server.many(command.ids)()
                                 );
-                                if (!command.fail) for (const id of command.ids) allow(id);
+                                if (!command.fail) allowAll(command.ids);
                                 for (const id of command.ids) bump(looseReadTouches, id);
-                                track(
+                                void track(
                                     composable
                                         .fetchMultiple(apiCall, command.ids)
                                         .then(checkMaxRecordsBound)

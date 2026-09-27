@@ -67,6 +67,8 @@ export default defineConfigWithVueTs(
         rules: {
             'no-console': 'warn',
             'no-debugger': 'warn',
+            'max-depth': ['error', 3],
+            '@typescript-eslint/no-floating-promises': 'error',
             'vue/script-indent': 'off',
             'vue/multi-word-component-names': 'off',
             'vue/require-default-prop': 'off',

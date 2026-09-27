@@ -12,4 +12,4 @@ expectTypeOf(action.run).parameter(0).toEqualTypeOf<number>();
 expectTypeOf(action.run).returns.toEqualTypeOf<Promise<IUser | undefined>>();
 
 // @ts-expect-error -- run's argument follows the action's own parameters
-action.run('not-a-number');
+void action.run('not-a-number');
