@@ -110,9 +110,11 @@ export const createQueryRecordStore = <
     const asFetched = <R>(run: () => R): R => {
         const outer = fetched;
         fetched = true;
-        const result = run();
-        fetched = outer;
-        return result;
+        try {
+            return run();
+        } finally {
+            fetched = outer;
+        }
     };
 
     /**

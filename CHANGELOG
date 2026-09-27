@@ -233,6 +233,10 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `asFetched` restored its internal "this write is a server answer" flag without a `finally`: a
+  throw inside the writes it wraps left the flag stuck on, so every later local write (an
+  optimistic edit, a plain `addRecord`) was wrongly stamped fresh instead of keeping its previous
+  freshness. Wrapped in `try`/`finally` now.
 - `editRecord` read through `dictionary` on every call, which under the REST layer is a computed
   that rebuilds its entire scope from the query cache whenever it is stale — and each write
   invalidates it for the next read. Merging or partially writing a batch (`merge`/`partial`
