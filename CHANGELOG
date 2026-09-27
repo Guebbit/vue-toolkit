@@ -302,6 +302,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureFormValidation`'s `initialFormData`/`serverErrors` refs were `ref<T>(...)`/
+  `ref<Partial<Record<keyof T, string[]>>>(...)` with no cast: under `vue`'s declared floor
+  (`^3.4`, tested via the peer-floor CI job now also running `test:types` — V4.5), `Ref<T>`'s
+  older, single-parameter form routes every `.value` through `UnwrapRef<T>`, which cannot resolve
+  for a generic `T` involving `any` — a build error, not a runtime bug, but a real one for anyone
+  actually on the declared floor. Cast past `UnwrapRef`, matching `form`/`formErrors`'s existing
+  casts.
 - `IStructureFormValidation<T>` was `ReturnType<typeof useStructureFormValidation<T>>`: because
   `T` can involve `any` (the record constraint every structure composable uses), Vue's own ref
   inference could not fully resolve, and the published `.d.ts` fell back to `import("@vue/shared")`

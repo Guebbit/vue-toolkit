@@ -153,6 +153,9 @@ jobs:
             - name: Run tests against the peer floor
               run: npm run test
 
+            - name: Type-check against the peer floor
+              run: npm run test:types
+
     test:
         runs-on: ubuntu-latest
         timeout-minutes: 15

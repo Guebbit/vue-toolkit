@@ -374,9 +374,10 @@ export const useStructureFormValidation = <
      * Baseline values resetForm() restores and isDirty compares against.
      * Starts as a detached copy of initialData (nested fields included — a shallow copy would
      * leave a hydrated `readonly` record's nested objects read-only here too); setInitialData /
-     * activateAutoHydrate replace it, so a record fetched later can become the new baseline.
+     * activateAutoHydrate replace it, so a record fetched later can become the new baseline. Cast
+     * past UnwrapRef, same reason as `form`: `.value` feeds straight into `form`'s own writes.
      */
-    const initialFormData = ref<T>(detachedCopy(initialData));
+    const initialFormData = ref<T>(detachedCopy(initialData)) as Ref<T>;
 
     /**
      * Live form values, bound to the inputs. A detached copy: never shares nested objects with
@@ -408,9 +409,12 @@ export const useStructureFormValidation = <
      * Errors set via `applyServerErrors`/`setFieldError`, tracked apart from the schema's own
      * result so a `revalidateOn` re-parse (see below) can merge them back over it instead of
      * wiping them: they came from the server or the caller, not from `form`, so re-parsing
-     * `form` has nothing to say about whether they still apply.
+     * `form` has nothing to say about whether they still apply. Cast past UnwrapRef, same reason
+     * as `formErrors`.
      */
-    const serverErrors = ref<Partial<Record<keyof T, string[]>>>({});
+    const serverErrors = ref<Partial<Record<keyof T, string[]>>>({}) as Ref<
+        Partial<Record<keyof T, string[]>>
+    >;
 
     /**
      * The unmapped-message subset of `formLevelErrors` that came from `applyServerErrors`,
