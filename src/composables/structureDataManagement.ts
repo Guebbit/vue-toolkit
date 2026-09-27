@@ -1,20 +1,91 @@
-import { computed, ref } from 'vue';
+/**
+ * Client-side record management: a dictionary of records keyed by identifier, selection,
+ * "last inserted" tracking, client-side pagination and belongsTo relations.
+ *
+ * Every write goes through an `IRecordStore`. The default one is a plain reactive dictionary;
+ * `useStructureRestApi` passes a TanStack-backed one, which turns the dictionary into a
+ * read-only view of its query cache.
+ *
+ * @module composables/structureDataManagement
+ * @see docs/composables/structure-data-management.md
+ */
+import { computed, customRef, ref, toRaw, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
+import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
+import { joinIdentifiers } from '../internal/identifierJoin.js';
 
-export const useStructureDataManagement = <
-    // type of item
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * The write surface `useStructureDataManagement` stores its records through: a local reactive
+ * dictionary by default, a TanStack-backed one under `useStructureRestApi`.
+ */
+export interface IRecordStore<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number | symbol, any> = Record<string, any>,
-    // type of item[identifier]
+    K extends string | number | symbol = keyof T
+> {
+    /**
+     * Reactive read view of the whole dictionary: a `Ref` locally, a `ComputedRef` under the
+     * REST layer (which satisfies `Ref` in Vue's type hierarchy).
+     */
+    dictionary: Ref<Record<K, T>>;
+
+    /** Writes one record. */
+    write(id: K, item: T): void;
+
+    /** Removes one record. */
+    remove(id: K): void;
+
+    /** Replaces the whole dictionary. */
+    writeAll(items: Record<K, T>): void;
+
+    /** Empties the whole dictionary. */
+    clear(): void;
+}
+
+/**
+ * Default record store: a plain reactive dictionary.
+ *
+ * @returns the store
+ */
+const createLocalRecordStore = <
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    T extends Record<string | number | symbol, any> = Record<string, any>,
+    K extends string | number | symbol = keyof T
+>(): IRecordStore<T, K> => {
+    // Cast past UnwrapRef: T can involve `any`, which defeats Vue's ref-unwrapping inference and
+    // would otherwise widen `.value` to something IRecordStore's plain `Ref<Record<K, T>>` can't
+    // structurally match. Purely a type-level fix — ref() doesn't act on this at runtime.
+    const dictionary = ref({} as Record<K, T>) as Ref<Record<K, T>>;
+    return {
+        dictionary,
+        write: (id: K, item: T) => ((dictionary.value as Record<K, T>)[id] = item),
+        remove: (id: K) => delete (dictionary.value as Record<K, T>)[id],
+        writeAll: (items: Record<K, T>) => (dictionary.value = items),
+        clear: () => (dictionary.value = {} as Record<K, T>)
+    };
+};
+
+/**
+ * Records in a reactive dictionary, with selection, client-side pagination and belongsTo
+ * relations.
+ *
+ * Type parameters: `T` the record, `K` its identifier, `P` a parent's identifier (TypeScript
+ * does not infer `P` across composables: pass it explicitly when it matters).
+ *
+ * @param identifiers - the record field (or fields, order-sensitive) that identifies a record
+ * @param delimiter - joins the values of multiple identifiers into one id
+ * @param recordStore - where records are stored; a local reactive dictionary by default
+ * @returns the dictionary and its operations
+ */
+export const useStructureDataManagement = <
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    T extends Record<string | number | symbol, any> = Record<string, any>,
     K extends string | number | symbol = keyof T,
-    // type of parent[parent_identifier], where the current item is in a relation "belogsTo" with an unknown parent data
-    // WARNING: Typescript is not inferring correctly between different composables and use the default type
     P extends string | number | symbol = string | number | symbol
 >(
-    //  The identification parameter of the item (READONLY and not exported)
     identifiers: string | string[] = 'id',
-    // Delimiter for multiple identifiers
-    delimiter = '|'
+    delimiter = '|',
+    recordStore: IRecordStore<T, K> = createLocalRecordStore<T, K>()
 ) => {
     /**
      * Fills the given (missing) identifier field(s) directly on itemData with a random fallback
@@ -23,14 +94,14 @@ export const useStructureDataManagement = <
      *  - stable across repeated calls (createIdentifier is called more than once per item, e.g.
      *    once by the caller and again internally by addRecord/editRecord)
      *
-     * @param itemData
+     * @param itemData - the record to fill in place
      * @param missingKeys - identifier field name(s) to fill in
      */
     const fillMissingIdentifiers = <C>(itemData: C, missingKeys: string[]): void => {
-        if (typeof itemData !== 'object' || itemData === undefined || itemData === null) return;
+        if (typeof itemData !== 'object' || itemData === null) return;
         const fallback = getUuid();
         for (const key of missingKeys) (itemData as Record<string, unknown>)[key] = fallback;
-        // eslint-disable-next-line no-console
+        // eslint-disable-next-line no-console -- a missing id is worth seeing in development
         console.warn(
             'structureDataManagement - item is missing its identifier, generating a temporary fallback id',
             fallback,
@@ -39,11 +110,13 @@ export const useStructureDataManagement = <
     };
 
     /**
+     * The id of a record: its identifier field, or its identifier fields joined by `delimiter`.
+     * A missing identifier is filled with a random fallback (see fillMissingIdentifiers).
      *
-     * @param itemData
-     * @param customIdentifiers - if specified, it will create a key using these identifiers instead of the default ones
+     * @param itemData - the record
+     * @param customIdentifiers - identifier field(s) to use instead of the composable's own
+     * @returns the id
      */
-
     const createIdentifier = <C = T>(itemData: C, customIdentifiers?: string | string[]): K => {
         const _identifiers = customIdentifiers ?? identifiers;
         if (Array.isArray(_identifiers)) {
@@ -51,12 +124,14 @@ export const useStructureDataManagement = <
             const missingKeys = _identifiers.filter((_key, index) => values[index] == undefined);
             if (missingKeys.length > 0) {
                 fillMissingIdentifiers(itemData, missingKeys);
-                return _identifiers.map((key) => itemData[key as keyof C]).join(delimiter) as K;
+                return joinIdentifiers(
+                    _identifiers.map((key) => itemData[key as keyof C]),
+                    delimiter
+                ) as K;
             }
-            return values.join(delimiter) as K;
+            return joinIdentifiers(values, delimiter) as K;
         }
-        // Use _identifiers (which honours a custom single identifier), NOT the module-level
-        // default `identifier`: otherwise a custom identifier passed here is silently ignored.
+        // A single identifier field: the custom one when given.
         const key = _identifiers as string;
         const value = itemData[key as keyof C];
         if (value === undefined || value === null) {
@@ -66,55 +141,46 @@ export const useStructureDataManagement = <
         return value as K;
     };
 
-    /**
-     * True identifier, become a string if it is an array
-     * (no need to be reactive)
-     */
+    /** The identifier field name(s), joined by `delimiter` when several. */
     const identifier = Array.isArray(identifiers) ? identifiers.join(delimiter) : identifiers;
 
     /**
-     * Dictionary of items (to be filled)
-     *
-     * Items are NEVER evicted by age. Stale data is not garbage data: it is what keeps
-     * the UI rendered while a fresher copy is being downloaded. An item is only garbage
-     * once nothing points at it, which has nothing to do with how old it is.
-     *
-     * So nothing here prunes on a timer or on cache expiry. The dictionary is emptied
-     * only on teardown (resetRecords / resetAll / destroy) or, in useStructureRestApi,
-     * on critical mass — see `maxRecords`.
+     * Every record, by id, as the record store holds it. Never pruned by age: stale data still
+     * renders while a fresher copy downloads.
      */
-    const itemDictionary = ref({} as Record<K, T>);
+    const itemDictionary = recordStore.dictionary;
 
-    /**
-     * List of items
-     */
+    /** Every record, as a list. */
     const itemList = computed<T[]>(() => Object.values(itemDictionary.value as Record<K, T>));
 
     /**
-     * Set records directly to the dictionary
+     * Replaces the whole dictionary.
      *
-     * @param items
+     * @param items - the new records, by id
+     * @returns the same records
      */
-    const setRecords = (items: Record<K, T>): Record<K, T> => (itemDictionary.value = items);
+    const setRecords = (items: Record<K, T>): Record<K, T> => {
+        recordStore.writeAll(items);
+        return items;
+    };
+
+    /** Empties the dictionary. */
+    const resetRecords = () => recordStore.clear();
 
     /**
-     * Empty the items dictionary
-     */
-    const resetRecords = () => (itemDictionary.value = {});
-
-    /**
-     * Get record from object dictionary using identifier
+     * One record by id. Several arguments are joined by `delimiter` (multiple identifiers).
      *
-     * @param _arguments
+     * @param _arguments - the id, or the values of multiple identifiers
+     * @returns the record, if stored
      */
     const getRecord = (..._arguments: (K | undefined)[]): T | undefined =>
-        // Important to directly access the dictionary to avoid reactivity issues
-        itemDictionary.value[_arguments.join(delimiter) as K];
+        itemDictionary.value[joinIdentifiers(_arguments, delimiter) as K];
 
     /**
-     * Multiple getRecord
+     * Several records by id; ids not stored are skipped.
      *
-     * @param idsArray
+     * @param idsArray - ids, or arrays of multiple-identifier values
+     * @returns the stored records
      */
     const getRecords = (idsArray: (K | (K | undefined)[])[] = []) =>
         idsArray
@@ -134,29 +200,28 @@ export const useStructureDataManagement = <
      */
     const lastInsertedIdentifiers = ref<K[]>([]);
 
-    /**
-     * Record for @{lastInsertedIdentifier}
-     */
+    /** The record of `lastInsertedIdentifier`. */
     const lastInsertedRecord = computed<T | undefined>(() =>
         getRecord(lastInsertedIdentifier.value)
     );
 
     /**
-     * Add item to the dictionary.
-     * If item already present, it will be overwritten
+     * Stores a record, replacing any record with the same id.
      *
-     * @param itemData
+     * @param itemData - the record
+     * @returns the record
      */
     const addRecord = (itemData: T) => {
         const id = createIdentifier(itemData);
         lastInsertedIdentifier.value = id;
-        return ((itemDictionary.value as Record<K, T>)[id] = itemData);
+        recordStore.write(id, itemData);
+        return itemData;
     };
 
     /**
-     * Add a list of items to the dictionary.
+     * Stores several records (see addRecord); empty slots are skipped.
      *
-     * @param itemsArray
+     * @param itemsArray - the records
      */
     const addRecords = (itemsArray: (T | undefined)[]) => {
         const ids: K[] = [];
@@ -169,52 +234,44 @@ export const useStructureDataManagement = <
     };
 
     /**
-     * Edit item,
-     * If item not present, it will be ignored
-     * If it is present, it will be merged with the new partial data
-     * WARNING: If identifier change, it does NOT automatically update the dictionary id.
+     * Merges `data` into a record. With `create` (default) a missing record is created; without
+     * it only an existing record is edited, and a missing one is left alone (logged). Changing an
+     * identifier field does not move the record to a new id.
      *
-     * @param data
-     * @param id - WARNING: needed createIdentifier if identifiers is array
-     * @param create - if true it will be added if not present
-     * @returns the record's id if this call created a new record, undefined if it only updated an existing one
+     * @param data - the fields to merge in
+     * @param id - the record id (with multiple identifiers, build it with createIdentifier);
+     *             inferred from `data` when omitted and `create` is on
+     * @param create - create the record when it is missing
+     * @returns the record's id if this call created it, undefined otherwise
      */
     const editRecord = (data: Partial<T> = {}, id?: K | K[], create = true): K | undefined => {
-        // if NOT forced to create and NOT given an id: error (avoid inferring/generating a fallback id for nothing)
-        if (!create && !id) {
-            // eslint-disable-next-line no-console
-            console.error('storeDataStructure - data not found', data);
-            return;
-        }
-
-        // If not specified, it will be inferred (using the same fallback-id logic as createIdentifier)
-        // if multiple identifiers, then they need to be joined\translated
-        const _id = (Array.isArray(id) ? (id.join(delimiter) as K) : id) ?? createIdentifier(data);
-
-        const isNew = !Object.prototype.hasOwnProperty.call(itemDictionary.value, _id);
-
-        // if NOT forced to create and NOT found: error
+        const _id =
+            id === undefined
+                ? create
+                    ? createIdentifier(data)
+                    : undefined
+                : Array.isArray(id)
+                  ? (joinIdentifiers(id, delimiter) as K)
+                  : id;
+        const isNew =
+            _id === undefined || !Object.prototype.hasOwnProperty.call(itemDictionary.value, _id);
         if (!create && isNew) {
-            // eslint-disable-next-line no-console
-            console.error('storeDataStructure - data not found', data);
+            // eslint-disable-next-line no-console -- a caller bug worth seeing in development
+            console.error('structureDataManagement - no record to edit', data);
             return;
         }
-
-        // Replace data if already present
-        (itemDictionary.value as Record<K, T>)[_id] = {
-            ...(itemDictionary.value as Record<K, T>)[_id],
-            ...data
-        };
-
+        // Merged from the raw record: the view may hand out read-only proxies.
+        const existing = toRaw((itemDictionary.value as Record<K, T>)[_id!]);
+        recordStore.write(_id!, { ...existing, ...data } as T);
         if (!isNew) return;
         lastInsertedIdentifier.value = _id;
         return _id;
     };
 
     /**
-     * Same as addRecords but with editRecord
+     * Merges several records (see editRecord); empty slots are skipped.
      *
-     * @param itemsArray
+     * @param itemsArray - the records
      */
     const editRecords = (itemsArray: (T | undefined)[]) => {
         const ids: K[] = [];
@@ -227,116 +284,121 @@ export const useStructureDataManagement = <
     };
 
     /**
-     * Delete record
+     * Removes a record.
      *
-     * @param id
+     * @param id - the record id
+     * @returns true when a record was removed, undefined when there was none
      */
-    const deleteRecord = (id: K) =>
-        getRecord(id) && delete (itemDictionary.value as Record<K, T>)[id];
+    const deleteRecord = (id: K): boolean | undefined => {
+        if (!getRecord(id)) return;
+        recordStore.remove(id);
+        return true;
+    };
 
-    /**
-     * Selected ID
-     */
+    /** Id of the selected record. */
     const selectedIdentifier = ref<K>();
 
     /**
-     * Selected item (by @{selectedIdentifier})
-     * Can have 2 uses:
-     *  - List mode: Show in modal or operations that require the details (example items in a table)
-     *  - Target mode: a detail page or a form to edit the selected item (example item in a dedicated detail page)
+     * The record of `selectedIdentifier`: the row opened from a list, or the record a detail page
+     * or edit form shows.
      */
     const selectedRecord = computed<T | undefined>(() => getRecord(selectedIdentifier.value));
 
-    /**
-     * ---------------------------------- OFFLINE PAGINATION ------------------------------------
-     */
+    // ---------------------------------- client-side pagination ----------------------------------
 
-    /**
-     * Current selected page (start with 1)
-     */
+    /** Current page, from 1. */
     const pageCurrent = ref(1);
 
     /**
-     * How many items in page
+     * Records per page. Clamped to a minimum of 1 on write: a `pageSize` under 1 would turn
+     * `pageTotal` into `Infinity`, which is never what a pager showing it wants.
      */
-    const pageSize = ref(10);
+    const pageSize = customRef<number>((track, trigger) => {
+        let stored = 10;
+        return {
+            get: () => {
+                track();
+                return stored;
+            },
+            set: (value: number) => {
+                const clamped = Math.max(1, value);
+                if (clamped === stored) return;
+                stored = clamped;
+                trigger();
+            }
+        };
+    });
 
-    /**
-     * How many pages exist
-     */
+    /** Page count. */
     const pageTotal = computed(() => Math.ceil(itemList.value.length / pageSize.value));
 
-    /**
-     * First item of the current page
-     */
+    /** Index of the current page's first record. */
     const pageOffset = computed(() => pageSize.value * (pageCurrent.value - 1));
 
-    /**
-     * Items shown in current page
-     */
+    /** The current page's records. */
     const pageItemList = computed(() =>
         itemList.value.slice(pageOffset.value, pageOffset.value + pageSize.value)
     );
 
-    /**
-     * ----------------------------- hasMany & belongsTo relationships -----------------------------
-     */
+    // ----------------------------- hasMany & belongsTo relationships -----------------------------
 
-    /**
-     * If the item has a parent, here will be stored a "parent hasMany" relation
-     */
+    /** Child ids by parent id: the local "parent hasMany" relation. */
     const parentHasMany = ref({} as Record<P, (typeof identifier)[]>);
 
+    /** parentHasMany's dictionary, typed for writing. */
+    const relations = () => parentHasMany.value as Record<P, (typeof identifier)[]>;
+
     /**
+     * Links a child to a parent.
      *
-     * @param parentId
-     * @param childId
+     * @param parentId - the parent id
+     * @param childId - the child record id
      */
     const addToParent = (parentId: P, childId: typeof identifier) => {
-        if (!(parentHasMany.value as Record<P, unknown>)[parentId])
-            (parentHasMany.value as Record<P, (typeof identifier)[]>)[parentId] =
-                [] as (typeof identifier)[];
-        (parentHasMany.value as Record<P, (typeof identifier)[]>)[parentId].push(childId);
+        (relations()[parentId] ??= []).push(childId);
     };
 
     /**
+     * Unlinks a child from a parent.
      *
-     * @param parentId
-     * @param childId
+     * @param parentId - the parent id
+     * @param childId - the child record id
+     * @returns the parent's remaining child ids
      */
     const removeFromParent = (parentId: P, childId: typeof identifier) =>
-        ((parentHasMany.value as Record<P, (typeof identifier)[]>)[parentId] = (
-            parentHasMany.value as Record<P, (typeof identifier)[]>
-        )[parentId].filter((id: typeof identifier) => id !== childId));
+        (relations()[parentId] = (relations()[parentId] ?? []).filter((id) => id !== childId));
 
     /**
+     * Drops repeated child ids of a parent.
      *
-     * @param parentId
+     * @param parentId - the parent id
+     * @returns the parent's child ids
      */
     const removeDuplicateChildren = (parentId: P) =>
-        ((parentHasMany.value as Record<P, (typeof identifier)[]>)[parentId] = [
-            ...new Set((parentHasMany.value as Record<P, (typeof identifier)[]>)[parentId])
-        ]);
+        (relations()[parentId] = [...new Set(relations()[parentId])]);
 
     /**
-     * Get all records ID by parent and use them to retrieve the complete dictionary
-     * @param parentId
+     * A parent's children, by id. Ids whose record is not stored are skipped.
+     *
+     * @param parentId - the parent id
+     * @returns the child records, by id
      */
-    const getRecordsByParent = (parentId?: P): Record<K, T> => {
-        const result = {} as Record<K, T>;
-        if (!parentId || !(parentHasMany.value as Record<P, unknown>)[parentId]) return result;
-        for (const key of (parentHasMany.value as Record<P, unknown[]>)[parentId]) {
-            const record = getRecord(key as K);
-            if (record) result[key as K] = record;
-        }
-        return result;
-    };
+    const getRecordsByParent = (parentId?: P): Record<K, T> =>
+        parentId === undefined
+            ? ({} as Record<K, T>)
+            : recordsByIds((relations()[parentId] ?? []) as K[], (id) => getRecord(id));
 
     /**
-     * Same as above but with array result
-     * @param parentId
+     * A parent's children, as a list in the relation's order. Ids whose record is not stored are
+     * skipped.
+     *
+     * @param parentId - the parent id
+     * @returns the child records
      */
-    const getListByParent = (parentId?: P): T[] => Object.values(getRecordsByParent(parentId));
+    const getListByParent = (parentId?: P): T[] =>
+        parentId === undefined
+            ? []
+            : recordListByIds((relations()[parentId] ?? []) as K[], (id) => getRecord(id));
 
     return {
         createIdentifier,

@@ -1,383 +1,458 @@
-import {
-    computed,
-    ref,
-    watch,
-    type ComputedRef,
-    type Ref,
-    type WatchSource,
-    type WatchStopHandle
-} from 'vue';
-import { canonicalize } from '@guebbit/js-toolkit';
-import {
-    useStructureRestApi,
-    type IFetchSettings,
-    type IStructureRestApi
-} from './structureRestApi';
-
 /**
- * Page-cache for one search: page number => ids of the items that answered it.
+ * Filtered, server-paginated search on top of a REST resource.
+ *
+ * A search is its own cache kind, `[resourceKey, 'search', dependsOn, filters, pageSize, page,
+ * ...key]`, each page entry holding its ids and the server's `totalItems`. What the screen shows
+ * follows the *applied* search — a detached copy of the filters (and key), taken when a search
+ * runs — never the live filters, so a form bound to them does not move the list while the user
+ * types.
+ *
+ * @module composables/structureSearchApi
+ * @see docs/composables/structure-search-api.md
  */
-export type ISearchCache<K = string | number> = Record<string, Record<number, K[]>>;
+import { computed, ref, shallowRef, toValue, watch, type WatchSource } from 'vue';
+import type { Query } from '@tanstack/vue-query';
+import { createRestResource } from '../internal/restResource.js';
+import { detachedCopy, stableKey } from '../internal/plainData.js';
+import type { IListCacheEntry } from '../internal/resourceKeys.js';
+import { watchSettled } from '../internal/settleCallbacks.js';
+import type {
+    IFetchSettings,
+    IStructureRestApi,
+    IWatchCallbacks,
+    IWatchHandle
+} from './structureRestApi.js';
 
-/**
- * Settings accepted by `watchSearch`: `IFetchSettings` plus the watcher-specific
- * knob (immediate) and lifecycle callbacks (onSuccess/onError/onSettled).
- */
+/** What a search resolves: one page of items, and the server's total for the whole search. */
+export interface ISearchResult<T> {
+    /** The page's items. */
+    items: (T | undefined)[];
+
+    /** How many items the whole search matches, across every page. */
+    totalItems: number;
+}
+
+/** watchSearch's settings: the fetch settings, `immediate`, and the settle callbacks. */
 export interface IWatchSearchSettings<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
     F = object
-> extends IFetchSettings {
+>
+    extends IFetchSettings, IWatchCallbacks<(T | undefined)[], F> {
+    /** Search right away with the current filters (default true); otherwise wait for `search()`. */
     immediate?: boolean;
-    onSuccess?: (items: (T | undefined)[], filters: F) => void;
-    onError?: (error: unknown, filters: F) => void;
-    onSettled?: (items: (T | undefined)[] | undefined, error: unknown, filters: F) => void;
+}
+
+/** What watchSearch returns: a watcher handle, plus `search()`. */
+export interface IWatchSearchHandle<T> extends IWatchHandle<ISearchResult<T> | undefined> {
+    /**
+     * Applies the live filters and fetches the current page. Resolves undefined on failure: the
+     * failure shows in `error` and `onError`.
+     */
+    search: (forced?: boolean) => Promise<ISearchResult<T> | undefined>;
+}
+
+/** A search page's cache entry: its ids, and the total it was reported with. */
+interface ISearchCacheEntry<K> extends IListCacheEntry<K> {
+    /** The server's total for the whole search. */
+    totalItems: number;
+}
+
+/** The search behind what is on screen. */
+interface IAppliedSearch<F> {
+    /** Detached copy of the filters it ran with. */
+    filters: F;
+
+    /** Its bucket key, if any. */
+    key?: string[];
 }
 
 /**
- * Combines a search's cacheKey (filters + pageSize) with the caller's own
- * lastUpdateKey, if any, into the single lastUpdateKey dimension fetchPaginate
- * accepts. The result always starts with `searchKey` — searchCleanup depends on
- * that prefix to match every cached bucket of one search regardless of
- * lastUpdateKey.
+ * Canonical string of a filters object: the filters' segment of a search key. Property order
+ * never changes it.
+ *
+ * @param filters - the filters
+ * @returns the canonical string
  */
-const combineKey = (searchKey: string, lastUpdateKey = ''): string =>
-    lastUpdateKey ? searchKey + '|' + lastUpdateKey : searchKey;
+const searchKeyGen = (filters: object = {}): string => stableKey(filters);
 
 /**
- * Reads the current value out of a WatchSource — a Ref, ComputedRef, or a plain
- * getter function — regardless of which one it is.
+ * Resolves a watcher's fetch into its result: the current page, or undefined when it failed.
+ *
+ * @param failed - whether the fetch failed
+ * @param current - reads the current page
+ * @returns the result
  */
-const readWatchSource = <X>(source: WatchSource<X>): X =>
-    typeof source === 'function' ? (source as () => X)() : (source as Ref<X>).value;
+const settledResult = <R>(failed: boolean, current: () => R): R | undefined =>
+    failed ? undefined : current();
 
 /**
- * Adds filtered search on top of an internally-owned useStructureRestApi() instance
- * — the same composition pattern useStructureRestApi itself uses on top of
- * useStructureDataManagement: `settings` is forwarded straight through as its options.
+ * A REST resource plus filtered, server-paginated search. Everything `useStructureRestApi`
+ * returns is passed through; `pageItemList`, `pageTotal` and `totalItems` follow the applied
+ * search.
  *
- * Adds `fetchSearch`, `watchSearch`, `searchGet`, `checkSearch`, and the page-cache
- * bookkeeping (`searchCached`) behind them.
- *
- * `pageItemList` is overridden to be scoped to the CURRENT search's current page,
- * instead of a slice of the whole local item dictionary — otherwise its value would
- * silently drift once more than one search's items share the dictionary.
- *
- * The server-reported total (if any) is not this composable's concern: read it out
- * of your own apiCall response and keep it in your own state.
- *
- * `resetAll`/`destroy` are likewise overridden to also clear this composable's
- * own `searchCached`, so one call tears down everything.
- *
- * @param filtersSource  - Ref, ComputedRef, or getter producing the current search filters
- * @param settings       - options forwarded to the internally-created useStructureRestApi()
+ * @param filtersSource - Ref, ComputedRef or getter producing the live filters
+ * @param settings - the resource's options (see IStructureRestApi)
+ * @returns the resource, with search
  */
 export const useStructureSearchApi = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>,
     P extends string | number = string | number,
     F = object
 >(
     filtersSource: WatchSource<F>,
-    settings: IStructureRestApi = {}
+    settings: IStructureRestApi
 ) => {
-    const api = useStructureRestApi<T, K, P>(settings);
+    /** The resource, and the machinery its lists run on. */
+    const { api, engine } = createRestResource<T, K, P>(settings);
+
+    /** Shared pagination state and the record reader. */
+    const { pageCurrent, pageSize, getRecords, checkPaginate } = api;
+
+    /** Cache access, from the resource. */
+    const { queryClient, keys, dependsOn } = engine;
+
+    /** Moves when a search page gets new data or leaves the cache. */
+    const searchVersion = engine.version('search');
 
     /**
-     * fetchSearch/checkSearch are built on top of these restApi primitives
-     * instead of reimplementing them:
-     *  - pageCurrent/pageSize: shared pagination state driving fetchSearch/watchSearch
-     *  - createIdentifier: builds the id list stored per page in searchCached
-     *  - getRecords: resolves searchCached's stored ids back into items for searchGet
-     *  - fetchPaginate/checkPaginate: the fetch/freshness primitives fetchSearch
-     *    and checkSearch key their filters into (see combineKey)
-     *  - queryClient/loadingKey: let searchCleanup inspect the TanStack cache to
-     *    tell which searches are still live
-     */
-    const {
-        pageCurrent,
-        pageSize,
-        createIdentifier,
-        getRecords,
-        fetchPaginate,
-        checkPaginate,
-        queryClient,
-        loadingKey
-    } = api;
-
-    /**
-     * Cached item ids per page, keyed by (filters, pageSize). The item DATA lives
-     * in restApi's item dictionary; this only tracks which ids answered which search.
-     */
-    const searchCached = ref<ISearchCache<K>>({});
-
-    /**
-     * Drops this composable's own search index (the page-to-ids map).
-     * Leaves restApi's item dictionary/TanStack cache untouched — use the merged
-     * `resetAll`/`destroy` below for a full reset.
-     */
-    const resetSearches = () => {
-        searchCached.value = {};
-    };
-
-    /**
-     * Create a stable and always-the-same key from an object.
-     * Nested objects are supported: see canonicalize.
-     * @param object
-     */
-    // eslint-disable-next-line unicorn/consistent-function-scoping
-    const searchKeyGen = (object: object = {}) => JSON.stringify(canonicalize(object));
-
-    /**
-     * Get search page based on key, pageSize and page number
-     * @param key - stringified search parameters
-     * @param page - page
-     * @param pageSize - page size (must match the value used in fetchSearch)
-     */
-    const searchGet = (key: string | object, page = 1, pageSize = 10): T[] => {
-        const searchKey = typeof key === 'string' ? key : searchKeyGen(key);
-        return getRecords(searchCached.value[searchKey + ':' + pageSize]?.[page]) ?? [];
-    };
-
-    /**
-     * Prune searchCached entries that no longer have a corresponding live entry
-     * in restApi's TanStack query cache. Keeps at most MAX_SEARCHES entries to
-     * bound memory usage.
-     */
-    const searchCleanup = () => {
-        // Upper bound on distinct (filters, pageSize) combinations kept around
-        const MAX_SEARCHES = 50;
-
-        // Every live 'paginate' query restApi currently holds — searches are
-        // built on fetchPaginate, so this is where their cache entries live.
-        const paginateQueries = queryClient
-            .getQueryCache()
-            .findAll({ queryKey: [loadingKey, 'paginate'] });
-
-        // cacheKeys that still have at least one page backed by a live TanStack entry
-        const activeKeys: string[] = [];
-
-        for (const cacheKey of Object.keys(searchCached.value)) {
-            // Live if ANY page under ANY caller lastUpdateKey is still cached. A query's
-            // combinedKey (queryKey[2], see fetchPaginate/combineKey) is `cacheKey` itself
-            // or `cacheKey + '|' + lastUpdateKey` — checking a single hardcoded
-            // lastUpdateKey would prune searches that are very much alive.
-            const hasActivePage = paginateQueries.some((query) => {
-                const combinedKey = query.queryKey[2];
-                return (
-                    query.state.dataUpdatedAt &&
-                    typeof combinedKey === 'string' &&
-                    (combinedKey === cacheKey || combinedKey.startsWith(cacheKey + '|'))
-                );
-            });
-
-            if (hasActivePage) activeKeys.push(cacheKey);
-            else delete searchCached.value[cacheKey];
-        }
-
-        // Enforce MAX_SEARCHES — prune excess active keys
-        if (activeKeys.length > MAX_SEARCHES) {
-            for (const cacheKey of activeKeys.slice(MAX_SEARCHES))
-                delete searchCached.value[cacheKey];
-        }
-    };
-
-    /**
-     * Fetches one page of a filtered search, built on top of restApi.fetchPaginate:
-     * filters are turned into a stable key (searchKey of filters + ":" + pageSize,
-     * e.g. '{"q":"test"}:20') and passed through as fetchPaginate's lastUpdateKey,
-     * so each distinct filter set gets its own bucket of cached pages.
+     * A search page's query key.
      *
-     * apiCall resolves with plain items. If the server also reports a total, read
-     * it out of your own apiCall response and keep it in your own state — this
-     * composable has nothing to do with it.
-     *
-     * @param apiCall
-     * @param filters - search parameters
+     * @param filters - the filters, or their searchKeyGen string
+     * @param size - page size
      * @param page - page number
-     * @param pageSize - page size used for caching
-     * @param settings - forwarded to fetchPaginate (forced, loading, merge, mismatch, TTL, ...)
+     * @param key - the bucket key
+     * @returns the query key
+     */
+    const searchQueryKey = (
+        filters: object | string,
+        size: number,
+        page: number,
+        key?: string[]
+    ): unknown[] =>
+        keys.entry(
+            'search',
+            dependsOn(),
+            [typeof filters === 'string' ? filters : searchKeyGen(filters), size, page],
+            key
+        );
+
+    /** The applied search; undefined until one runs. */
+    const applied = shallowRef<IAppliedSearch<F>>();
+
+    /**
+     * Makes `filters` the applied search, as a detached copy: later edits to the source never
+     * reach it. An equal search is left in place.
+     *
+     * @param filters - the filters to apply
+     * @param key - the bucket key
+     * @returns the applied filters
+     */
+    const applySearch = (filters: F, key?: string[]): F => {
+        const next = { filters: detachedCopy(filters), key };
+        if (applied.value && stableKey(applied.value) === stableKey(next))
+            return applied.value.filters;
+        applied.value = next;
+        return next.filters;
+    };
+
+    /** The applied search's entry for the current page. */
+    const currentSearchEntry = computed<ISearchCacheEntry<K> | undefined>(() => {
+        void searchVersion.value;
+        const search = applied.value;
+        if (!search) return;
+        return queryClient.getQueryData<ISearchCacheEntry<K>>(
+            searchQueryKey(search.filters as object, pageSize.value, pageCurrent.value, search.key)
+        );
+    });
+
+    /**
+     * Predicate: a cached page (any page, any size) of the given search.
+     *
+     * @param search - the search
+     * @returns the predicate
+     */
+    const isPageOf = (search: IAppliedSearch<F>) => {
+        const inCurrent = keys.inScope(dependsOn(), ['search']);
+        const filtersKey = searchKeyGen(search.filters as object);
+        return (query: Query): boolean => {
+            if (!inCurrent(query) || query.queryKey[3] !== filtersKey) return false;
+            const [size, page] = query.queryKey.slice(4, 6);
+            const expected = searchQueryKey(filtersKey, size as number, page as number, search.key);
+            return (
+                query.state.data !== undefined && stableKey(query.queryKey) === stableKey(expected)
+            );
+        };
+    };
+
+    /**
+     * The applied search's most recent total from any of its cached pages: the total does not
+     * depend on the page, so the pager survives while the next page loads.
+     */
+    const knownTotal = computed<number | undefined>(() => {
+        void searchVersion.value;
+        if (!applied.value) return;
+        const [latest] = queryClient
+            .getQueryCache()
+            .findAll({ predicate: isPageOf(applied.value) })
+            .toSorted((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
+        return (latest?.state.data as ISearchCacheEntry<K> | undefined)?.totalItems;
+    });
+
+    /** "124 orders": the applied search's server-reported total. */
+    const totalItems = computed<number>(
+        () => currentSearchEntry.value?.totalItems ?? knownTotal.value ?? 0
+    );
+
+    /** Page count of the applied search. */
+    const pageTotal = computed<number>(() => Math.ceil(totalItems.value / pageSize.value));
+
+    /** Items of the applied search's current page. */
+    const pageItemList = computed<T[]>(() => getRecords(currentSearchEntry.value?.ids ?? []));
+
+    /** The applied search's current page, as a search result. */
+    const currentResult = (): ISearchResult<T> => ({
+        items: pageItemList.value,
+        totalItems: totalItems.value
+    });
+
+    /**
+     * A cached search page, by filters.
+     *
+     * @param filters - the filters, or their searchKeyGen string
+     * @param page - page number
+     * @param size - page size (as used when fetching)
+     * @param settings - key
+     * @returns the page's items
+     */
+    const searchGet = (
+        filters: string | object,
+        page = 1,
+        size = 10,
+        { key }: Pick<IFetchSettings, 'key'> = {}
+    ): T[] =>
+        getRecords(
+            queryClient.getQueryData<ISearchCacheEntry<K>>(searchQueryKey(filters, size, page, key))
+                ?.ids ?? []
+        );
+
+    /**
+     * Adapts a search call to the list protocol: its items become the list, and its total rides
+     * along in the cache entry.
+     *
+     * @param apiCall - resolves one search page
+     * @returns the list call, and the extra data to store with its ids
+     */
+    const asListCall = (apiCall: () => Promise<ISearchResult<T>>) => {
+        let reported = 0;
+        return {
+            call: () =>
+                apiCall().then(({ items, totalItems: total }) => {
+                    reported = total;
+                    return items;
+                }),
+            extra: () => ({ totalItems: reported })
+        };
+    };
+
+    /**
+     * Fetches one page of a filtered search and makes it the applied search. apiCall resolves
+     * `{ items, totalItems }`.
+     *
+     * @param apiCall - resolves the page
+     * @param filters - the search filters
+     * @param page - page number
+     * @param size - page size, part of the cache key
+     * @param settings - forced / merge / partial / staleTime / key
+     * @returns the page, with the search's total
      */
     const fetchSearch = <FF = F>(
-        apiCall: () => Promise<(T | undefined)[]>,
+        apiCall: () => Promise<ISearchResult<T>>,
         filters: FF = {} as FF,
         page = 1,
-        // Could be set in the filters directly but it could be forgotten so it's better to say it explicitly
-        pageSize = 10,
+        size = 10,
         settings: IFetchSettings = {}
-    ): Promise<(T | undefined)[]> => {
-        // cacheKey groups all pages for the same (filters, pageSize) combination
-        const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
-
-        // Prune stale searchCached entries before each search
-        searchCleanup();
-
-        return fetchPaginate(apiCall, page, pageSize, {
-            ...settings,
-            lastUpdateKey: combineKey(searchKey, settings.lastUpdateKey ?? '')
-        }).then((items = []) => {
-            // Reset and repopulate the page-to-ids map
-            if (!(searchKey in searchCached.value)) searchCached.value[searchKey] = [];
-            searchCached.value[searchKey]![page] = items
-                .filter((item): item is T => item !== undefined)
-                .map((item) => createIdentifier(item));
-
-            return items;
-        });
+    ): Promise<ISearchResult<T>> => {
+        const snapshot = applySearch(filters as unknown as F, settings.key) as object;
+        const { call, extra } = asListCall(apiCall);
+        return engine
+            .runListQuery(searchQueryKey(snapshot, size, page, settings.key), call, settings, extra)
+            .then((items) => ({
+                items,
+                // A cache hit never ran the call: read the total from the entry itself.
+                totalItems:
+                    queryClient.getQueryData<ISearchCacheEntry<K>>(
+                        searchQueryKey(snapshot, size, page, settings.key)
+                    )?.totalItems ?? 0
+            }));
     };
 
     /**
-     * Would fetchSearch(apiCall, filters, page, pageSize, settings) be served from cache?
+     * Would fetchSearch be served from cache?
+     *
+     * @param filters - the search filters
+     * @param page - page number
+     * @param size - page size
+     * @param settings - key / staleTime
+     * @returns whether it would
      */
     const checkSearch = <FF = F>(
         filters: FF = {} as FF,
         page = 1,
-        pageSize = 10,
-        { lastUpdateKey = '', TTL }: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'> = {}
-    ): boolean => {
-        const searchKey = searchKeyGen(filters as object) + ':' + pageSize;
-        return checkPaginate(page, pageSize, {
-            lastUpdateKey: combineKey(searchKey, lastUpdateKey),
-            TTL
-        });
-    };
+        size = 10,
+        { key, staleTime }: Pick<IFetchSettings, 'key' | 'staleTime'> = {}
+    ): boolean => engine.isFresh(searchQueryKey(filters as object, size, page, key), staleTime);
 
     /**
-     * fetchSearch's reactive counterpart: watches this composable's own
-     * pageCurrent/pageSize and re-runs fetchSearch whenever either changes,
-     * using whatever filters `searchFiltersSource` currently holds.
+     * Would fetchSearch, for the live filters and the current page, be served from cache?
      *
-     * Filters are READ, not watched: this composable has no opinion on when a filter
-     * edit should trigger a search (as-you-type vs on-submit is a UI decision it
-     * shouldn't make for you). A filter change only takes effect the next time
-     * `search()` runs — via a pageCurrent/pageSize change, or your own call to the
-     * returned `search()`. If you want as-you-type search, watch your filters
-     * yourself (debounced, if desired) and call `search()` from that watcher.
-     *
-     * @param apiCall       - filters/page/pageSize-parametrized, since all three can change
-     * @param searchFiltersSource - Ref, ComputedRef, or getter producing the current filters
-     * @param immediate     - run once on creation, e.g. for the initial page load (default true)
-     * @param onSuccess     - called with the fetched items after a successful search
-     * @param onError       - called with the error after a failed search (otherwise swallowed,
-     *                        same as an unhandled watch callback)
-     * @param onSettled     - called after either outcome
-     * @param settings      - forwarded to fetchSearch (forced, merge, TTL, ...)
-     * @returns { stop, search } — stop the watcher, or trigger a search on demand
-     *          (e.g. from a "reset page to 1 and search now" handler, where the
-     *          page/pageSize watcher alone wouldn't fire because pageCurrent was
-     *          already 1)
+     * @param settings - key / staleTime
+     * @returns whether it would
      */
-    const watchSearch = <FF = F>(
-        apiCall: (filters: FF, page: number, pageSize: number) => Promise<(T | undefined)[]>,
-        searchFiltersSource: WatchSource<FF>,
+    const isPageCached = (settings?: Pick<IFetchSettings, 'key' | 'staleTime'>): boolean =>
+        checkSearch(toValue(filtersSource) as object, pageCurrent.value, pageSize.value, settings);
+
+    /**
+     * Same as isPageCached, for fetchPaginate (no filters).
+     *
+     * @param settings - key / staleTime
+     * @returns whether it would
+     */
+    const isPaginateCached = (settings?: Pick<IFetchSettings, 'key' | 'staleTime'>): boolean =>
+        checkPaginate(pageCurrent.value, pageSize.value, settings);
+
+    /**
+     * The active search: keeps the applied search's current page fetched, re-running on a page
+     * or page-size change, on invalidation and on a `dependsOn` change. Filters are read, never
+     * watched: an edit takes effect at the next `search()` (as-you-type search is the caller's
+     * choice: watch the filters and call `search()`). Each fetch sends the filters, page and page
+     * size its own query was built from.
+     *
+     * @param apiCall - resolves one page for the given filters, page and page size
+     * @param settings - immediate, the fetch settings, and the settle callbacks
+     * @returns the watcher handle, plus `search()`
+     */
+    const watchSearch = (
+        apiCall: (filters: F, page: number, pageSize: number) => Promise<ISearchResult<T>>,
         {
             immediate = true,
             onSuccess,
             onError,
             onSettled,
-            ...settings
-        }: IWatchSearchSettings<T, FF> = {}
-    ): {
-        stop: WatchStopHandle;
-        search: (forced?: boolean) => Promise<(T | undefined)[] | undefined>;
-    } => {
-        const search = (forced = false) => {
-            const filters = readWatchSource(searchFiltersSource);
-            return fetchSearch(
-                () => apiCall(filters, pageCurrent.value, pageSize.value),
-                filters,
-                pageCurrent.value,
+            ...searchSettings
+        }: IWatchSearchSettings<T, F> = {}
+    ): IWatchSearchHandle<T> => {
+        /** False until the first search when not immediate: the query stays disabled. */
+        const hasStarted = ref(immediate);
+        if (immediate && !applied.value) applySearch(toValue(filtersSource), searchSettings.key);
+
+        /** The applied search, or an empty one before any has run. */
+        const current = (): IAppliedSearch<F> =>
+            applied.value ?? { filters: {} as F, key: searchSettings.key };
+
+        /** The current page's key under the applied search. */
+        const queryKey = (): unknown[] =>
+            searchQueryKey(
+                current().filters as object,
                 pageSize.value,
-                { ...settings, forced: forced || settings.forced }
+                pageCurrent.value,
+                current().key
+            );
+
+        const { query, scope, refetch } = engine.watchQuery<ISearchCacheEntry<K>>({
+            queryKey,
+            meta: () => ({
+                filters: current().filters,
+                page: pageCurrent.value,
+                size: pageSize.value
+            }),
+            fetch: (running) => {
+                const { filters, page, size } = running.meta as {
+                    filters: F;
+                    page: number;
+                    size: number;
+                };
+                const { call, extra } = asListCall(() => apiCall(filters, page, size));
+                return engine.listQueryFunction(call, searchSettings, running, extra) as Promise<
+                    ISearchCacheEntry<K>
+                >;
+            },
+            enabled: hasStarted,
+            forced: searchSettings.forced,
+            staleTime: searchSettings.staleTime,
+            key: () => current().key
+        });
+
+        /**
+         * True when the current page is cached and fresh.
+         *
+         * @param forced - count nothing as fresh
+         * @returns whether it is
+         */
+        const isCurrentFresh = (forced = false) =>
+            engine.isFresh(queryKey(), engine.staleTimeOf({ ...searchSettings, forced }));
+
+        const { settleIfUnchanged } = scope.run(() =>
+            watchSettled(
+                queryClient,
+                {
+                    queryKey,
+                    isFresh: () => hasStarted.value && isCurrentFresh(),
+                    result: () => pageItemList.value,
+                    context: () => current().filters
+                },
+                { onSuccess, onError, onSettled }
             )
-                .then((items) => {
-                    onSuccess?.(items, filters);
-                    onSettled?.(items, undefined, filters);
-                    return items;
-                })
-                .catch((error: unknown): undefined => {
-                    onError?.(error, filters);
-                    onSettled?.(undefined, error, filters);
-                });
+        )!;
+
+        /**
+         * Applies the live filters and fetches the current page (see IWatchSearchHandle).
+         *
+         * @param forced - ask the server even if the page is cached and fresh
+         * @returns the page, or undefined on failure
+         */
+        const search = (forced = false): Promise<ISearchResult<T> | undefined> => {
+            hasStarted.value = true;
+            applySearch(toValue(filtersSource), searchSettings.key);
+            if (isCurrentFresh(forced)) {
+                // A switch to fresh data settles through the key watcher; staying on it, here.
+                settleIfUnchanged();
+                return Promise.resolve(currentResult());
+            }
+            // refetch() first moves the query to the applied search's key, then fetches it.
+            return refetch().then((result) => settledResult(result.isError, currentResult));
         };
 
-        const stop = watch([pageCurrent, pageSize], () => void search(), { immediate });
-
-        return { stop, search };
+        return {
+            stop: () => scope.stop(),
+            // Before any search there is nothing shown, so nothing to fetch again.
+            refetch: () =>
+                applied.value ? refetch().then(currentResult) : Promise.resolve(currentResult()),
+            error: query.error,
+            search
+        };
     };
 
-    /**
-     * Items on the CURRENT search's current page: `searchGet(filters, pageCurrent, pageSize)`.
-     */
-    const pageItemList: ComputedRef<T[]> = computed(() =>
-        searchGet(readWatchSource(filtersSource) as object, pageCurrent.value, pageSize.value)
-    );
-
-    /**
-     * Would `fetchSearch` for the current filters/pageCurrent/pageSize be
-     * served from cache right now?
-     */
-    const isPageCached = (settings?: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'>): boolean =>
-        checkSearch(
-            readWatchSource(filtersSource) as object,
-            pageCurrent.value,
-            pageSize.value,
-            settings
-        );
-
-    /**
-     * Same as `isPageCached`, but checks `fetchPaginate` (no filters) instead of `fetchSearch`.
-     */
-    const isPaginateCached = (settings?: Pick<IFetchSettings, 'lastUpdateKey' | 'TTL'>): boolean =>
-        checkPaginate(pageCurrent.value, pageSize.value, settings);
-
-    /**
-     * `watchSearch`, pre-bound to this composable's own filtersSource so callers
-     * don't have to pass it (and can't accidentally pass a different one than
-     * `pageItemList` above is reading).
-     */
-    const watchCurrentSearch = (
-        apiCall: (filters: F, page: number, pageSize: number) => Promise<(T | undefined)[]>,
-        settings?: IWatchSearchSettings<T, F>
-    ) => watchSearch<F>(apiCall, filtersSource, settings);
-
-    /**
-     * restApi.resetAll(), plus this composable's own search indexes: a single
-     * call resets both halves of the combined store.
-     */
-    const resetAll = () => {
-        api.resetAll();
-        resetSearches();
-    };
-
-    /**
-     * restApi.destroy(), plus this composable's own search indexes: a single
-     * call tears down both halves of the combined store.
-     * @param forced - see restApi.destroy
-     */
-    const destroy = (forced?: boolean) => {
-        api.destroy(forced);
-        resetSearches();
-    };
+    // A page number from the old page size rarely means anything under the new one.
+    watch(pageSize, () => {
+        pageCurrent.value = 1;
+    });
 
     return {
         ...api,
 
+        pageTotal,
         pageItemList,
-        resetAll,
-        destroy,
+        totalItems,
 
-        searchCached,
         searchKeyGen,
         searchGet,
-        searchCleanup,
-        resetSearches,
         fetchSearch,
         checkSearch,
-
         isPageCached,
         isPaginateCached,
-        watchSearch: watchCurrentSearch
+        watchSearch
     };
 };

@@ -1,3 +1,12 @@
+/**
+ * Upload progress as a single `progress` ref, fed by the HTTP client's progress callback.
+ *
+ * - Client-agnostic: a caller-supplied builder turns the progress sink into that client's options.
+ * - `undefined` = idle, `0..100` = in flight; `track` returns to idle however the request ends.
+ *
+ * @module composables/uploadProgress
+ * @see docs/composables/upload-progress.md
+ */
 import { computed, ref } from 'vue';
 
 /**
@@ -26,7 +35,8 @@ export interface ITrackUploadSettings {
 /**
  * Progress state for one upload, and the wrapper that drives it.
  *
- * @param buildOptions - See {@link TUploadOptionsBuilder}
+ * @param buildOptions - see {@link TUploadOptionsBuilder}
+ * @returns `progress`, `isUploading`, plus `report`, `reset` and `track`
  */
 export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<TOptions>) => {
     /**
@@ -42,25 +52,25 @@ export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<
     const isUploading = computed(() => progress.value !== undefined);
 
     /**
-     * Record progress from a 0–1 fraction.
+     * Records progress from a 0–1 fraction.
      * Clamped: a client reporting `loaded` against a stale total can exceed 1, and a bar rendered
-     * from `width: 137%` breaks the layout rather than merely looking wrong.
+     * at `width: 137%` breaks the layout.
      *
-     * @param fraction
+     * @param fraction - share of the payload sent, nominally 0–1
      */
     const report: TUploadProgressReporter = (fraction) => {
         progress.value = Math.min(Math.max(fraction, 0), 1) * 100;
     };
 
     /**
-     * Return to idle.
+     * Returns to idle.
      */
     const reset = () => {
         progress.value = undefined;
     };
 
     /**
-     * Run a request with progress tracking attached, returning to idle however it ends.
+     * Runs a request with progress tracking attached, returning to idle however it ends.
      *
      * @param send     - performs the call, receiving the built options (undefined when untracked)
      * @param settings - see {@link ITrackUploadSettings}

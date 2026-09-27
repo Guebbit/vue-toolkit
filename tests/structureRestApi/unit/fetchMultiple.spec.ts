@@ -5,12 +5,12 @@
  *   - re-throws on error
  *
  * (Selective staleness — "only fetch expired ids" — is a freshness concern and
- * lives in ttl/ttl.multiple.spec.ts.)
+ * lives in staleTime/staleTime.multiple.spec.ts.)
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve, apiReject } from '../_helpers/fakeApi';
-import { USERS, type IUser } from '../_helpers/fixtures';
+import { USERS, FULL_USER, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
 
@@ -44,5 +44,33 @@ describe('UNIT · fetchMultiple', () => {
     it('re-throws on error', async () => {
         const c = make();
         await expect(c.fetchMultiple(apiReject(), [1, 2])).rejects.toThrow('network error');
+    });
+
+    it('merge: true preserves fields absent from the fetched response', async () => {
+        const c = make();
+        await c.fetchTarget(apiResolve(FULL_USER), 1);
+        await c.fetchMultiple(apiResolve([{ id: 1, name: 'Alice M' } as IUser]), [1], {
+            forced: true,
+            merge: true
+        });
+        expect(c.getRecord(1)).toEqual({ ...FULL_USER, name: 'Alice M' });
+    });
+
+    it('default (no merge) replaces the record, dropping fields absent from the response', async () => {
+        const c = make();
+        await c.fetchTarget(apiResolve(FULL_USER), 1);
+        await c.fetchMultiple(apiResolve([{ id: 1, name: 'Alice R' } as IUser]), [1], {
+            forced: true
+        });
+        expect(c.getRecord(1)).toEqual({ id: 1, name: 'Alice R' });
+    });
+
+    it('a freshly fetched id is stamped fresh, not re-requested on the next call', async () => {
+        const c = make();
+        await c.fetchMultiple(apiResolve([USERS[0]]), [1]);
+
+        const api = apiResolve([USERS[0]]);
+        await c.fetchMultiple(api, [1]);
+        expect(api).not.toHaveBeenCalled(); // still fresh — served from cache, not re-requested
     });
 });

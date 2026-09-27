@@ -4,7 +4,7 @@
  *   - skips undefined entries; handles an empty list
  *   - re-throws on error and leaves already-stored data intact
  *
- * (Caching/TTL, merge, mismatch and forced are exercised in ttl/ and modifiers/.)
+ * (Caching/staleTime, merge, partial and forced are exercised in staleTime/ and modifiers/.)
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';

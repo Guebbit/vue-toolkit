@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia';
-import { useNotificationsStore, IToastType } from '../src/stores/notifications';
+import { useNotificationsStore, EToastType } from '../src/stores/notifications';
 
 describe('useNotificationsStore', () => {
     beforeEach(() => {
@@ -14,22 +14,22 @@ describe('useNotificationsStore', () => {
 
     it('adds a message to history', () => {
         const store = useNotificationsStore();
-        store.addMessage('Hello', IToastType.SUCCESS);
+        store.addMessage('Hello', EToastType.SUCCESS);
         expect(store.history).toHaveLength(1);
         expect(store.history[0].message).toBe('Hello');
-        expect(store.history[0].type).toBe(IToastType.SUCCESS);
+        expect(store.history[0].type).toBe(EToastType.SUCCESS);
         expect(store.history[0].visible).toBe(true);
     });
 
     it('shows visible messages in computed messages', () => {
         const store = useNotificationsStore();
-        store.addMessage('Visible', IToastType.PRIMARY);
+        store.addMessage('Visible', EToastType.PRIMARY);
         expect(store.messages).toHaveLength(1);
     });
 
     it('hides a message by id', () => {
         const store = useNotificationsStore();
-        store.addMessage('Hide me', IToastType.WARNING);
+        store.addMessage('Hide me', EToastType.WARNING);
         const id = store.history[0].id;
         store.hideMessage(id);
         expect(store.messages).toHaveLength(0);
@@ -38,7 +38,7 @@ describe('useNotificationsStore', () => {
 
     it('shows a hidden message by id', () => {
         const store = useNotificationsStore();
-        store.addMessage('Toggle me', IToastType.DANGER);
+        store.addMessage('Toggle me', EToastType.DANGER);
         const id = store.history[0].id;
         store.hideMessage(id);
         store.showMessage(id);
@@ -48,7 +48,7 @@ describe('useNotificationsStore', () => {
 
     it('removes a message permanently from history', () => {
         const store = useNotificationsStore();
-        store.addMessage('Remove me', IToastType.PRIMARY);
+        store.addMessage('Remove me', EToastType.PRIMARY);
         const id = store.history[0].id;
         store.removeMessage(id);
         expect(store.history).toHaveLength(0);
@@ -56,7 +56,7 @@ describe('useNotificationsStore', () => {
 
     it('finds a message by id', () => {
         const store = useNotificationsStore();
-        store.addMessage('Find me', IToastType.SECONDARY);
+        store.addMessage('Find me', EToastType.SECONDARY);
         const id = store.history[0].id;
         const found = store.findMessage(id);
         expect(found?.message).toBe('Find me');
@@ -68,7 +68,7 @@ describe('useNotificationsStore', () => {
 
         it('hides a message automatically after a positive timeout', () => {
             const store = useNotificationsStore();
-            store.addMessage('Temporary', IToastType.PRIMARY, 1000);
+            store.addMessage('Temporary', EToastType.PRIMARY, 1000);
             expect(store.messages).toHaveLength(1);
 
             jest.advanceTimersByTime(999);
@@ -81,8 +81,8 @@ describe('useNotificationsStore', () => {
 
         it('does NOT schedule any hide when timeout is <= 0 (the default)', () => {
             const store = useNotificationsStore();
-            store.addMessage('Sticky', IToastType.PRIMARY); // default timeout -1
-            store.addMessage('AlsoSticky', IToastType.PRIMARY, 0); // explicit 0
+            store.addMessage('Sticky', EToastType.PRIMARY); // default timeout -1
+            store.addMessage('AlsoSticky', EToastType.PRIMARY, 0); // explicit 0
 
             jest.advanceTimersByTime(1_000_000);
             expect(store.messages).toHaveLength(2); // both remain visible forever

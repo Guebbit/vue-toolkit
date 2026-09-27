@@ -3,17 +3,33 @@
 [![npm version](https://img.shields.io/npm/v/@guebbit/vue-toolkit.svg)](https://www.npmjs.com/package/@guebbit/vue-toolkit)
 [![license](https://img.shields.io/npm/l/@guebbit/vue-toolkit.svg)](./LICENSE)
 
-Vue 3 composables and Pinia stores for CRUD screens: a normalized record store, a REST layer with
-caching and optimistic updates (rolled back automatically on failure), Zod-backed form
-validation, and toast/loading stores.
+Vue 3 composables and Pinia stores for CRUD screens: a normalized record store, a REST layer built
+directly on [TanStack Query](https://tanstack.com/query) — one shared cache, optimistic updates
+rolled back automatically on failure — Zod-backed form validation, and toast/loading stores.
 
 ## Install
 
 ```bash
-npm install @guebbit/vue-toolkit
+npm install @guebbit/vue-toolkit @tanstack/vue-query
 ```
 
-Peer dependencies: `vue >= 3.0.0`, `pinia >= 2.0.0`.
+Peer dependencies: `vue >= 3.4`, `pinia >= 2.0.0`, `@tanstack/vue-query ^5.103`, and optionally
+`zod >= 4.4.3` (only `useStructureFormValidation` needs it). Install `@tanstack/vue-query` yourself
+(not `@tanstack/query-core`), and give the app one `QueryClient`:
+
+```ts
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
+
+const app = createApp(App);
+app.use(createPinia());
+// one client per app: every resource shares it, which is what lets them invalidate each other
+app.use(VueQueryPlugin, { queryClient: new QueryClient() });
+```
+
+See [Getting Started](https://guebbit.github.io/vue-toolkit/guide/getting-started) for what the
+client's options change.
 
 ## Quick intro
 
@@ -23,40 +39,54 @@ The highest-level entry point, and the one to start from. Everything below is st
 through it, so it is a convenience and never a ceiling.
 
 ```ts
+import { defineStore, storeToRefs } from 'pinia';
 import { useStructureCrudApi } from '@guebbit/vue-toolkit';
 
 export const useProductsStore = defineStore('products', () => ({
-    ...useStructureCrudApi<IProduct, string, IProductFilters>({
-        list: () => listProducts().then((r) => r.data.items),
-        search: (filters, page, pageSize) =>
-            listProducts({ ...filters, page, pageSize }).then((r) => r.data.items),
-        get: (id) => getProductById(id).then((r) => r.data),
-        create: (data) => createProduct(data).then((r) => r.data),
-        update: (id, data) => updateProductById(id, data).then((r) => r.data),
-        remove: (id) => deleteProductById(id)
-    })
+    ...useStructureCrudApi<IProduct, string, IProductFilters>(
+        {
+            list: () => listProducts().then((r) => r.data.items),
+            search: (filters, page, pageSize) =>
+                listProducts({ ...filters, page, pageSize }).then((r) => ({
+                    items: r.data.items,
+                    totalItems: r.data.total
+                })),
+            get: (id) => getProductById(id).then((r) => r.data),
+            create: (data) => createProduct(data).then((r) => r.data),
+            update: (id, data) => updateProductById(id, data).then((r) => r.data),
+            remove: (id) => deleteProductById(id)
+        },
+        { resourceKey: 'products' }
+    )
 }));
 
-// …and the store is done: filters, pagination, caching, optimistic updates and rollback included
-const { filters, pageItemList, pageCurrent, watchList, searchNow, updateOne } = useProductsStore();
-watchList({ onError: notifyError });
+// …and the store is done: filters, pagination, caching, optimistic updates and rollback included.
+// In a component: state through storeToRefs (keeps it reactive), methods from the store itself.
+const store = useProductsStore();
+const { filters, pageItemList, pageCurrent } = storeToRefs(store);
+const { error } = store.watchList({ onError: notifyError });
 ```
 
-Every operation is optional — a read-only resource supplies `list` and `get` and nothing else.
+Every operation is optional — a read-only resource supplies `list` and `get` and nothing else —
+but the operations object itself is required. `resourceKey` is required too: it's the prefix every
+query and mutation this resource makes starts with, which is what makes invalidating it from
+another store possible.
 
 ### `useStructureRestApi` — fetch, cache, and mutate against a REST API
 
 ```ts
 import { useStructureRestApi } from '@guebbit/vue-toolkit';
 
-const users = useStructureRestApi<IUser, number>({ identifiers: 'id' });
+// in a component's setup() or a Pinia setup store (where VueQueryPlugin's client is injected)
+const users = useStructureRestApi<IUser, number>({ resourceKey: 'users' });
 
-await users.fetchAll(() => axios.get('/api/users').then((r) => r.data));
+await users.fetchAll(() => axios.get<IUser[]>('/api/users').then((r) => r.data));
 users.itemList.value; // IUser[], cached and deduplicated across callers
+users.loading.value; // true while anything of this resource is in flight
 
 // Optimistic — updates locally right away, rolls back automatically on failure
 await users.updateTarget(
-    () => axios.put('/api/users/1', { name: 'New name' }).then((r) => r.data),
+    () => axios.put<IUser>('/api/users/1', { name: 'New name' }).then((r) => r.data),
     { name: 'New name' },
     1
 );
@@ -69,15 +99,20 @@ import { useStructureSearchApi } from '@guebbit/vue-toolkit';
 
 const filters = ref({ text: '' });
 const products = useStructureSearchApi<IProduct, string, string, typeof filters.value>(
-    () => filters.value
+    () => filters.value,
+    { resourceKey: 'products' }
 );
 
-// re-runs on every pageCurrent/pageSize change; `search()` applies edited filters on demand
-const { search } = products.watchSearch((currentFilters, page, pageSize) =>
-    listProducts({ ...currentFilters, page, pageSize }).then((r) => r.data.items)
+// fetches on every pageCurrent/pageSize change; editing `filters` does nothing until search()
+const { search, error } = products.watchSearch((appliedFilters, page, pageSize) =>
+    listProducts({ ...appliedFilters, page, pageSize }).then((r) => ({
+        items: r.data.items,
+        totalItems: r.data.total
+    }))
 );
 
-products.pageItemList.value; // the current search's current page
+products.pageItemList.value; // the applied search's current page
+products.totalItems.value; // the server-reported total — survives a cache hit and a page change
 ```
 
 ### `useStructureDataManagement` — normalized store, no networking
@@ -85,7 +120,7 @@ products.pageItemList.value; // the current search's current page
 ```ts
 import { useStructureDataManagement } from '@guebbit/vue-toolkit';
 
-const users = useStructureDataManagement<IUser>('id');
+const users = useStructureDataManagement<IUser, number>('id');
 users.addRecord({ id: 1, name: 'Alice' });
 users.getRecord(1); // { id: 1, name: 'Alice' }
 ```
@@ -101,7 +136,9 @@ const login = useStructureFormValidation({ email: '', password: '' }, loginSchem
 
 // Owns `showFormErrors`: a rejected submit reveals the errors and focuses the first invalid field
 await login
-    .handleSubmit(async (data) => api.post('/login', data))
+    .handleSubmit(async (data) => {
+        await api.post('/login', data);
+    })
     .catch((error) => {
         // and the errors only the server can find go under the right input too
         if (!login.applyServerErrors(error)) notifications.addMessage('Something went wrong');

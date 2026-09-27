@@ -19,6 +19,6 @@ features:
       details: Update or delete a record and the UI changes immediately. If the request fails, the previous value comes back on its own — no manual rollback code.
     - title: Stable cache keys, none of them yours to write
       details: Filters, pages, and identifiers are normalized into cache keys for you — equal filters in any key order hit the same cache bucket automatically.
-    - title: Scope-aware teardown
-      details: Composables tear themselves down when their owning component or effect scope goes away. No forgotten cleanup, no leaked query-cache entries.
+    - title: Live watchers, lasting data
+      details: Every watch* call is an active query that refetches on invalidation or a user/language switch, and stops with the component or store that created it. The records stay cached on purpose — stale data keeps the screen rendered while a fresh copy loads.
 ---

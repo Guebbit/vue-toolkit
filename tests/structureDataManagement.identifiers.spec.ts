@@ -3,7 +3,7 @@
  * useStructureDataManagement.
  *
  * The base spec covers the happy path; these cover the logic that only runs at
- * the edges and was previously untested: fallback-id generation for records that
+ * the edges: fallback-id generation for records that
  * arrive without their identifier, multiple/custom identifiers, editRecords batch
  * semantics, and the create=false guard rails. These are exactly the branches a
  * value-only happy-path suite silently skips.

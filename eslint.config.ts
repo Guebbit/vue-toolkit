@@ -7,6 +7,7 @@ import pluginVue from 'eslint-plugin-vue';
 import pluginVitest from '@vitest/eslint-plugin';
 import pluginCypress from 'eslint-plugin-cypress';
 import pluginOxlint from 'eslint-plugin-oxlint';
+import pluginJsdoc from 'eslint-plugin-jsdoc';
 
 // To allow more languages other than `ts` in `.vue` files, uncomment the following lines:
 // import { configureVueProject } from '@vue/eslint-config-typescript'
@@ -192,6 +193,55 @@ export default defineConfigWithVueTs(
             //     },
             //   },
             // ],
+        }
+    },
+
+    /**
+     * JSDoc, the part CLAUDE.md makes checkable.
+     * Presence:   an exported function, interface, type or enum has a JSDoc block.
+     * Accuracy:   a `@param` names a real parameter, tags are real tags, descriptions say something.
+     *
+     * `require-param` and `require-returns` stay OFF: CLAUDE.md asks for those tags "as needed",
+     * and a rule cannot read that word. `disableMissingParamChecks` is that same "as needed"
+     * written as an option, and `checkDestructured: false` keeps an options bag documented on its
+     * interface rather than at every call site.
+     *
+     * https://github.com/gajus/eslint-plugin-jsdoc
+     */
+    {
+        files: ['src/**/*.ts'],
+
+        plugins: { jsdoc: pluginJsdoc },
+
+        // TypeScript mode: types live in the signature, so the tags are not asked to repeat them.
+        settings: { jsdoc: { mode: 'typescript' } },
+
+        rules: {
+            'jsdoc/require-jsdoc': [
+                'error',
+                {
+                    publicOnly: true,
+                    require: {
+                        FunctionDeclaration: true,
+                        ArrowFunctionExpression: true,
+                        FunctionExpression: true,
+                        ClassDeclaration: true
+                    },
+                    contexts: [
+                        'TSInterfaceDeclaration',
+                        'TSTypeAliasDeclaration',
+                        'TSEnumDeclaration'
+                    ]
+                }
+            ],
+            'jsdoc/check-param-names': [
+                'error',
+                { checkDestructured: false, disableMissingParamChecks: true }
+            ],
+            'jsdoc/check-tag-names': 'error',
+            'jsdoc/require-param-description': 'error',
+            'jsdoc/require-returns-description': 'error',
+            'jsdoc/require-throws': 'error'
         }
     },
 

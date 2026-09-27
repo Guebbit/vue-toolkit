@@ -1,27 +1,69 @@
 # Getting Started
 
 `@guebbit/vue-toolkit` is a small set of Vue 3 composables and Pinia stores for building CRUD
-screens: a normalized record store, a REST layer with caching, request dedup, and optimistic
-mutations with automatic rollback (built on [TanStack Query](https://tanstack.com/query)),
-Zod-backed form validation, and two small Pinia stores (toasts, named loading flags).
+screens: a normalized record store, a REST layer built directly on
+[TanStack Query](https://tanstack.com/query) — one shared cache for records, lists, searches,
+freshness and loading, with optimistic mutations and automatic rollback — Zod-backed form
+validation, and two small Pinia stores (toasts, named loading flags).
 
 ## Install
 
 ```bash
-npm install @guebbit/vue-toolkit
+npm install @guebbit/vue-toolkit @tanstack/vue-query
 ```
 
 ### Peer dependencies
 
 The package expects these already in your project:
 
-| Package | Version   |
-| ------- | --------- |
-| `vue`   | `>=3.0.0` |
-| `pinia` | `>=2.0.0` |
+| Package               | Version   |
+| ---------------------- | --------- |
+| `vue`                 | `>=3.4`   |
+| `pinia`               | `>=2.0.0` |
+| `@tanstack/vue-query` | `^5.103`  |
+| `zod`                 | `>=4.4.3` (optional) |
 
-`useStructureRestApi` also pulls in `@tanstack/query-core` and `@tanstack/vue-query` as regular
-dependencies — nothing extra to install, but be aware they land in your bundle.
+`zod` is optional: only [`useStructureFormValidation`](/composables/structure-form-validation)
+needs it, so install it (`npm install zod`) if you use that composable.
+
+`@tanstack/vue-query` is a peer, not a regular dependency: install it yourself, once, and every
+resource in your app shares the one `QueryClient` you create. Do **not** also install
+`@tanstack/query-core` directly — `vue-query` depends on an exact version of it internally, and a
+second copy at another version in your own `package.json` is a real failure (a client built from
+the wrong copy silently never fetches).
+
+### App setup
+
+```ts
+import { createApp } from 'vue'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: { staleTime: 60 * 60 * 1000, gcTime: 60 * 60 * 1000, retry: false, networkMode: 'always' }
+    }
+})
+
+const app = createApp(App)
+app.use(VueQueryPlugin, { queryClient })
+```
+
+Every `useStructureRestApi`/`useStructureSearchApi`/`useStructureCrudApi` call either takes this
+client explicitly via its own `queryClient` option, or finds it through injection
+(`useQueryClient()`, which also works inside a Pinia setup store). There is no private,
+toolkit-owned client — one shared client per app is what makes cross-resource cache invalidation
+possible at all.
+
+What the client's `defaultOptions` reach:
+
+- `staleTime`: only your own `useQuery` calls. A resource always sets its own (its `staleTime`
+  option, 1 hour by default).
+- `gcTime`: a resource's list, page, search and `any` entries, once nothing observes them
+  (TanStack's default is 5 minutes in a browser). Records and parent lists never expire — see
+  [cache lifetime](/composables/structure-rest-api#cache-lifetime).
+- `retry`: every resource query. Unset, a `watch*` query retries a failure 3 times in a browser
+  (so it reaches `error`/`onError` only after the retries) while a one-shot `fetch*` call does not
+  retry; `retry: false` makes watchers report a failure at once too.
 
 ## What to use, and when
 
@@ -29,14 +71,19 @@ dependencies — nothing extra to install, but be aware they land in your bundle
   normalized `{ id -> record }` store with CRUD, selection, client-side pagination, and
   `hasMany`/`belongsTo` bookkeeping. Reach for this when you already have the data and just need
   somewhere reactive to put it.
-- **[`useStructureRestApi`](/composables/structure-rest-api)** — everything above, plus fetch
-  methods that cache, deduplicate, and support optimistic mutations with automatic rollback. Reach
-  for this when the data comes from a REST API — it's the composable most apps will use directly.
+- **[`useStructureRestApi`](/composables/structure-rest-api)** — everything above, backed by a
+  TanStack `QueryClient`: fetch methods that cache, deduplicate, react to invalidation, and support
+  optimistic mutations with automatic rollback. Reach for this when the data comes from a REST
+  API — it's the composable most apps will use directly.
+- **[`useStructureSearchApi`](/composables/structure-search-api)** /
+  **[`useStructureCrudApi`](/composables/structure-crud-api)** — filtered/paginated search, and a
+  whole resource (list/search/read/create/update/delete) declared as the API calls that reach it.
+- **[`useIsLoading`](/composables/is-loading)** — "is any of these resources busy?" across the
+  whole app, for a layout-level indicator that isn't tied to one resource.
 - **[`useStructureFormValidation`](/composables/structure-form-validation)** — reactive form
   state with optional Zod validation and a submit-flow wrapper.
-- **[`useNotificationsStore`](/stores/notifications)** — toast messages and named dialog flags,
-  as a Pinia store.
-- **[`useCoreStore`](/stores/core)** — a global named-loading-flags store, for one loading
-  indicator shared across composables/components instead of ad-hoc local refs.
+- **[`useNotificationsStore`](/stores/notifications)** — toast messages, as a Pinia store.
+- **[`useCoreStore`](/stores/core)** — a global named-loading-flags store, for your own
+  (non-server) loading flags shared across components instead of ad-hoc local refs.
 
 Each reference page documents the full API and the gotchas that matter in practice.

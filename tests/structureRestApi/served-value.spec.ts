@@ -5,10 +5,10 @@
  * proves plumbing, not correctness: a cache that returned garbage would pass. These
  * tests pin the actual data returned/stored on both cache hits and refetches.
  *
- * The last test covers what used to be the `{ data }` wrapping bug: a fetchTarget
- * served from a *seeding* fetch (list/search/parent/create/update) must resolve the
- * item, just like one served from fetchTarget's own cache. Both now go through the
- * same `{ data }` shape (seedTarget), so both work.
+ * The last test pins the `{ data }` entry shape: a fetchTarget served from a record
+ * another fetch stored (list/search/parent/create/update) must resolve the item, just
+ * like one served from fetchTarget's own cache. Every producer writes the record's one
+ * entry in the same `{ data }` shape, which fetchTarget reads back.
  */
 
 import { makeComposable, clearAllInstances } from './_helpers/harness';
@@ -25,7 +25,7 @@ describe('VALUE · served on a cache hit', () => {
         const c = make();
         await c.fetchAll(apiResolve([v('v1')]));
         const later = apiResolve([v('v2')]);
-        await c.fetchAll(later); // within TTL → cache hit
+        await c.fetchAll(later); // still fresh → cache hit
         expect(later).not.toHaveBeenCalled();
         expect(c.getRecord(1)?.role).toBe('v1');
     });

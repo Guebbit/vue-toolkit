@@ -20,10 +20,10 @@ interface IItem {
     tag?: string;
 }
 
-const make = () => useStructureDataManagement<IItem>('id');
+const make = () => useStructureDataManagement<IItem, number>('id');
 
 /** Counts how many times `source` pushes a NEW value to a synchronous watcher. */
-const countFires = <T>(source: Parameters<typeof watch>[0], run: () => void): number => {
+const countFires = (source: Parameters<typeof watch>[0], run: () => void): number => {
     let fires = 0;
     const stop = watch(source, () => void (fires += 1), { flush: 'sync' });
     run();

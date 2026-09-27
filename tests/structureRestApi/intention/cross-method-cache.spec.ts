@@ -6,9 +6,9 @@
  * for those ids is served without touching the network. This is the payoff of
  * "TanStack Query as the single source of truth".
  *
- * The last test locks the return-value contract: producers seed the item as
- * `{ data }` via seedTarget and fetchTarget unwraps it, so a warm fetchTarget both
- * skips the network and resolves the item (this was the `{ data }` wrapping bug).
+ * The last test locks the return-value contract: a producer stores the item in its
+ * record's own entry, which fetchTarget reads back, so a warm fetchTarget both skips
+ * the network and resolves the item.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -64,7 +64,7 @@ describe('INTENTION · cross-method cache seeding', () => {
 
     // ---------------------------------------------------------------------
     // Return-value contract: a warm fetchTarget skips the network AND resolves
-    // the seeded item (producers seed { data } via seedTarget, fetchTarget unwraps).
+    // the item a producer stored in the record's own entry.
     // ---------------------------------------------------------------------
     it('fetchTarget RETURNS the item seeded by a prior list fetch (network skipped)', async () => {
         const c = makeComposable<IUser, number>();

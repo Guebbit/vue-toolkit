@@ -1,48 +1,65 @@
+/**
+ * App-wide loading flags in one Pinia setup store.
+ *
+ * - A flat map of string key -> boolean, so components, guards and composables share one source.
+ * - Keys are namespaced by owner and action ('accountProfile:avatar-upload'); `isLoading` asks
+ *   by key PREFIX, so one question can cover a module, a screen or a single button.
+ *
+ * @module stores/core
+ * @see docs/stores/core.md
+ */
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
+import { matchesAnyPrefix } from '../internal/plainData.js';
 
+/**
+ * Global loading state, readable from components, guards and composables alike.
+ *
+ * Pinia: `'core'` is the store id (devtools label, SSR state key); the function is a setup store.
+ *
+ * @returns `loadings` plus `setLoading`, `getLoading`, `isLoading` and `resetLoadings`
+ */
 export const useCoreStore = defineStore('core', () => {
     /**
-     * This loading must be accessed from anywhere.
-     * Components, guards and so on.
+     * Loading flags by key. A missing key reads as "not loading".
      */
     const loadings = ref<Record<string, boolean>>({});
 
     /**
-     * Set loading value
+     * Sets one loading flag.
      *
-     * @param key
-     * @param value
+     * @param key   - namespaced flag name, e.g. 'accountProfile:avatar-upload'
+     * @param value - whether that work is in progress
+     * @returns the value just stored
      */
     const setLoading = (key = '', value = false) => (loadings.value[key] = value);
 
     /**
-     * Reset all loadings
+     * Clears every loading flag.
+     *
+     * @returns the new, empty map
      */
     const resetLoadings = () => (loadings.value = {});
 
     /**
-     * Check if there is a specific loading
+     * Reads one loading flag by its exact key.
+     *
+     * @param key - the flag to read; unknown keys read as false
      */
     const getLoading = (key = '') => !!loadings.value[key];
 
     /**
-     * Check if anything is loading.
-     *
-     * Prefixes scope the question: keys are namespaced by their owner ('accountProfile') and
-     * their action ('accountProfile:avatar-upload'), so a caller asks about one module, one
-     * screen or one button instead of the whole app. No prefixes: any key at all.
+     * Checks whether anything under the given prefixes is loading.
      *
      * A plain function, not a computed, because the answer depends on the prefixes asked
      * about — call it inside a computed to track it.
      *
-     * @param prefixes
+     * @param prefixes - key prefixes to match ('accountProfile' matches
+     *                   'accountProfile:avatar-upload'); empty = any key at all
      */
     const isLoading = (prefixes: string[] = []) =>
         Object.entries(loadings.value).some(
-            ([key, value]) =>
-                value &&
-                (prefixes.length === 0 || prefixes.some((prefix) => key.startsWith(prefix)))
+            ([key, value]) => value && matchesAnyPrefix(key, prefixes)
         );
 
     return {

@@ -1,14 +1,17 @@
 {
     "compilerOptions": {
         "strict": true,
+        // The eslint oxlint preset turns no-unused-vars off (oxlint is not run here): the
+        // compiler checks it instead.
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
         // Skip type-checking of dependency .d.ts files (some bundled types reference
         // vitest or other dev-only packages). Does not affect checking of our own source.
         "skipLibCheck": true,
         "target": "ES2023",
-        "module": "ESNext",
-        "moduleResolution": "bundler",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
         "esModuleInterop": true,
-        "sourceMap": true,
         "lib": ["dom", "esnext"],
         "allowSyntheticDefaultImports": true,
         "isolatedModules": true,
@@ -16,7 +19,6 @@
         "rootDir": "./src",
         "outDir": "./dist",
         "declaration": true,
-        "declarationMap": true,
         "declarationDir": "./dist/types"
     },
     "include": ["src"],

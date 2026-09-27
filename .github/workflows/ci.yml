@@ -111,6 +111,44 @@ jobs:
             - name: Build (also type-checks)
               run: npm run build
 
+            - name: Check the built package (exports map, types resolution, plain-Node load)
+              run: npm run test:package
+
+            - name: Type-level tests (tests/types)
+              run: npm run test:types
+
+    test-peer-floor:
+        # Installs the exact declared floor of each peer (vue, pinia, @tanstack/vue-query) and runs
+        # the suite against it. Dev tooling (vitepress, eslint-plugin-vue) wants a newer Vue, hence
+        # --legacy-peer-deps — only this job's peers matter, since it only runs Jest.
+        #
+        # vue's floor is 3.4.0, not vue-query's own 3.3: below 3.4, Vue's watcher scheduler can
+        # flush a pageSize-driven pageCurrent reset after the query-key watcher has already
+        # re-fetched the old page (tests/structureSearchApi/unit/watchSearch.spec.ts catches it).
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: package-lock.json
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Install peer floor
+              run: npm install --no-save --legacy-peer-deps vue@3.4.0 pinia@2.0.0 @tanstack/vue-query@5.103.0 zod@4.4.3
+
+            - name: Run tests against the peer floor
+              run: npm run test
+
     test:
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -164,6 +202,7 @@ jobs:
             - lint
             - prettier
             - build
+            - test-peer-floor
             - test
             - docs
         runs-on: ubuntu-latest
