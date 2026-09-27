@@ -46,6 +46,15 @@ export interface IRecordStore<
      * no such indirection (the default one): `getRecord` then reads `id` as given.
      */
     resolve?(id: K): K;
+
+    /**
+     * One record by id, without going through `dictionary`. Absent on a store with no cheaper way
+     * to read a single record: `editRecord` then falls back to `dictionary.value[id]`, which under
+     * the REST layer is a computed that rebuilds its ENTIRE scope from the query cache on every
+     * stale read — fine once, but O(batch × cache size) work over a batch that edits many records
+     * in a row, since each write invalidates the computed for the next read.
+     */
+    read?(id: K): T | undefined;
 }
 
 /**
@@ -67,7 +76,8 @@ const createLocalRecordStore = <
         write: (id: K, item: T) => ((dictionary.value as Record<K, T>)[id] = item),
         remove: (id: K) => delete (dictionary.value as Record<K, T>)[id],
         writeAll: (items: Record<K, T>) => (dictionary.value = items),
-        clear: () => (dictionary.value = {} as Record<K, T>)
+        clear: () => (dictionary.value = {} as Record<K, T>),
+        read: (id: K) => (dictionary.value as Record<K, T>)[id]
     };
 };
 
@@ -261,15 +271,24 @@ export const useStructureDataManagement = <
                 : Array.isArray(id)
                   ? (joinIdentifiers(id, delimiter) as K)
                   : id;
-        const isNew =
-            _id === undefined || !Object.prototype.hasOwnProperty.call(itemDictionary.value, _id);
+        // Through recordStore.read when it has one: dictionary.value is, under the REST layer, a
+        // computed that rebuilds its whole scope from the query cache on every stale read — a
+        // single-record read must not pay for that (see IRecordStore.read).
+        const existing =
+            _id === undefined
+                ? undefined
+                : // Merged from the raw record: the view may hand out read-only proxies.
+                  toRaw(
+                      recordStore.read
+                          ? recordStore.read(_id)
+                          : (itemDictionary.value as Record<K, T>)[_id]
+                  );
+        const isNew = _id === undefined || existing === undefined;
         if (!create && isNew) {
             // eslint-disable-next-line no-console -- a caller bug worth seeing in development
             console.error('structureDataManagement - no record to edit', data);
             return;
         }
-        // Merged from the raw record: the view may hand out read-only proxies.
-        const existing = toRaw((itemDictionary.value as Record<K, T>)[_id!]);
         recordStore.write(_id!, { ...existing, ...data } as T);
         if (!isNew) return;
         lastInsertedIdentifier.value = _id;

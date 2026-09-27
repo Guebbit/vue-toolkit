@@ -233,6 +233,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `editRecord` read through `dictionary` on every call, which under the REST layer is a computed
+  that rebuilds its entire scope from the query cache whenever it is stale — and each write
+  invalidates it for the next read. Merging or partially writing a batch (`merge`/`partial`
+  settings on a list fetch) called `editRecord` once per item, so a batch of N items over a cache
+  of M records did O(N × M) work: 1.7s for 1k items over 3k cached, measured before this fix.
+  `IRecordStore` gains an optional `read(id)` — an O(1) lookup both built-in stores implement —
+  and `editRecord` reads through it instead, bringing the same batch back to milliseconds.
 - A `maxRecords` wipe could empty a record `watchTarget` was actively showing on screen, with
   nothing telling it to refetch — the crossing batch kept its own entry, but any other cached
   record, watched or not, was dropped the same way. A record with an active observer is no longer

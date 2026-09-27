@@ -60,6 +60,9 @@ export interface IQueryRecordStore<
 
     /** Follows `id` to the one its record actually lives under, one hop (see IRecordStore). */
     resolve: (id: K) => K;
+
+    /** One record by id, O(1) (see IRecordStore). */
+    read: (id: K) => T | undefined;
 }
 
 /**
@@ -124,6 +127,16 @@ export const createQueryRecordStore = <
             exact: true,
             refetchType: 'none'
         });
+
+    /**
+     * One record by id, straight off the query cache: O(1), unlike reading through `dictionary`
+     * (see IRecordStore.read).
+     *
+     * @param id - the record id
+     * @returns the record, if cached
+     */
+    const read = (id: K): T | undefined =>
+        queryClient.getQueryData<ITargetEntry<T>>(keys.target(id))?.data;
 
     /**
      * Stores one record under the current scope.
@@ -219,5 +232,16 @@ export const createQueryRecordStore = <
         return (entry?.aliasOf as K | undefined) ?? id;
     };
 
-    return { dictionary, write, remove, writeAll, clear, asFetched, snapshot, restore, resolve };
+    return {
+        dictionary,
+        write,
+        remove,
+        writeAll,
+        clear,
+        asFetched,
+        snapshot,
+        restore,
+        resolve,
+        read
+    };
 };

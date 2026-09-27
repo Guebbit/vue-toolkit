@@ -51,6 +51,7 @@ users.itemList.value // IUser[] — computed view of the whole store
 | `writeAll(items)`            | Replaces every record.                                                         |
 | `clear()`                    | Removes every record.                                                          |
 | `resolve?(id)`                | Optional. Follows `id` one hop to the id its record actually lives under. `getRecord` calls it when present, and reads `id` as given otherwise (the default store has none). The TanStack-backed store uses it so `fetchTarget`/`watchTarget` by an alternate key (a slug) reads through to the record's own id instead of a second, divergent copy. |
+| `read?(id)`                    | Optional. One record by id, without going through `dictionary`. Both built-in stores implement it (an O(1) plain-object read locally, one `getQueryData` under the REST layer); `editRecord` uses it so merging or partially writing a batch never pays for rebuilding the whole reactive `dictionary` computed on every item. |
 
 ### CRUD
 
