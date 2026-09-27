@@ -254,6 +254,21 @@ export const useStructureFormValidation = <
     const formLevelErrors = ref<string[]>([]);
 
     /**
+     * Errors set via `applyServerErrors`/`setFieldError`, tracked apart from the schema's own
+     * result so a `revalidateOn` re-parse (see below) can merge them back over it instead of
+     * wiping them: they came from the server or the caller, not from `form`, so re-parsing
+     * `form` has nothing to say about whether they still apply.
+     */
+    const serverErrors = ref<Partial<Record<keyof T, string[]>>>({});
+
+    /**
+     * The unmapped-message subset of `formLevelErrors` that came from `applyServerErrors`,
+     * tracked apart for the same reason as `serverErrors`: a `revalidateOn` re-parse only knows
+     * about the schema's own root-level issues, so without this it would drop these on re-parse.
+     */
+    const serverLevelErrors = ref<string[]>([]);
+
+    /**
      * Whether errors should be displayed.
      * Separate from `formErrors` so validation can run silently; handleSubmit and revealErrors
      * turn it on, an accepted submit turns it off.
@@ -289,12 +304,14 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Resets the form to the baseline and clears all errors.
+     * Resets the form to the baseline and clears all errors, schema- and server-tracked alike.
      */
     const resetForm = () => {
         form.value = detachedCopy(initialFormData.value);
         formErrors.value = {};
         formLevelErrors.value = [];
+        serverErrors.value = {};
+        serverLevelErrors.value = [];
     };
 
     /**
@@ -308,76 +325,90 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Clears all validation errors, field-level and form-level.
+     * Clears all validation errors, field-level, form-level and server-tracked alike.
      */
     const clearErrors = () => {
         formErrors.value = {};
         formLevelErrors.value = [];
+        serverErrors.value = {};
+        serverLevelErrors.value = [];
     };
 
     /**
-     * Sets the validation error(s) of one field, replacing what it had.
+     * Sets the validation error(s) of one field, replacing what it had. Tracked as a server-set
+     * error (see `serverErrors`): a `revalidateOn` re-parse merges it back rather than wiping it.
      *
      * @param field  - the form field the messages belong to
      * @param errors - a single message or an array of messages
      */
     const setFieldError = (field: keyof T, errors: string | string[]) => {
-        formErrors.value = {
-            ...formErrors.value,
-            [field]: Array.isArray(errors) ? errors : [errors]
-        };
+        const messages = Array.isArray(errors) ? errors : [errors];
+        formErrors.value = { ...formErrors.value, [field]: messages };
+        serverErrors.value = { ...serverErrors.value, [field]: messages };
     };
 
     /**
-     * Removes the validation errors of one field.
+     * Removes the validation errors of one field, schema- and server-tracked alike.
      *
      * @param field - the form field to clear
      */
     const clearFieldError = (field: keyof T) => {
         const { [field]: _removed, ...rest } = formErrors.value;
         formErrors.value = rest as Partial<Record<keyof T, string[]>>;
+        const { [field]: _removedServer, ...restServer } = serverErrors.value;
+        serverErrors.value = restServer as Partial<Record<keyof T, string[]>>;
     };
 
     /**
-     * Validates the current form value against the schema (if provided).
-     * Replaces {@link formErrors} and {@link formLevelErrors} with the outcome.
-     *
-     * @returns true when validation passes (or no schema is set), false otherwise
+     * Re-parses the current form value against the schema (if provided), without touching
+     * {@link formErrors}/{@link formLevelErrors}/{@link serverErrors}. The shared core of
+     * `validate()` and the `revalidateOn` re-parse, which differ only in what they do with the
+     * result: `validate()` replaces the display state wholesale, `revalidateOn` merges it under
+     * the still-live server errors.
      */
-    const validate = (): boolean => {
+    const parseSchema = (): {
+        success: boolean;
+        fieldErrors: Partial<Record<keyof T, string[]>>;
+        levelErrors: string[];
+    } => {
         const resolvedSchema = toValue(schema);
-        if (!resolvedSchema) {
-            formErrors.value = {};
-            formLevelErrors.value = [];
-            return true;
-        }
+        if (!resolvedSchema) return { success: true, fieldErrors: {}, levelErrors: [] };
 
         const result = resolvedSchema.safeParse(form.value);
+        if (result.success) return { success: true, fieldErrors: {}, levelErrors: [] };
 
-        if (result.success) {
-            formErrors.value = {};
-            formLevelErrors.value = [];
-            return true;
-        }
-
-        const errors: Partial<Record<keyof T, string[]>> = {};
+        const fieldErrors: Partial<Record<keyof T, string[]>> = {};
         const levelErrors: string[] = [];
         for (const issue of result.error.issues) {
             // Zod: `path` is the key trail to the failing value; keep only the top-level field.
             // An empty path is a root-level issue, which has no field to attach to — it goes to
-            // formLevelErrors instead of being dropped.
+            // levelErrors instead of being dropped.
             const field = issue.path[0] as keyof T;
             if (field === undefined) {
                 levelErrors.push(issue.message);
                 continue;
             }
-            if (!errors[field]) errors[field] = [];
-            errors[field]!.push(issue.message);
+            if (!fieldErrors[field]) fieldErrors[field] = [];
+            fieldErrors[field]!.push(issue.message);
         }
-        formErrors.value = errors;
-        formLevelErrors.value = levelErrors;
+        return { success: false, fieldErrors, levelErrors };
+    };
 
-        return false;
+    /**
+     * Validates the current form value against the schema (if provided).
+     * Replaces {@link formErrors} and {@link formLevelErrors} with the outcome, and clears
+     * {@link serverErrors}: an explicit validate() is a fresh submit attempt, and the server will
+     * answer again.
+     *
+     * @returns true when validation passes (or no schema is set), false otherwise
+     */
+    const validate = (): boolean => {
+        const outcome = parseSchema();
+        formErrors.value = outcome.fieldErrors;
+        formLevelErrors.value = outcome.levelErrors;
+        serverErrors.value = {};
+        serverLevelErrors.value = [];
+        return outcome.success;
     };
 
     /**
@@ -458,8 +489,14 @@ export const useStructureFormValidation = <
         const fields = Object.keys(applied) as (keyof T)[];
         if (fields.length === 0 && !displayedUnmapped) return false;
 
-        if (fields.length > 0) formErrors.value = { ...formErrors.value, ...applied };
-        if (displayedUnmapped) formLevelErrors.value = [...formLevelErrors.value, ...unmapped];
+        if (fields.length > 0) {
+            formErrors.value = { ...formErrors.value, ...applied };
+            serverErrors.value = { ...serverErrors.value, ...applied };
+        }
+        if (displayedUnmapped) {
+            formLevelErrors.value = [...formLevelErrors.value, ...unmapped];
+            serverLevelErrors.value = [...serverLevelErrors.value, ...unmapped];
+        }
         showFormErrors.value = true;
         return true;
     };
@@ -514,12 +551,17 @@ export const useStructureFormValidation = <
         );
 
     // Re-translates what is already on screen (see IStructureFormValidationOptions.revalidateOn):
-    // validate() is deterministic on form.value, so the errors stay and their messages refresh.
+    // a fresh schema parse is deterministic on form.value, so the messages refresh. Merged UNDER
+    // serverErrors rather than assigned outright, so a server-set field error (setFieldError /
+    // applyServerErrors) survives — the schema has nothing to say about whether it still applies.
     // The isValid guard keeps a pristine form from turning red.
     if (options.revalidateOn)
         // Vue: one source or an array of them; fires on change only (not immediately)
         watch(options.revalidateOn, () => {
-            if (!isValid.value) validate();
+            if (isValid.value) return;
+            const outcome = parseSchema();
+            formErrors.value = { ...outcome.fieldErrors, ...serverErrors.value };
+            formLevelErrors.value = [...outcome.levelErrors, ...serverLevelErrors.value];
         });
 
     return {

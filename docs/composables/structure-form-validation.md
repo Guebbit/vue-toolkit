@@ -57,8 +57,8 @@ silently freezes the language; a thunk inside the schema module has no call site
 **Errors already on screen** are not a schema concern at all. `validate()` copies resolved
 *strings* into `formErrors`; once it has returned, those strings are inert text and the schema is
 out of the picture. Switching language re-renders the labels and leaves the error under them in
-the old language until the next keystroke or submit. `revalidateOn` fixes that by re-running
-`validate()` over the unchanged data:
+the old language until the next keystroke or submit. `revalidateOn` fixes that by re-running the
+schema over the unchanged data and refreshing only the schema-derived messages:
 
 ```ts
 const { locale } = useI18n()
@@ -71,6 +71,13 @@ const login = useStructureFormValidation<ILoginForm>({ email: '', password: '' }
 It only fires for a form that currently has errors showing, so a pristine form does not sprout red
 text because someone changed the language. `revalidateOn` takes any `WatchSource` or array of
 them — it is not i18n-specific, and the toolkit deliberately knows nothing about vue-i18n.
+
+It never touches an error `setFieldError` or `applyServerErrors` put on screen: those came from
+the server or the caller, not from `form`, so a re-parse of `form` has nothing to say about
+whether they still apply. A field with both a schema error and a server error keeps the server
+one — the same "merge, don't replace" rule `applyServerErrors` itself follows (see below). Only an
+explicit `validate()` call — a fresh submit attempt, which the server will answer again — clears
+them.
 
 ## Showing errors, and the moment they appear
 
@@ -236,7 +243,7 @@ flowchart TD
 
 | Option                 | Type                                                | Purpose                                                                                 |
 | ---------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `revalidateOn`         | `WatchSource \| WatchSource[]`                      | Re-runs `validate()` over unchanged data when a source changes, but only while errors are on display. See above. |
+| `revalidateOn`         | `WatchSource \| WatchSource[]`                      | Re-parses the schema over unchanged data when a source changes, but only while errors are on display; merges the result under any `setFieldError`/`applyServerErrors` errors rather than replacing them. See above. |
 | `formElement`          | `MaybeRefOrGetter<IFieldContainer \| null>`         | The form, so `revealErrors` can focus the first invalid field. Omit it and no DOM is touched. |
 | `invalidFieldSelector` | `string`                                            | Where to look for that field. Defaults to `DEFAULT_INVALID_FIELD_SELECTOR` (`[aria-invalid="true"]`). |
 | `onInvalid`            | `(errors) => void`                                  | Called after a submit was rejected by validation, once the errors are on screen — the "please fix the highlighted fields" toast. |

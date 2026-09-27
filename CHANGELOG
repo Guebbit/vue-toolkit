@@ -298,6 +298,13 @@ is an active TanStack observer that reacts to invalidation on its own.
   now holds them, and `isValid` includes it. `applyServerErrors` routes its own unmapped messages
   there too, when no `onUnmapped` catches them — previously dropped the same way. `clearErrors`/
   `resetForm` clear `formLevelErrors` along with `formErrors`.
+- `useStructureFormValidation`'s `revalidateOn` re-ran the public `validate()`, which replaces
+  `formErrors`/`formLevelErrors` wholesale from a fresh schema parse — wiping out any error set by
+  `setFieldError`/`applyServerErrors` (a "this email is already taken" from the server, say) the
+  moment a watched source changed, even though the schema itself has nothing to say about whether
+  that error still applies. `revalidateOn` now merges the refreshed schema result UNDER those
+  server-set errors instead of replacing them. An explicit `validate()` call still replaces
+  everything, since a submit is a fresh attempt the server will answer again.
 - `useStructureFormValidation`'s baseline (`initialFormData`) and `form` were shallow copies:
   `setInitialData`, `resetForm`, `setForm` and the initial state all spread one level deep only, so
   a nested field stayed the SAME object across `initialData`, the baseline and `form`. A hydrated

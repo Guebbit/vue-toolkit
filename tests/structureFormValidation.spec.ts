@@ -539,6 +539,68 @@ describe('useStructureFormValidation', () => {
 
             expect(composable.formErrors.value).toEqual(before);
         });
+
+        it('keeps a setFieldError error across a revalidate, alongside a refreshed schema error', async () => {
+            const locale = ref('en');
+            const messages: Record<string, string> = {
+                en: 'Invalid email address',
+                it: 'Indirizzo email non valido'
+            };
+            const localeComposable = make(
+                INITIAL_LOGIN,
+                localizedSchema(() => messages[locale.value]!),
+                { revalidateOn: locale }
+            );
+
+            localeComposable.validate();
+            localeComposable.setFieldError('password', 'Already taken');
+            expect(localeComposable.formErrors.value.password).toEqual(['Already taken']);
+
+            locale.value = 'it';
+            await nextTick();
+
+            expect(localeComposable.formErrors.value.password).toEqual(['Already taken']);
+            expect(localeComposable.formErrors.value.email).toContain('Indirizzo email non valido');
+        });
+
+        it('keeps an applyServerErrors field error across a revalidate', async () => {
+            const locale = ref('en');
+            const localeComposable = make(
+                INITIAL_LOGIN,
+                localizedSchema(() => 'x'),
+                {
+                    revalidateOn: locale
+                }
+            );
+            localeComposable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            localeComposable.validate();
+            localeComposable.applyServerErrors({ errors: { email: 'Already registered' } });
+            expect(localeComposable.formErrors.value.email).toEqual(['Already registered']);
+
+            locale.value = 'it';
+            await nextTick();
+
+            expect(localeComposable.formErrors.value.email).toEqual(['Already registered']);
+        });
+
+        it('keeps an applyServerErrors unmapped form-level error across a revalidate', async () => {
+            const locale = ref('en');
+            const localeComposable = make(
+                INITIAL_LOGIN,
+                localizedSchema(() => 'x'),
+                {
+                    revalidateOn: locale
+                }
+            );
+            localeComposable.validate();
+            localeComposable.applyServerErrors({ errors: { unknownField: 'Rejected' } });
+            expect(localeComposable.formLevelErrors.value).toContain('Rejected');
+
+            locale.value = 'it';
+            await nextTick();
+
+            expect(localeComposable.formLevelErrors.value).toContain('Rejected');
+        });
     });
 
     // ─── handleSubmit ────────────────────────────────────────────────────────
