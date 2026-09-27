@@ -54,3 +54,32 @@ useStructureCrudApi<IUser, number>(undefined, { resourceKey: 'users' });
 
 // @ts-expect-error -- settings (and its resourceKey) is required too
 useStructureCrudApi<IUser, number>({});
+
+// createOne/updateOne/deleteOne take one settings object: requestOptions instead of a bare
+// per-call options argument, plus dummyData/merge/applyResponse/key (V2.5).
+interface IRequestOptions {
+    signal?: AbortSignal;
+}
+const writable = useStructureCrudApi<
+    IUser,
+    number,
+    object,
+    Partial<IUser>,
+    Partial<IUser>,
+    IRequestOptions
+>(
+    {
+        create: (_data, options) => {
+            expectTypeOf(options).toEqualTypeOf<IRequestOptions | undefined>();
+            // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+            return Promise.resolve(undefined);
+        }
+    },
+    { resourceKey: 'users' }
+);
+writable.createOne({ name: 'Ada' }, { requestOptions: { signal: new AbortController().signal } });
+writable.createOne({ name: 'Ada' }, { dummyData: { id: 1, name: 'Ada', email: 'ada@x.com' } });
+writable.updateOne(1, { name: 'Ada' }, { merge: true, applyResponse: false, key: ['x'] });
+writable.deleteOne(1, { requestOptions: { signal: new AbortController().signal } });
+// @ts-expect-error -- requestOptions, never a bare per-call argument
+writable.createOne({ name: 'Ada' }, { signal: new AbortController().signal });

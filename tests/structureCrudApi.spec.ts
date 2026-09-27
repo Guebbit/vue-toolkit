@@ -354,11 +354,35 @@ describe('useStructureCrudApi', () => {
             expect(api.getRecord('p1')).toEqual(PRODUCT);
         });
 
-        it('forwards per-call options to the operation', async () => {
+        it('forwards requestOptions to the operation', async () => {
             const { api, operations } = makeCrud();
             const options = { signal: 'abort-signal' };
-            await api.createOne({ title: 'First' }, options);
+            await api.createOne({ title: 'First' }, { requestOptions: options });
             expect(operations.create).toHaveBeenCalledWith({ title: 'First' }, options);
+        });
+
+        // V2.5: createOne exposes createTarget's dummyData/key settings, previously unreachable
+        // from the CRUD layer.
+        it('renders dummyData at once under a temporary id while the request runs', async () => {
+            const create = jest.fn(() => new Promise<IProduct>(() => {})); // never settles
+            const { api } = makeCrud({ create });
+            const dummy: IProduct = { id: 'temp', title: 'Pending...' };
+
+            void api.createOne({ title: 'First' }, { dummyData: dummy });
+            await nextTick();
+
+            // stored under a fresh temporary id (see createTarget), not dummy's own id
+            expect(api.lastInsertedRecord.value).toEqual(dummy);
+        });
+
+        it('a create bucketed under key is matched by isLoading(key)', async () => {
+            const create = jest.fn(() => new Promise<IProduct>(() => {}));
+            const { api } = makeCrud({ create });
+
+            void api.createOne({ title: 'First' }, { key: ['products', 'create'] });
+            await nextTick();
+
+            expect(api.isLoading(['products', 'create'])).toBe(true);
         });
     });
 
@@ -390,11 +414,33 @@ describe('useStructureCrudApi', () => {
             expect(api.getRecord('p1')?.title).toBe('First');
         });
 
-        it('forwards per-call options to the operation', async () => {
+        it('forwards requestOptions to the operation', async () => {
             const { api, operations } = makeCrud();
             const options = { onUploadProgress: jest.fn() };
-            await api.updateOne('p1', { title: 'Updated' }, options);
+            await api.updateOne('p1', { title: 'Updated' }, { requestOptions: options });
             expect(operations.update).toHaveBeenCalledWith('p1', { title: 'Updated' }, options);
+        });
+
+        // V2.5: updateOne exposes updateTarget's merge/applyResponse/key settings, previously
+        // unreachable from the CRUD layer.
+        it('merge: true merges the response instead of replacing the record', async () => {
+            const update = jest.fn().mockResolvedValue({ title: 'Updated' }); // no id, no price
+            const { api } = makeCrud({ update });
+            await api.fetchOne('p1');
+
+            await api.updateOne('p1', { title: 'Updated' }, { merge: true });
+
+            expect(api.getRecord('p1')).toEqual({ ...PRODUCT, title: 'Updated' });
+        });
+
+        it('applyResponse: false keeps the optimistic patch instead of the response', async () => {
+            const update = jest.fn().mockResolvedValue({ acknowledged: true });
+            const { api } = makeCrud({ update });
+            await api.fetchOne('p1');
+
+            await api.updateOne('p1', { title: 'Optimistic' }, { applyResponse: false });
+
+            expect(api.getRecord('p1')?.title).toBe('Optimistic');
         });
 
         // ── optimisticPatch ──
@@ -441,6 +487,13 @@ describe('useStructureCrudApi', () => {
             const { api, operations } = makeCrud();
             await api.deleteOne('p1');
             expect(operations.remove).toHaveBeenCalledWith('p1', undefined);
+        });
+
+        it('forwards requestOptions to the operation', async () => {
+            const { api, operations } = makeCrud();
+            const options = { signal: 'abort-signal' };
+            await api.deleteOne('p1', { requestOptions: options });
+            expect(operations.remove).toHaveBeenCalledWith('p1', options);
         });
     });
 

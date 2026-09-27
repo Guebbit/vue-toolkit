@@ -178,6 +178,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 - **BREAKING** — `watchTarget(apiCall, idSource, settings?)`: `apiCall` first, `idSource` second —
   the same order `fetchTarget` and `watchByParent` already use. Swap the first two arguments at
   every call site: `watchTarget(userId, get)` → `watchTarget(get, userId)`.
+- **BREAKING** — `useStructureCrudApi`'s `createOne`/`updateOne`/`deleteOne` take one settings
+  object instead of a bare per-call `options` argument: `createOne(data, { requestOptions, key? })`,
+  `updateOne(id, data, { requestOptions, merge?, applyResponse?, key? })`,
+  `deleteOne(id, { requestOptions, key? })`. `requestOptions` is the old `options`, forwarded to
+  the operation the same way — `createOne(data, opts)` → `createOne(data, { requestOptions: opts })`.
+  `createOne` and `updateOne` also newly expose `createTarget`'s `dummyData` and `updateTarget`'s
+  `merge`/`applyResponse`, previously unreachable from the CRUD layer; all three take `key`.
 
 ## Added
 

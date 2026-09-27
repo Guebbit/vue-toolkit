@@ -126,9 +126,13 @@ supplies `list` and `get` and nothing else. A method whose operation is missing 
 promise, `Error('useStructureCrudApi - no "search" operation was supplied')`; on `watchList` and
 `watchOne` that failure shows in `error` and `onError`.
 
-`options` is yours: `createOne`/`updateOne`/`deleteOne` forward it untouched to the operation,
-which is how per-call client config (`onUploadProgress`, a client's own cancellation token) reaches
-a request. `list`, `search` and `get` take no `options`, but do receive `IFetchContext` — a
+`createOne`/`updateOne`/`deleteOne` each take one settings object, its `requestOptions` field
+forwarded untouched to the operation as its own last argument — which is how per-call client
+config (`onUploadProgress`, a client's own cancellation token) reaches a request:
+`createOne(data, { requestOptions: { onUploadProgress } })`. `createOne` also exposes
+`createTarget`'s `dummyData` (a placeholder rendered under a temporary id while the request runs)
+and `updateOne` exposes `updateTarget`'s `merge`/`applyResponse`; all three take `key`, matched by
+`isLoading(key)`. `list`, `search` and `get` take no `options`, but do receive `IFetchContext` — a
 `{ signal }` (see [structure-rest-api](./structure-rest-api#reading)) — as their last argument,
 which is the read-side equivalent for cancellation: forward `context.signal` to `fetch`/axios so an
 abandoned read is genuinely cancelled.
@@ -206,9 +210,9 @@ Returns everything `useStructureSearchApi` returns (type `IStructureCrudApi<...>
 | `resetFilters(settings?)`               | `IFetchSettings` (all fields)                   | `filters` back to a fresh copy of `initialFilters`, then `searchNow({ forced: true, ...settings })`. |
 | `fetchOne(id, settings?)`               | `Pick<IFetchSettings, 'forced' \| 'merge' \| 'staleTime'>` | Selects `id`, then `fetchTarget` over `get`. On failure it rejects, and clears the selection if the selection is still `id`. |
 | `watchOne(idSource, settings?)`         | `IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, callbacks | `watchTarget` over `get`. Returns `{ stop, refetch, error }`.  |
-| `createOne(data, options?)`             |                                                 | `createTarget` over `create`. Resolves the stored record.                          |
-| `updateOne(id, data, options?)`         |                                                 | `updateTarget` over `update`, patching locally with `optimisticPatch(data)`. The operation's answer is stored as the record; an answer that is not a record object (`undefined`, `null`) keeps the patch. |
-| `deleteOne(id, options?)`               |                                                 | `deleteTarget` over `remove`: removed locally first, restored on failure.          |
+| `createOne(data, settings?)`            | `ICreateOneSettings<T, O>`: `requestOptions`, `dummyData`, `key` | `createTarget` over `create`. Resolves the stored record.        |
+| `updateOne(id, data, settings?)`        | `IUpdateOneSettings<O>`: `requestOptions`, `merge`, `applyResponse`, `key` | `updateTarget` over `update`, patching locally with `optimisticPatch(data)`. The operation's answer is stored as the record; an answer that is not a record object (`undefined`, `null`) keeps the patch. |
+| `deleteOne(id, settings?)`              | `IDeleteOneSettings<O>`: `requestOptions`, `key` | `deleteTarget` over `remove`: removed locally first, restored on failure.          |
 
 ## Gotchas
 

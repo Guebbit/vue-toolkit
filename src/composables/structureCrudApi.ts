@@ -20,6 +20,7 @@ import type {
     IFetchContext,
     IFetchSettings,
     IStructureRestApi,
+    IUpdateTargetSettings,
     IWatchTargetSettings
 } from './structureRestApi.js';
 
@@ -78,6 +79,36 @@ export interface IStructureCrudOperations<
 export interface IStructureCrudSettings<F = object> extends IStructureRestApi {
     /** Starting value of `filters`, and what resetFilters() returns to. */
     initialFilters?: F;
+}
+
+/** createOne's settings. */
+export interface ICreateOneSettings<T, O> {
+    /** Forwarded as the `create` operation's second argument (axios config, a signal, ...). */
+    requestOptions?: O;
+
+    /** Renders at once under a temporary id while the request runs (see createTarget). */
+    dummyData?: T;
+
+    /** Bucket key, and what `isLoading(key)` matches. */
+    key?: string[];
+}
+
+/** updateOne's settings. */
+export interface IUpdateOneSettings<O> extends Pick<
+    IUpdateTargetSettings,
+    'merge' | 'applyResponse' | 'key'
+> {
+    /** Forwarded as the `update` operation's third argument (axios config, a signal, ...). */
+    requestOptions?: O;
+}
+
+/** deleteOne's settings. */
+export interface IDeleteOneSettings<O> {
+    /** Forwarded as the `remove` operation's second argument (axios config, a signal, ...). */
+    requestOptions?: O;
+
+    /** Bucket key, and what `isLoading(key)` matches. */
+    key?: string[];
 }
 
 /**
@@ -267,34 +298,44 @@ export const useStructureCrudApi = <
      * Create a record and store it.
      *
      * @param data - the create payload
-     * @param options - per-call HTTP options, forwarded to the operation
+     * @param settings - requestOptions (forwarded to the operation) / dummyData / key
      * @returns the stored record
      */
-    const createOne = (data: C, options?: O) =>
-        withOperation('create', (create) => api.createTarget(() => create(data, options)));
+    const createOne = (data: C, settings: ICreateOneSettings<T, O> = {}) =>
+        withOperation('create', (create) =>
+            api.createTarget(() => create(data, settings.requestOptions), settings.dummyData, {
+                key: settings.key
+            })
+        );
 
     /**
      * Update a record: applied locally first, rolled back on failure.
      *
      * @param id - the record id
      * @param data - the update payload (see optimisticPatch for what reaches local state)
-     * @param options - per-call HTTP options, forwarded to the operation
+     * @param settings - requestOptions (forwarded to the operation) / merge / applyResponse / key
      * @returns the operation's result
      */
-    const updateOne = (id: K, data: U, options?: O) =>
+    const updateOne = (id: K, data: U, settings: IUpdateOneSettings<O> = {}) =>
         withOperation('update', (update) =>
-            api.updateTarget(() => update(id, data, options), toPatch(data), id)
+            api.updateTarget(() => update(id, data, settings.requestOptions), toPatch(data), id, {
+                merge: settings.merge,
+                applyResponse: settings.applyResponse,
+                key: settings.key
+            })
         );
 
     /**
      * Delete a record: removed locally first, restored on failure.
      *
      * @param id - the record id
-     * @param options - per-call HTTP options, forwarded to the operation
+     * @param settings - requestOptions (forwarded to the operation) / key
      * @returns the operation's result
      */
-    const deleteOne = (id: K, options?: O) =>
-        withOperation('remove', (remove) => api.deleteTarget(() => remove(id, options), id));
+    const deleteOne = (id: K, settings: IDeleteOneSettings<O> = {}) =>
+        withOperation('remove', (remove) =>
+            api.deleteTarget(() => remove(id, settings.requestOptions), id, { key: settings.key })
+        );
 
     return {
         ...api,
