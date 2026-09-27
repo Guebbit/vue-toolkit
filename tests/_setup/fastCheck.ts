@@ -4,8 +4,8 @@
  *
  * `FC_NUM_RUNS` (default 50) keeps `npm test` fast; crank it locally when hunting a rare
  * counterexample: `FC_NUM_RUNS=1000 npx jest property`. `FC_SEED`, when set, replays one exact
- * run (see docs/guide/testing.md — a failure always prints its own `seed` and `path`, which
- * reproduce it directly in `fc.assert` without touching this file).
+ * run (see docs/guide/testing.md — a failure always prints its own `seed`: rerun with
+ * `FC_SEED=<that seed>` to reproduce it deterministically, shrink included).
  */
 import fc from 'fast-check';
 

@@ -10,17 +10,18 @@ search layer and reuses these helpers.
 Folders classify by **subject**. A regression test lives with the feature it constrains: it
 states a contract, not the story of a bug.
 
-| Folder                 | What it proves                                                                                                 |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `_helpers/`            | Factories, fakes and fixtures (below). Not `*.spec.ts`, so Jest never runs them.                               |
-| `unit/`                | One method at a time: fetch*, watch*, mutations, check\*, `isLoading` / `loading`, setRecords.                 |
-| `staleTime/`           | Freshness over time on a **fake clock**: just under vs just past `staleTime`, per-call overrides, concurrency. |
-| `pagination/`          | Client-side paging over the dictionary, server pages via `fetchAll` keys, and `fetchPaginate`.                 |
-| `modifiers/`           | Per-call settings: `forced`, `merge`, `partial`, and `isLoading` under rejection and concurrency.              |
-| `effects/`             | `isLoading()` for every method, and one on/off cycle for a burst of overlapping calls.                         |
-| `intention/`           | Multi-call scenarios: CRUD against a fake server, list invalidation, cross-method seeding, shared clients.     |
-| `lifecycle/`           | Scope teardown, `dependsOn` switches and late answers, `maxRecords`, and dropping queries a watcher observes.  |
-| `served-value.spec.ts` | Asserts the _value_ served on cache hits and refetches, not merely that the network was skipped.               |
+| Folder                 | What it proves                                                                                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_helpers/`            | Factories, fakes and fixtures (below). Not `*.spec.ts`, so Jest never runs them.                                                                                                                                          |
+| `unit/`                | One method at a time: fetch*, watch*, mutations, check\*, `isLoading` / `loading`, setRecords.                                                                                                                            |
+| `staleTime/`           | Freshness over time on a **fake clock**: just under vs just past `staleTime`, per-call overrides, concurrency.                                                                                                            |
+| `pagination/`          | Client-side paging over the dictionary, server pages via `fetchAll` keys, and `fetchPaginate`.                                                                                                                            |
+| `modifiers/`           | Per-call settings: `forced`, `merge`, `partial`, and `isLoading` under rejection and concurrency.                                                                                                                         |
+| `effects/`             | `isLoading()` for every method, and one on/off cycle for a burst of overlapping calls.                                                                                                                                    |
+| `intention/`           | Multi-call scenarios: CRUD against a fake server, list invalidation, cross-method seeding, shared clients.                                                                                                                |
+| `lifecycle/`           | Scope teardown, `dependsOn` switches and late answers, `maxRecords`, and dropping queries a watcher observes.                                                                                                             |
+| `model/`               | Generated command sequences (`fast-check`), settled in a scheduler-picked order: generalises the lifecycle race specs above into thousands of them. See its file header for the invariants and the documented exceptions. |
+| `served-value.spec.ts` | Asserts the _value_ served on cache hits and refetches, not merely that the network was skipped.                                                                                                                          |
 
 ## Running
 
@@ -67,3 +68,7 @@ npx jest --config jest.config.cjs tests/structureRestApi/staleTime   # one folde
   being old: stale data keeps a list rendered while the fresh copy downloads. Records and parent
   lists get `gcTime: Infinity`; growth is bounded by `maxRecords` (`lifecycle/maxRecords*.spec.ts`)
   and by explicit `resetAll()` / `resetRecords()`.
+- **`*.property.spec.ts` files** (under `model/`) use `fast-check`, configured once for the whole
+  repo in `tests/_setup/fastCheck.ts`. `FC_NUM_RUNS` (default 50, 25 for `model/`) controls how many
+  cases run; a failure prints its own `seed` — rerun with `FC_SEED` set to it to deterministically
+  reproduce the same run, shrink included. See `docs/guide/testing.md` for the full walkthrough.

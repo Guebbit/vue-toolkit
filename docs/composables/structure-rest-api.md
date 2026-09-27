@@ -412,3 +412,19 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   make the fuller record look freshly fetched.
 - **`fetchMultiple`'s `apiCall` gets no ids.** Use `checkMultiple` to learn which ones it will ask
   for.
+- **Two writes to the same record race by arrival order, not by which one you called first.**
+  `cancelReads` (see Writing, above) only cancels an in-flight `fetchTarget`/`watchTarget` of that
+  id and the scope's list reads — it does not, and cannot, reach the *other* mutation already in
+  flight for the same id. `updateTarget`'s success is guarded against a newer mutation (a concurrent
+  `deleteTarget` can't be resurrected by a stale `updateTarget` success), but a `deleteTarget` that
+  then itself *fails* still rolls back to whatever the record held at the moment it started — which,
+  raced against another mutation, may be that mutation's own optimistic (not yet server-confirmed)
+  value. Two mutations on the same record from two different call sites is not a pattern this
+  library linearizes; a screen editing one record has one place doing the editing.
+- **`fetchMultiple`/`fetchAny` are not cancelled by a concurrent mutation on the same id.** Unlike
+  `fetchTarget`/`watchTarget` (kind `target`) and the list reads (kind `all`/`parent`/`page`/
+  `search`), a `fetchMultiple` or keyed `fetchAny` runs as its own `any`-kind entry, outside
+  `cancelReads`'s cancel set. A response that arrives after a concurrent `updateTarget`/
+  `deleteTarget` on one of its ids can overwrite that mutation's result with what was true when the
+  read started. Avoid `fetchMultiple`/`fetchAny` for an id a mutation on the same resource might be
+  touching at the same time.
