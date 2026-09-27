@@ -5,12 +5,8 @@
  * restApi exposes on its own, and instead of the LIVE filtersSource.
  */
 
-import {
-    makeSearchComposable,
-    clearAllInstances,
-    flush
-} from './structureSearchApi/_helpers/harness';
-import { buildArticles, type IArticle } from './structureRestApi/_helpers/fixtures';
+import { makeSearchComposable, clearAllInstances, flush } from './_helpers/harness';
+import { buildArticles, type IArticle } from '../structureRestApi/_helpers/fixtures';
 
 afterEach(clearAllInstances);
 

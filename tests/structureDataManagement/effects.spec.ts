@@ -12,7 +12,7 @@
  */
 
 import { watch, effectScope } from 'vue';
-import { useStructureDataManagement } from '../src/composables/structureDataManagement';
+import { useStructureDataManagement } from '../../src/composables/structureDataManagement';
 
 interface IItem {
     id: number;

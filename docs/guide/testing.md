@@ -63,7 +63,7 @@ fc.assert(
 ```
 
 **Where:** `tests/**/*.property.spec.ts` — `npx jest property` runs just this layer.
-`tests/internal/plainData.property.spec.ts` and `tests/structureDataManagement.property.spec.ts`
+`tests/internal/plainData.property.spec.ts` and `tests/structureDataManagement/property.spec.ts`
 cover the pure logic (id generation, client-side pagination, the plain belongsTo relations, a
 sequence of `addRecord`/`editRecord`/`deleteRecord` calls checked against a plain `Map` model).
 

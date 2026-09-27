@@ -1,4 +1,4 @@
-import { useStructureDataManagement } from '../src/composables/structureDataManagement';
+import { useStructureDataManagement } from '../../src/composables/structureDataManagement';
 
 interface ITestItem {
     id: number;

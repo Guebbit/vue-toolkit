@@ -1,7 +1,7 @@
 /**
  * UNIT — internal/identifierJoin.ts: boundary cases the property spec's random generation doesn't
  * reliably hit (a literal backslash in a value, a single null/undefined value, the exact
- * one-vs-two-value boundary). See tests/structureDataManagement.property.spec.ts for the general
+ * one-vs-two-value boundary). See tests/structureDataManagement/property.spec.ts for the general
  * "different tuples never collide" property.
  */
 import { joinIdentifiers } from '../../src/internal/identifierJoin';

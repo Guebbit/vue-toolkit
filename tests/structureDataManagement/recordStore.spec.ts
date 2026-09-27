@@ -9,7 +9,7 @@ import { ref, type Ref } from 'vue';
 import {
     useStructureDataManagement,
     type IRecordStore
-} from '../src/composables/structureDataManagement';
+} from '../../src/composables/structureDataManagement';
 
 interface IItem {
     id: number;

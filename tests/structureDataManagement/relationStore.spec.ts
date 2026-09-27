@@ -8,7 +8,7 @@ import { ref, type Ref } from 'vue';
 import {
     useStructureDataManagement,
     type IRelationStore
-} from '../src/composables/structureDataManagement';
+} from '../../src/composables/structureDataManagement';
 
 interface IItem {
     id: number;

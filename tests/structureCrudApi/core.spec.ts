@@ -8,8 +8,8 @@ import { nextTick, ref } from 'vue';
 import {
     useStructureCrudApi,
     type IStructureCrudOperations
-} from '../src/composables/structureCrudApi';
-import { clearAllInstances, newTestClient, runTracked } from './structureRestApi/_helpers/harness';
+} from '../../src/composables/structureCrudApi';
+import { clearAllInstances, newTestClient, runTracked } from '../structureRestApi/_helpers/harness';
 
 interface IProduct {
     id: string;

@@ -6,8 +6,8 @@
  * composite-id collision fix (`src/internal/identifierJoin.ts`): it fails on a plain `.join()`.
  */
 import fc from 'fast-check';
-import { useStructureDataManagement } from '../src/composables/structureDataManagement';
-import { recordListByIds, recordsByIds } from '../src/internal/recordLookup';
+import { useStructureDataManagement } from '../../src/composables/structureDataManagement';
+import { recordListByIds, recordsByIds } from '../../src/internal/recordLookup';
 
 interface IModelItem {
     id: number;
