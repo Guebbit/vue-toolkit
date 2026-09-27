@@ -249,7 +249,7 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | Option                 | Type                                                | Purpose                                                                                 |
 | ---------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `revalidateOn`         | `WatchSource \| WatchSource[]`                      | Re-parses the schema over unchanged data when a source changes, but only while errors are on display; merges the result under any `setFieldError`/`applyServerErrors` errors rather than replacing them. See above. |
-| `formElement`          | `MaybeRefOrGetter<IFieldContainer \| null>`         | The form, so `revealErrors` can focus the first invalid field. Omit it and no DOM is touched. |
+| `formElement`          | `MaybeRefOrGetter<IFieldContainer \| undefined \| null>` | The form, so `revealErrors` can focus the first invalid field. Omit it and no DOM is touched. |
 | `invalidFieldSelector` | `string`                                            | Where to look for that field. Defaults to `DEFAULT_INVALID_FIELD_SELECTOR` (`[aria-invalid="true"]`). |
 | `onInvalid`            | `(errors) => void`                                  | Called after a submit was rejected by validation, once the errors are on screen — the "please fix the highlighted fields" toast. |
 
@@ -279,6 +279,8 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | Type                             | Shape                                             | What it's for                                       |
 | -------------------------------- | ----------------------------------------------------| ----------------------------------------------------- |
 | `IApplyServerErrorsOptions<T>`  | `{ map?, onUnmapped? }`                           | The options object `applyServerErrors`'s second argument takes. |
+| `IStructureFormValidationOptions<T>` | `{ revalidateOn?, formElement?, invalidFieldSelector?, onInvalid? }` | The options object `useStructureFormValidation`'s third argument takes. |
+| `IFieldContainer`               | `{ querySelector(selectors) => unknown }`         | What `formElement` must structurally match — a DOM element satisfies it as-is; declared structurally so this composable never names a DOM type. |
 | `IStructureFormValidation<T>`   | An explicit interface (not inferred)               | The whole return value, for a store or component prop that needs to name it. |
 | `IValidationSchema<T>`          | `{ safeParse(data: unknown) => ... }`             | What `schema` must structurally match — Zod's own `safeParse` contract. See [API](#api) above. |
 | `IValidationIssue`              | `{ path: PropertyKey[], message: string }`        | One entry of `safeParse`'s failure `error.issues` — Zod's own `ZodIssue` shape. |
@@ -287,8 +289,9 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 
 - **`handleSubmit` doesn't catch errors from your handler.** Only `isSubmitting` is guaranteed to
   be reset (in a `finally`) — if `onSubmit` throws or rejects, the promise from `handleSubmit`
-  rejects too. Wrap the call in your own `try`/`catch` if you need to handle submit failures.
-  That is the seam `applyServerErrors` is meant to sit in.
+  rejects too. Chain `.catch(...)` on the call (as in [Errors the server
+  found](#errors-the-server-found) above) if you need to handle submit failures — that is the
+  seam `applyServerErrors` is meant to sit in.
 - **`applyServerErrors` only fills fields the form actually has.** A message naming a field absent
   from `form` cannot be highlighted, so it goes to `onUnmapped` when given, `formLevelErrors`
   otherwise — never dropped. If a message you expected under a field shows up in `formLevelErrors`

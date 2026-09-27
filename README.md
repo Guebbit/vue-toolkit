@@ -10,7 +10,7 @@ rolled back automatically on failure — Zod-backed form validation, and toast/l
 ## Install
 
 ```bash
-npm install @guebbit/vue-toolkit @tanstack/vue-query
+npm install @guebbit/vue-toolkit @tanstack/vue-query pinia
 ```
 
 Peer dependencies: `vue ^3.4`, `pinia ^2.1 || ^3`, `@tanstack/vue-query ^5.103`, and optionally
@@ -156,22 +156,67 @@ const { progress, isUploading, track } = useUploadProgress<AxiosRequestConfig>((
 }));
 
 // `enabled` off means no options are passed at all — no bar flashing for a payload with no file
-await track((options) => updateProduct(id, data, options), { enabled: !!file });
+await track((options) => updateProduct(id, data, options), { enabled: !!file.value });
+```
+
+### `useAsyncAction` — `data`/`error`/`loading` for one call that isn't a whole REST resource
+
+```ts
+import { useAsyncAction } from '@guebbit/vue-toolkit';
+
+const {
+    data: health,
+    error,
+    loading,
+    run
+} = useAsyncAction(() => getObservabilityHealth().then((response) => response.data));
+// never rejects: a failed run resolves into `error`, so one dead panel doesn't take the page down
+```
+
+### `useLivenessProbe` — a `down` flag for something the app depends on
+
+```ts
+import { useLivenessProbe } from '@guebbit/vue-toolkit';
+
+// probes on creation, on the browser's `online` event, and on a slow retry loop only while down
+const { down } = useLivenessProbe(getHealth);
+```
+
+### `useIsLoading` — "is any of these resources busy?", across the whole app
+
+```ts
+import { useIsLoading } from '@guebbit/vue-toolkit';
+
+// true while any query or mutation whose resourceKey starts with 'account' or 'cart' is in flight
+const isAccountAreaLoading = useIsLoading(['account', 'cart']);
+```
+
+### `useCoreStore` — a Pinia store for your own (non-server) named loading flags
+
+```ts
+import { useCoreStore } from '@guebbit/vue-toolkit';
+
+const core = useCoreStore();
+core.setLoading('onboardingWizard', true);
+core.isLoading(['onboardingWizard']); // true
 ```
 
 ### `useNotificationsStore` — toasts, as a Pinia store
 
 ```ts
-import { useNotificationsStore, IToastType } from '@guebbit/vue-toolkit';
+import { useNotificationsStore, EToastType } from '@guebbit/vue-toolkit';
 
 const notifications = useNotificationsStore();
-notifications.addMessage('Saved successfully', IToastType.SUCCESS, 4000);
+notifications.addMessage('Saved successfully', EToastType.SUCCESS, 4000);
 ```
 
 ## Documentation
 
 The snippets above are just the entry point. Full API reference, setup options, and the gotchas
 that matter in practice: **[guebbit.github.io/vue-toolkit](https://guebbit.github.io/vue-toolkit/)**
+
+Upgrading from 4.x? See the
+**[migration guide](https://guebbit.github.io/vue-toolkit/guide/migration)**.
 
 ## License
 

@@ -39,7 +39,10 @@ returns `IStructureDataManagementApi<T, K, P>` — an exported, explicit interfa
   default `identifiers` is `'id'`. Pass `K` explicitly for a composite id, or one under a
   different field name.
 - `identifiers` is a single field name, or an array of fields for composite keys (order matters);
-  `delimiter` joins composite key parts into one dictionary key.
+  `delimiter` joins composite key parts into one dictionary key. With two or more identifiers, a
+  part containing `delimiter` itself (or a backslash) is escaped before joining, so `['a|b', 'c']`
+  and `['a', 'b|c']` never collide into the same joined key — a single identifier is never escaped
+  (there is nothing to collide with), so the common case looks exactly as it did before.
 - `recordStore` (type `IRecordStore<T, K>`) is the write surface `addRecord`/`editRecord`/
   `deleteRecord`/`setRecords`/`resetRecords` go through. You will not normally pass one: the
   default is a local, in-memory dictionary.
@@ -105,7 +108,7 @@ Operates on `itemList` — for offline/already-fetched data. For server-side pag
 | Property        | Purpose                                          |
 | ------------------ | --------------------------------------------------- |
 | `pageCurrent`     | Ref — current page, 1-based.                       |
-| `pageSize`        | Ref — items per page (default `10`).               |
+| `pageSize`        | Ref — items per page (default `10`). Writing a value under `1` clamps it to `1` — a `pageSize` of `0` or negative would otherwise make `pageTotal` read as `Infinity`. |
 | `pageTotal`       | Computed — total page count.                       |
 | `pageOffset`      | Computed — index of the first item on the current page. |
 | `pageItemList`    | Computed — `itemList` slice for the current page.  |

@@ -139,3 +139,12 @@ sequenceDiagram
 | `IAsyncActionSettings<T>`   | `{ initialData?, fallbackErrorMessage?, resolveError? }` | The options object `useAsyncAction` takes. |
 | `TErrorResolver`            | `(error: unknown, fallback?: string) => string`       | Shape of `resolveError`; see [Error messages](#error-messages). |
 | `IAsyncAction<T, TArguments>` | `ReturnType<typeof useAsyncAction<T, TArguments>>`  | The whole return value, for a store or component prop that needs to name it. |
+
+## Gotchas
+
+- **A rejection with nothing readable, and no `fallbackErrorMessage` configured, sets `error` to
+  an empty string** — not `undefined`. `v-if="error"` (or any other truthiness check) then reads
+  it as "no error" and falls through to whatever the success state renders, even though the run
+  failed. Check `loading` transitioning to `false` alongside `data` being unchanged if you need to
+  detect failure without relying on `error`'s truthiness, or set `fallbackErrorMessage` (or a
+  `resolveError` that never returns `''`) so `error` is always a non-empty message on failure.

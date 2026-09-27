@@ -43,14 +43,22 @@ a bare `effectScope` — it stops with that scope. Created outside one, `stop()`
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Up: immediate probe succeeds
-    [*] --> Down: immediate probe fails
-    Up --> Down: online event, probe fails
-    Down --> Down: retryDelay elapses, probe fails
-    Down --> Up: online event or retry, probe succeeds
+    [*] --> Up: immediate (default) — probe succeeds
+    [*] --> Down: immediate (default) — probe fails
+    [*] --> Up: immediate: false — down starts false, untested
+    Up --> Up: check() or online event, probe succeeds
+    Up --> Down: check() or online event, probe fails
+    Down --> Down: retryDelay elapses (or check()), probe fails
+    Down --> Up: retryDelay elapses, check(), or online event, probe succeeds
     Down --> [*]: stop()
     Up --> [*]: stop()
 ```
+
+`check()` is what every re-probe actually calls underneath — the retry loop and the `online`
+listener are both just `check()` on a timer or an event, never a separate path. Calling it
+yourself (a manual "retry now" button, say) re-probes exactly the same way, cancelling any pending
+retry first. With `immediate: false`, `down` starts `false` (`Up`) without ever having actually
+been checked — call `check()` yourself to know for sure before trusting it.
 
 ## Options
 

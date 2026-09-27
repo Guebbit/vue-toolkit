@@ -2,9 +2,12 @@
 
 This project has several layers of tests, each catching a kind of bug the others can't see:
 
-- **The Jest suite** (`npm test`) — example-based tests. They exercise the composables and stores
-  against a small stateful in-memory REST server, asserting both the local store state _and_ the
-  number of server round-trips at each step.
+- **The Jest suite** (`npm test`) — example-based tests. The REST/search/CRUD composables run
+  against a small stateful in-memory fake server (`tests/structureRestApi/_helpers/fakeServer.ts`),
+  asserting both the local store state _and_ the number of server round-trips at each step; the
+  networking-free composables and stores (`useStructureDataManagement`, the Pinia stores,
+  `useAsyncAction`, `useLivenessProbe`, `useUploadProgress`) have no server to fake and are
+  exercised directly.
 - **Property-based tests** (`*.property.spec.ts`, part of `npm test`) — generated inputs and
   generated command sequences, checked against invariants instead of hand-picked examples.
 - **Type-level tests** (`npm run test:types`) — the public types themselves, checked with `tsc`.
@@ -42,9 +45,11 @@ the above would actually *notice* a bug. You want all of them.
 ## Example-based tests
 
 `npm test` runs everything under `tests/**/*.spec.ts` (Jest + ts-jest). Specs are grouped by
-composable, with shared factories and fakes in each suite's `_helpers/` folder — see
-`tests/structureRestApi/README.md` for the layout and conventions that folder's tests follow (most
-other suites mirror it).
+composable, one folder each (`tests/structureRestApi/`, `tests/structureDataManagement/`, ...).
+Only REST and search need shared factories and a fake server, so only `tests/structureRestApi/`
+and `tests/structureSearchApi/` have a `_helpers/` folder — see `tests/structureRestApi/README.md`
+for the layout and conventions it follows; `tests/structureSearchApi/` mirrors it. Every other
+suite's fixtures are small enough to live inline in the spec files themselves.
 
 ## Property-based tests
 
@@ -274,6 +279,11 @@ existing `jest.config.cjs`. When it finishes it prints a per-file summary and wr
 HTML report to `reports/mutation/mutation.html` — open that to see each surviving mutant inline
 with the source, which is the fastest way to decide "real gap or equivalent mutant?". `reports/` is
 gitignored: the score doesn't live in git, only in the report and in this page.
+
+A full run against `5.0.0` scored **84.33%** (1429 killed / 2 timed out / 251 survived, of 1699
+covered mutants; 1756 total), against a `thresholds.break` of 81. `writeGuard.ts` (57%) and
+`parentRelations.ts` (76%) are the two weakest files — worth a look before chasing the aggregate
+number any higher elsewhere.
 
 > The full run mutates the whole `src/` tree and takes a few minutes. While iterating, scope it to
 > one file with `npx stryker run --mutate "src/composables/structureDataManagement.ts"`.

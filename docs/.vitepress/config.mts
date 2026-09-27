@@ -20,6 +20,7 @@ export default withMermaid(defineConfig({
         text: 'Guide',
         items: [
           { text: 'Getting Started', link: '/guide/getting-started' },
+          { text: 'Migrating from 4.x', link: '/guide/migration' },
           { text: 'Testing', link: '/guide/testing' }
         ]
       },

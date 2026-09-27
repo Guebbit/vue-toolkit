@@ -348,10 +348,38 @@ Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'del
      value left in place is a local guess, not server-confirmed, so an active watcher reconciles it
      on its own instead of trusting the guess as fresh.
   4. Once the request settles, success or failure, mark this resource's lists stale.
+
+  ```mermaid
+  sequenceDiagram
+      participant Call as updateTarget/deleteTarget
+      participant Guard as write guard
+      participant Cache as record cache
+      participant Server
+      Call->>Guard: beginMutation(id) — id is now OWNED by this call
+      Call->>Cache: cancel the record's own in-flight read
+      Call->>Cache: snapshot(id), then apply the optimistic change
+      Call->>Server: send the request
+      alt still owns id when the response lands
+          Server-->>Call: success
+          Call->>Cache: store the result (or keep the optimistic patch — see below)
+          Call->>Cache: invalidate the record — a watcher reconciles with the server
+      else still owns id, request failed
+          Server-->>Call: failure
+          Call->>Cache: restore(id, snapshot)
+          Call->>Cache: invalidate the record
+      else a NEWER mutation now owns id
+          Note over Call,Cache: this call's answer is stale either way — do nothing to the record
+      end
+      Call->>Cache: mark this resource's lists stale (success or failure, regardless of ownership)
+  ```
+
 - **`updateTarget`** on success stores the response as the record's new, full data (`merge: true`
   merges it in instead). A response that is not a record object (`undefined`, `null`, an array, a
-  primitive), or `applyResponse: false`, keeps the optimistic patch as the record. `id` defaults
-  to the id inside `itemData`.
+  primitive), or `applyResponse: false`, keeps the optimistic patch as the record. The optimistic
+  patch, without an explicit `id`, is applied under the id inside `itemData`; the response is
+  then stored under **its own** id (the response's, not `itemData`'s) when `id` was omitted —
+  the normal case where both agree, since a real API echoes the id back. Pass `id` explicitly
+  when `itemData` might not carry one, so both steps agree on the same record.
 - **`mutateAny`**: a command with no record shape. Invalidates nothing; call
   `queryClient.invalidateQueries` yourself when it changes data.
 - Marking the lists stale reaches every list kind (`all`, `parent`, `page`, `search`): active list
@@ -505,9 +533,10 @@ sequenceDiagram
 - Removing an entry that an active watcher observes empties it in place instead, so the watcher
   stays attached. `resetAll()` then refetches what active watchers show (views empty, then the
   watched data comes back). `resetRecords()` refetches only active list watchers (it marks the
-  lists stale), not a `watchTarget`. `deleteRecord`/`deleteTarget` and the `maxRecords` wipe
-  refetch nothing themselves: a watcher fetches again on its next invalidation, window focus or
-  key change.
+  lists stale), not a `watchTarget`. `deleteRecord`/`deleteTarget` refetch nothing themselves: a
+  watcher fetches again on its next invalidation, window focus or key change. The `maxRecords`
+  wipe is different again: an observed record is never even a candidate for eviction (see
+  [maxRecords](#maxrecords)) — nothing is emptied, so there is nothing to refetch.
 
 ## maxRecords
 

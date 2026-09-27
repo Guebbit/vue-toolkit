@@ -9,7 +9,7 @@ validation, and two small Pinia stores (toasts, named loading flags).
 ## Install
 
 ```bash
-npm install @guebbit/vue-toolkit @tanstack/vue-query
+npm install @guebbit/vue-toolkit @tanstack/vue-query pinia
 ```
 
 ### Peer dependencies
@@ -38,6 +38,7 @@ the wrong copy silently never fetches).
 
 ```ts
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
 const queryClient = new QueryClient({
@@ -47,6 +48,7 @@ const queryClient = new QueryClient({
 })
 
 const app = createApp(App)
+app.use(createPinia())
 app.use(VueQueryPlugin, { queryClient })
 ```
 
@@ -84,6 +86,14 @@ What the client's `defaultOptions` reach:
   whole app, for a layout-level indicator that isn't tied to one resource.
 - **[`useStructureFormValidation`](/composables/structure-form-validation)** — reactive form
   state with optional Zod validation and a submit-flow wrapper.
+- **[`useAsyncAction`](/composables/async-action)** — one async call wrapped in `data`/`error`/
+  `loading` refs, "latest run wins" against an overtaken response. Reach for this for a plain
+  read that isn't a whole REST resource.
+- **[`useLivenessProbe`](/composables/liveness-probe)** — a `down` flag for something the app
+  depends on, fed by a caller-supplied probe: probes on creation, on the browser's `online`
+  event, and on a slow retry loop only while down.
+- **[`useUploadProgress`](/composables/upload-progress)** — a single `progress` ref fed by your
+  HTTP client's own progress callback, client-agnostic.
 - **[`useNotificationsStore`](/stores/notifications)** — toast messages, as a Pinia store.
 - **[`useCoreStore`](/stores/core)** — a global named-loading-flags store, for your own
   (non-server) loading flags shared across components instead of ad-hoc local refs.
