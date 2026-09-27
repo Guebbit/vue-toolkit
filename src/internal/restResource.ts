@@ -102,6 +102,9 @@ const nothing = (): undefined => {
     // no cached answer to return
 };
 
+/** resourceKeys already warned about being built outside an effect scope (see createRestResource). */
+const warnedNoScope = new Set<string>();
+
 /** What an active query is built from. */
 export interface IWatchQueryOptions<E> {
     /** The query key, read reactively: a change switches the query to other data. */
@@ -146,6 +149,21 @@ export const createRestResource = <
     delimiter = '|',
     queryClient: queryClientOption
 }: IStructureRestApi) => {
+    // Every cache subscription this resource makes (resourceActivity, the scope registry claim
+    // below) is torn down through onScopeDispose — with no effect scope active, there is nothing
+    // to call it, and no other way to stop them: they leak for the QueryClient's whole lifetime,
+    // silently. Warned once per resourceKey rather than every call, so a factory invoked in a loop
+    // doesn't flood the console.
+    if (!getCurrentScope() && !warnedNoScope.has(resourceKey)) {
+        warnedNoScope.add(resourceKey);
+        // eslint-disable-next-line no-console -- a silent, permanent subscription leak is worth seeing
+        console.warn(
+            `useStructureRestApi('${resourceKey}'): built outside an effect scope (a component's ` +
+                'setup, a Pinia setup store, or effectScope()). Its cache subscriptions have nothing ' +
+                "to stop them and will leak for the QueryClient's lifetime."
+        );
+    }
+
     /**
      * The one cache. `markRaw`: Pinia wraps a setup store's return in `reactive()`, and calling a
      * `QueryClient` method (native `#private` fields) through that proxy throws.

@@ -233,6 +233,10 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- A resource built outside an effect scope (a component's `setup()`, a Pinia setup store, an
+  `effectScope()`) had its cache subscriptions leak silently for the `QueryClient`'s whole
+  lifetime, with no way to stop them and nothing telling you it happened. It now emits a
+  `console.warn` naming the `resourceKey`, once per key.
 - `asFetched` restored its internal "this write is a server answer" flag without a `finally`: a
   throw inside the writes it wraps left the flag stuck on, so every later local write (an
   optimistic edit, a plain `addRecord`) was wrongly stamped fresh instead of keeping its previous

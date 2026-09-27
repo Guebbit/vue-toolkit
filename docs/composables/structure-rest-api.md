@@ -87,9 +87,14 @@ flowchart LR
 - Calls with no stable identity (`fetchAny` without `key`, `fetchTarget` without an id,
   `fetchMultiple`'s batch) still run as queries, under a random `any` key that is dropped once
   they settle, so `isLoading` sees them.
-- Two instances with the same `resourceKey` on the same client read and write the same entries.
-  Each keeps its own selection and client-side pagination. They must share one `dependsOn`: see
-  [dependsOn](#dependson).
+- Two instances with the same `resourceKey` on the same client read and write the same entries
+  when their `dependsOn` agrees; with different `dependsOn` values, they read and write disjoint
+  entries and coexist rather than one dropping the other's cache. Each keeps its own selection and
+  client-side pagination either way: see [dependsOn](#dependson).
+- **Build a resource inside an effect scope** — a component's `setup()`, a Pinia setup store, or
+  your own `effectScope()`. Its cache subscriptions are torn down through that scope; with none
+  active there is nothing to stop them, and they leak for the `QueryClient`'s whole lifetime. A
+  `console.warn` naming the `resourceKey` fires once if this happens.
 
 ## Setup options
 
