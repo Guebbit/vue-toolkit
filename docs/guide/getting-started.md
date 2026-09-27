@@ -16,15 +16,17 @@ npm install @guebbit/vue-toolkit @tanstack/vue-query
 
 The package expects these already in your project:
 
-| Package               | Version   |
-| ---------------------- | --------- |
-| `vue`                 | `>=3.4`   |
-| `pinia`               | `>=2.0.0` |
-| `@tanstack/vue-query` | `^5.103`  |
-| `zod`                 | `>=4.4.3` (optional) |
+| Package               | Version         |
+| ---------------------- | --------------- |
+| `vue`                 | `^3.4`          |
+| `pinia`               | `^2.1 \|\| ^3`  |
+| `@tanstack/vue-query` | `^5.103`        |
+| `zod`                 | `^4.4.3` (optional) |
 
 `zod` is optional: only [`useStructureFormValidation`](/composables/structure-form-validation)
 needs it, so install it (`npm install zod`) if you use that composable.
+
+`pinia`'s floor is `2.1`, not `2.0`: building a resource inside a Pinia SETUP store (`defineStore('x', () => useStructureRestApi(...))`) relies on `useQueryClient()` finding the client `VueQueryPlugin` provided through Vue's injection — a setup store's own setup function did not run inside an injection context before `2.1`.
 
 `@tanstack/vue-query` is a peer, not a regular dependency: install it yourself, once, and every
 resource in your app shares the one `QueryClient` you create. Do **not** also install

@@ -125,6 +125,10 @@ jobs:
         # vue's floor is 3.4.0, not vue-query's own 3.3: below 3.4, Vue's watcher scheduler can
         # flush a pageSize-driven pageCurrent reset after the query-key watcher has already
         # re-fetched the old page (tests/structureSearchApi/unit/watchSearch.spec.ts catches it).
+        #
+        # pinia's floor is 2.1.0, not 2.0's own `>=2.0.0`: a Pinia SETUP store's own setup function
+        # did not run inside an injection context before 2.1, so `useQueryClient()` inside one found
+        # nothing (tests/structureRestApi/lifecycle/piniaSetupStoreInjection.spec.ts catches it).
         runs-on: ubuntu-latest
         timeout-minutes: 15
         permissions:
@@ -144,7 +148,7 @@ jobs:
               run: npm ci
 
             - name: Install peer floor
-              run: npm install --no-save --legacy-peer-deps vue@3.4.0 pinia@2.0.0 @tanstack/vue-query@5.103.0 zod@4.4.3
+              run: npm install --no-save --legacy-peer-deps vue@3.4.0 pinia@2.1.0 @tanstack/vue-query@5.103.0 zod@4.4.3
 
             - name: Run tests against the peer floor
               run: npm run test
