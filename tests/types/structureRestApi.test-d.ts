@@ -2,6 +2,7 @@
  * TYPES — useStructureRestApi: record inference, per-call setting refusals, and the required
  * `resourceKey`.
  */
+import { ref } from 'vue';
 import { expectTypeOf } from 'expect-type';
 import { useStructureRestApi } from '../../src/index.js';
 import type { IUser } from './_fixtures.js';
@@ -55,6 +56,17 @@ resource.fetchMultiple((ids, context) => {
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
     return Promise.resolve<IUser[]>([]);
 }, [1, 2]);
+
+// watchAll/watchByParent/watchAny accept enabled and a reactive key (V2.3).
+resource.watchAll(() => Promise.resolve<IUser[]>([]), { enabled: ref(true), key: ref(['a']) });
+resource.watchByParent(
+    () => Promise.resolve<IUser[]>([]),
+    ref<number | undefined>(undefined),
+    { enabled: () => true, key: () => ['a'] }
+);
+resource.watchAny(() => Promise.resolve('x'), { key: ref(['stats']), enabled: ref(true) });
+// @ts-expect-error -- watchAny's key is required
+resource.watchAny(() => Promise.resolve('x'), {});
 resource.watchTarget(
     () => 1,
     (id, context) => {

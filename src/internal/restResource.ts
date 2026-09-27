@@ -41,7 +41,9 @@ import type {
     IFetchContext,
     IFetchSettings,
     IStructureRestApi,
+    IWatchAnySettings,
     IWatchHandle,
+    IWatchListSettings,
     IWatchTargetSettings
 } from '../composables/structureRestApi.js';
 import { isNil, stableKey } from './plainData.js';
@@ -799,12 +801,13 @@ export const createRestResource = <
         queryKey: () => unknown[],
         meta: (() => Record<string, unknown>) | undefined,
         apiCall: (running: IRunningQuery) => Promise<(T | undefined)[]>,
-        settings: IFetchSettings = {}
+        settings: IWatchListSettings = {}
     ): IWatchHandle<(T | undefined)[]> => {
         const { query, scope, refetch } = watchQuery<IListCacheEntry<K>>({
             queryKey,
             meta,
             fetch: (running) => listQueryFunction(() => apiCall(running), settings, running),
+            enabled: settings.enabled,
             forced: settings.forced,
             staleTime: settings.staleTime,
             key: settings.key
@@ -820,12 +823,12 @@ export const createRestResource = <
      * fetchAll's active counterpart: re-runs on invalidation and on a `dependsOn` change.
      *
      * @param apiCall - resolves every item
-     * @param settings - forced / merge / partial / staleTime / key
+     * @param settings - forced / merge / partial / staleTime / key / enabled
      * @returns the watcher handle
      */
-    const watchAll = (apiCall: TListCall<T>, settings: IFetchSettings = {}) =>
+    const watchAll = (apiCall: TListCall<T>, settings: IWatchListSettings = {}) =>
         watchList(
-            () => keys.entry('all', dependsOn(), [], settings.key),
+            () => keys.entry('all', dependsOn(), [], toValue(settings.key)),
             undefined,
             (running) => apiCall(readContextOf(running)),
             settings
@@ -833,24 +836,36 @@ export const createRestResource = <
 
     /**
      * fetchByParent's active counterpart: also re-runs when the parent id changes. apiCall
-     * receives the parent id the running query is for.
+     * receives the parent id the running query is for. A nullish parent id idles instead of
+     * calling apiCall — there is nothing to ask for yet.
      *
      * @param apiCall - resolves a parent's children
-     * @param parentId - the parent id, or a Ref/getter producing it
-     * @param settings - forced / merge / partial / staleTime / key
+     * @param parentId - the parent id, or a Ref/getter producing it; nullish idles
+     * @param settings - forced / merge / partial / staleTime / key / enabled
      * @returns the watcher handle
      */
     const watchByParent = (
         apiCall: (parentId: P, context: IFetchContext) => Promise<(T | undefined)[]>,
-        parentId: MaybeRefOrGetter<P>,
-        settings: IFetchSettings = {}
-    ) =>
-        watchList(
-            () => keys.parent(toValue(parentId), dependsOn(), settings.key),
-            () => ({ parentId: toValue(parentId) }),
+        parentId: MaybeRefOrGetter<P | undefined | null>,
+        settings: IWatchListSettings = {}
+    ) => {
+        /** The watched parent id; nullish reads as undefined. */
+        const currentParentId = (): P | undefined => toValue(parentId) ?? undefined;
+        return watchList(
+            () => {
+                const parent = currentParentId();
+                return parent === undefined
+                    ? keys.entry('any', dependsOn(), ['idle'])
+                    : keys.parent(parent, dependsOn(), toValue(settings.key));
+            },
+            () => ({ parentId: currentParentId() }),
             (running) => apiCall(running.meta?.parentId as P, readContextOf(running)),
-            settings
+            {
+                ...settings,
+                enabled: () => currentParentId() !== undefined && toValue(settings.enabled ?? true)
+            }
         );
+    };
 
     /**
      * Generic read for anything that is not a record. With `key`: cached under
@@ -894,17 +909,18 @@ export const createRestResource = <
      * Also returns `data`, since the answer is not a record.
      *
      * @param apiCall - resolves the data
-     * @param settings - key (required) / forced / staleTime
+     * @param settings - key (required, may be reactive) / forced / staleTime / enabled
      * @returns the watcher handle, plus `data`
      */
     const watchAny = <F = unknown>(
         apiCall: (context: IFetchContext) => Promise<F>,
-        settings: Pick<IFetchSettings, 'forced' | 'staleTime'> & { key: string[] }
+        settings: IWatchAnySettings
     ) => {
         const { query, scope, refetch } = watchQuery<{ data: F }>({
-            queryKey: () => keys.entry('any', dependsOn(), [], settings.key),
+            queryKey: () => keys.entry('any', dependsOn(), [], toValue(settings.key)),
             // Wrapped: TanStack refuses a query function that resolves undefined.
             fetch: (running) => apiCall(readContextOf(running)).then((data) => ({ data })),
+            enabled: settings.enabled,
             forced: settings.forced,
             staleTime: settings.staleTime,
             key: settings.key

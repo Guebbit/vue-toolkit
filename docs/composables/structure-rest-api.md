@@ -177,9 +177,9 @@ component or store that created it, or with `stop()`.
 | Method                                         | Arguments                                                                                   | Returns                                     |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `watchTarget(idSource, apiCall, settings?)`    | `idSource`: Ref or getter of `K \| undefined \| null`. `apiCall: (id, context) => Promise<T \| undefined>`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
-| `watchAll(apiCall, settings?)`                 | `settings: IFetchSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`                 | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes). `settings: IFetchSettings` | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchAny(apiCall, settings)`                  | `settings`: `{ key, forced?, staleTime? }`. `key` is **required**: an active query needs a stable identity | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
+| `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles). `settings: IWatchListSettings` | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
 
 Each fetch sends what its own query was built from: `watchTarget`'s `apiCall` receives the id,
 and `watchByParent`'s the parent id, of the query that is running, never a live value that has
@@ -349,17 +349,20 @@ Plus the resource's identity and plumbing:
 
 ## Settings reference
 
-`IFetchSettings`, plus `IUpdateTargetSettings` for `updateTarget`. Each method reads only the
-fields listed in its table above; its TypeScript signature accepts only those.
+`IFetchSettings`, plus `IUpdateTargetSettings` for `updateTarget` and `IWatchListSettings`/
+`IWatchAnySettings` (`key`/`enabled` reactive) for `watchAll`/`watchByParent`/`watchAny`. Each
+method reads only the fields listed in its table above; its TypeScript signature accepts only
+those.
 
 | Setting         | Default               | Meaning                                                                                              |
 | --------------- | --------------------- | ---------------------------------------------------------------------------------------------------- |
 | `forced`        | `false`               | Run with `staleTime: 0`: anything cached counts as stale, so the server is asked. A concurrent call for the same entry joins this request instead of racing it. On a watcher: every mount and key switch asks the server. |
 | `merge`         | `false`               | Merge the fetched fields into the stored record instead of replacing it.                             |
 | `staleTime`     | the resource's        | Freshness window (ms) for this call.                                                                 |
-| `key`           | none                  | Extra segments appended to the cache key of a list, `fetchAny` or `watchAny` call: an independent bucket for the same call shape. Also what `isLoading(key)` matches, on queries and mutations alike. |
+| `key`           | none                  | Extra segments appended to the cache key of a list, `fetchAny` or `watchAny` call: an independent bucket for the same call shape. Also what `isLoading(key)` matches, on queries and mutations alike. On `watchAll`/`watchByParent`/`watchAny`, may be a Ref, ComputedRef or getter: a change re-runs the watcher under the new bucket. |
 | `partial`       | `false`               | The answer holds partial records: merge them (never replace) and keep each record's freshness, so the next full `fetchTarget` still asks the server. List-shaped fetches only. |
 | `applyResponse` | `true`                | `updateTarget` only: store the response as the record (a response that is not a record object is never stored). Turn off when the response is not the record (an acknowledgement, say). |
+| `enabled`       | `true`                | `watchAll`/`watchByParent`/`watchAny` only: whether the watcher may fetch on its own. May be a Ref, ComputedRef or getter. `watchByParent` also idles automatically while its `parentId` is nullish, regardless of this setting. |
 
 ## dependsOn
 

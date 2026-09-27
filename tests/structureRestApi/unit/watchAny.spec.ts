@@ -4,6 +4,7 @@
  * result) instead of relying on the item dictionary.
  */
 
+import { ref } from 'vue';
 import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { type IUser } from '../_helpers/fixtures';
 
@@ -66,6 +67,39 @@ describe('UNIT · watchAny', () => {
         await flush();
 
         await refetch();
+        expect(apiCall).toHaveBeenCalledTimes(2);
+        stop();
+    });
+
+    // V2.3: enabled and key may be reactive.
+    it('accepts enabled: false, and starts fetching once it flips true', async () => {
+        const c = make();
+        const enabled = ref(false);
+        const apiCall = jest.fn(() => Promise.resolve('v1'));
+        const { stop } = c.watchAny(apiCall, { key: ['x'], enabled });
+        await flush();
+
+        expect(apiCall).not.toHaveBeenCalled();
+
+        enabled.value = true;
+        await flush();
+
+        expect(apiCall).toHaveBeenCalledTimes(1);
+        stop();
+    });
+
+    it('accepts a reactive key, and re-runs when it changes', async () => {
+        const c = make();
+        const key = ref(['a']);
+        const apiCall = jest.fn(() => Promise.resolve('v1'));
+        const { stop } = c.watchAny(apiCall, { key });
+        await flush();
+
+        expect(apiCall).toHaveBeenCalledTimes(1);
+
+        key.value = ['b'];
+        await flush();
+
         expect(apiCall).toHaveBeenCalledTimes(2);
         stop();
     });

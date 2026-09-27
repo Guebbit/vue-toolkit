@@ -177,6 +177,9 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **`watchAll`/`watchByParent`/`watchAny`** accept `enabled` and a reactive `key` (a Ref,
+  ComputedRef or getter for either). `watchByParent` also idles automatically — no fetch, `apiCall`
+  never called — while its `parentId` is nullish, instead of calling `apiCall(undefined)`.
 - **`fetchMultiple`'s `apiCall`** now receives the ids it actually needs to fetch —
   `(missingIds, context) => …`, exactly `checkMultiple(ids).expiredIds` — instead of no arguments
   at all. Building `GET /users?ids=1,2` from `missingIds` means an id already fresh in the cache is
@@ -243,6 +246,10 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `watchByParent` called `apiCall(undefined)` when its `parentId` was nullish, instead of idling:
+  a screen whose parent id starts out unknown (still loading from a route param, say) fired a
+  request for `undefined` on mount. It now idles — no fetch, `apiCall` never called — exactly like
+  `watchTarget` already does for a nullish id, until `parentId` becomes a real value.
 - A resource built outside an effect scope (a component's `setup()`, a Pinia setup store, an
   `effectScope()`) had its cache subscriptions leak silently for the `QueryClient`'s whole
   lifetime, with no way to stop them and nothing telling you it happened. It now emits a

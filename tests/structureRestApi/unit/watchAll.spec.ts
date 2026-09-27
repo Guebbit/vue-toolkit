@@ -6,6 +6,7 @@
  * and lifecycle/dependsOn.spec.ts — this file is the direct, one-shape-at-a-time contract.)
  */
 
+import { ref } from 'vue';
 import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
@@ -71,5 +72,38 @@ describe('UNIT · watchAll', () => {
         expect(b).toHaveBeenCalledTimes(1);
         first.stop();
         second.stop();
+    });
+
+    // V2.3: enabled and key may be reactive.
+    it('accepts enabled: false, and starts fetching once it flips true', async () => {
+        const c = make();
+        const enabled = ref(false);
+        const apiCall = jest.fn(() => Promise.resolve([...USERS]));
+        const { stop } = c.watchAll(apiCall, { enabled });
+        await flush();
+
+        expect(apiCall).not.toHaveBeenCalled();
+
+        enabled.value = true;
+        await flush();
+
+        expect(apiCall).toHaveBeenCalledTimes(1);
+        stop();
+    });
+
+    it('accepts a reactive key, and re-runs when it changes', async () => {
+        const c = make();
+        const key = ref(['a']);
+        const apiCall = jest.fn(() => Promise.resolve([...USERS]));
+        const { stop } = c.watchAll(apiCall, { key });
+        await flush();
+
+        expect(apiCall).toHaveBeenCalledTimes(1);
+
+        key.value = ['b'];
+        await flush();
+
+        expect(apiCall).toHaveBeenCalledTimes(2);
+        stop();
     });
 });

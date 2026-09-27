@@ -9,7 +9,7 @@
  * @module composables/structureRestApi
  * @see docs/composables/structure-rest-api.md
  */
-import type { Ref, WatchStopHandle } from 'vue';
+import type { MaybeRefOrGetter, Ref, WatchStopHandle } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 
@@ -157,6 +157,33 @@ export interface IWatchTargetSettings<T, K>
     extends
         Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'>,
         IWatchCallbacks<T | undefined, K> {}
+
+/**
+ * watchAll's/watchByParent's settings: `IFetchSettings`, but `key` and `enabled` may be reactive
+ * (a Ref, a ComputedRef or a getter) — a change re-runs the watcher just like a key or id switch
+ * does.
+ */
+export interface IWatchListSettings extends Omit<IFetchSettings, 'key'> {
+    /**
+     * Extra cache-key segments, and what `isLoading(key)` matches the query by. May be reactive.
+     */
+    key?: MaybeRefOrGetter<string[] | undefined>;
+
+    /** Whether the query may fetch on its own (default true). May be reactive. */
+    enabled?: MaybeRefOrGetter<boolean>;
+}
+
+/**
+ * watchAny's settings: `key` is required (an active query needs a stable identity), and may be
+ * reactive, like `enabled`.
+ */
+export interface IWatchAnySettings extends Pick<IFetchSettings, 'forced' | 'staleTime'> {
+    /** Cache-key segments; required. May be reactive. */
+    key: MaybeRefOrGetter<string[]>;
+
+    /** Whether the query may fetch on its own (default true). May be reactive. */
+    enabled?: MaybeRefOrGetter<boolean>;
+}
 
 /**
  * A REST resource: records, lists and paginated reads cached in one TanStack `QueryClient`,
