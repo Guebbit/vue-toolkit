@@ -65,7 +65,9 @@
         "update:all": "npx npm-check-updates -u",
         "complete": "npm run lint:fix && npm run prettier:fix && npm run build && npm run test:package && npm run test && npm run test:types && npm run docs:build",
         "complete:check": "npm run lint && npm run prettier && npm run build && npm run test:package && npm run test && npm run test:types && npm run docs:build",
-        "publish:public": "npm run complete && npm publish --access public",
+        "check:clean": "node -e \"const s=require('child_process').execSync('git status --porcelain').toString();if(s.trim()){console.error('working tree is not clean — commit or stash before publishing:\\n'+s);process.exit(1)}\"",
+        "prepublishOnly": "npm run check:clean && npm run complete:check",
+        "publish:public": "npm publish --access public",
         "prepare": "husky"
     },
     "devDependencies": {
