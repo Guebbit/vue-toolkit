@@ -1,11 +1,12 @@
 /**
  * MODIFIER — forced: bypass a still-fresh cache entry and re-hit the API.
- * Verified across every cached fetch method, plus that the refreshed value
- * actually replaces the previously cached one.
+ * Covered across every cached fetch method, plus that the refreshed value
+ * actually replaces the previously cached one — and that a forced call JOINS a
+ * request already running for the same data instead of racing it.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
-import { apiResolve } from '../_helpers/fakeApi';
+import { apiResolve, deferredApi } from '../_helpers/fakeApi';
 import { USERS, buildUsers, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
@@ -50,8 +51,49 @@ describe('MODIFIER · forced', () => {
         const c = makeComposable<IUser, number>();
         const first = jest.fn(() => Promise.resolve(1));
         const second = jest.fn(() => Promise.resolve(2));
-        await c.fetchAny(first, { lastUpdateKey: 'k' });
-        await c.fetchAny(second, { lastUpdateKey: 'k', forced: true });
+        await c.fetchAny(first, { key: ['k'] });
+        await c.fetchAny(second, { key: ['k'], forced: true });
         expect(second).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('MODIFIER · forced joins a concurrent call for the same data', () => {
+    it('fetchAll: a forced call joins a non-forced one already running — one apiCall, both resolve', async () => {
+        const c = makeComposable<IUser, number>();
+        const { call, control } = deferredApi<IUser[]>();
+
+        const plain = c.fetchAll(call);
+        const forced = c.fetchAll(call, { forced: true });
+        control.resolve([...USERS]);
+
+        await expect(plain).resolves.toEqual(USERS);
+        await expect(forced).resolves.toEqual(USERS);
+        expect(call).toHaveBeenCalledTimes(1);
+    });
+
+    it('fetchAll: a non-forced call joins a forced one already running', async () => {
+        const c = makeComposable<IUser, number>();
+        const { call, control } = deferredApi<IUser[]>();
+
+        const forced = c.fetchAll(call, { forced: true });
+        const plain = c.fetchAll(call);
+        control.resolve([...USERS]);
+
+        await expect(forced).resolves.toEqual(USERS);
+        await expect(plain).resolves.toEqual(USERS);
+        expect(call).toHaveBeenCalledTimes(1);
+    });
+
+    it('fetchTarget: a forced read joins a read of the same id already running', async () => {
+        const c = makeComposable<IUser, number>();
+        const { call, control } = deferredApi<IUser>();
+
+        const plain = c.fetchTarget(call, 1);
+        const forced = c.fetchTarget(call, 1, { forced: true });
+        control.resolve(USERS[0]);
+
+        await expect(plain).resolves.toEqual(USERS[0]);
+        await expect(forced).resolves.toEqual(USERS[0]);
+        expect(call).toHaveBeenCalledTimes(1);
     });
 });

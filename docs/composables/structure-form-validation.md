@@ -43,7 +43,8 @@ messages are *thunks* is resolved exactly as late as a getter would be:
 
 ```ts
 const loginSchema = z.object({
-    email: z.string().email({ error: () => t('login.email-invalid') })
+    email: z.string().email({ error: () => t('login.email-invalid') }),
+    password: z.string().min(8, { error: () => t('login.password-too-short') })
 })
 
 const login = useStructureFormValidation<ILoginForm>({ email: '', password: '' }, loginSchema)

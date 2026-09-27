@@ -1,11 +1,12 @@
 /**
- * INTENTION — a created or deleted record invalidates the cached LIST-shaped
- * queries (all / paginate / parent), so the next list fetch re-hits the server
- * and reflects the change, while UNRELATED caches (a different parent, a plain
+ * INTENTION — a created, updated or deleted record invalidates the cached LIST-shaped
+ * queries (all / page / parent here; search in
+ * tests/structureSearchApi/intention/mutation-invalidation.spec.ts), so the next list
+ * fetch re-hits the server and reflects the change, while UNRELATED caches (a plain
  * fetchAny) are left fresh.
  *
- * This pins invalidateListQueries' predicate: each of the three kinds must be
- * invalidated, and nothing else.
+ * This pins the invalidation predicate: the list-shaped kinds must be invalidated, and
+ * nothing else.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -14,7 +15,7 @@ import { buildUsers, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
 
-describe('INTENTION · list invalidation on create/delete', () => {
+describe('INTENTION · list invalidation on create/update/delete', () => {
     it('createTarget invalidates all / paginate / parent caches → each refetches once', async () => {
         const server = createServer<IUser>(buildUsers(3, 1));
         const c = makeComposable<IUser, number>();
@@ -59,17 +60,50 @@ describe('INTENTION · list invalidation on create/delete', () => {
         expect(server.calls.list).toBe(2); // refetched after the delete invalidated it
     });
 
+    it('updateTarget invalidates the same list-shaped caches', async () => {
+        const server = createServer<IUser>(buildUsers(3, 1));
+        const c = makeComposable<IUser, number>();
+
+        await c.fetchAll(server.list());
+        await c.fetchByParent(server.list(), 7);
+        expect(server.calls.list).toBe(2);
+
+        await c.updateTarget(
+            server.update(1, { name: 'User 1 edited' }),
+            { name: 'User 1 edited' },
+            1
+        );
+        expect(c.checkAll()).toBe(false);
+        expect(c.checkByParent(7)).toBe(false);
+
+        await c.fetchAll(server.list());
+        await c.fetchByParent(server.list(), 7);
+        expect(server.calls.list).toBe(4); // both refetched after the update invalidated them
+    });
+
+    it('a FAILED updateTarget marks lists stale: it cancelled their reads, so they must run again', async () => {
+        const server = createServer<IUser>(buildUsers(3, 1));
+        const c = makeComposable<IUser, number>();
+
+        await c.fetchAll(server.list());
+        await expect(
+            c.updateTarget(() => Promise.reject(new Error('409')), { name: 'nope' }, 1)
+        ).rejects.toThrow('409');
+
+        expect(c.checkAll()).toBe(false);
+    });
+
     it('leaves UNRELATED caches fresh: a plain fetchAny is not invalidated by a create', async () => {
         const server = createServer<IUser>(buildUsers(3, 1));
         const c = makeComposable<IUser, number>();
 
         const meta = jest.fn(() => Promise.resolve({ ok: true }));
-        await c.fetchAny(meta, { lastUpdateKey: 'meta' });
+        await c.fetchAny(meta, { key: ['meta'] });
         expect(meta).toHaveBeenCalledTimes(1);
 
         await c.createTarget(server.create({ name: 'User 4', email: 'u4@e.com' }));
 
-        await c.fetchAny(meta, { lastUpdateKey: 'meta' });
+        await c.fetchAny(meta, { key: ['meta'] });
         expect(meta).toHaveBeenCalledTimes(1); // still fresh — 'any' is not a list kind
     });
 });

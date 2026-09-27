@@ -1,6 +1,6 @@
 {
     "name": "@guebbit/vue-toolkit",
-    "version": "4.0.0",
+    "version": "5.0.0",
     "license": "AGPLv3.0",
     "type": "module",
     "main": "dist/index.js",
@@ -20,6 +20,7 @@
     ],
     "sideEffects": false,
     "scripts": {
+        "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
         "build": "tsc",
         "test": "jest --config jest.config.cjs --passWithNoTests",
         "test:mutation": "stryker run",
@@ -43,6 +44,7 @@
         "@eslint/js": "^9.0.0",
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/jest-runner": "^9.6.1",
+        "@tanstack/vue-query": "5.103.3",
         "@types/eslint": "^9.6.1",
         "@types/jest": "^30.0.0",
         "@typescript-eslint/eslint-plugin": "^8.57.2",
@@ -52,24 +54,27 @@
         "eslint": "^9.39.2",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-cypress": "^6.2.1",
+        "eslint-plugin-jsdoc": "^64.5.4",
         "eslint-plugin-oxlint": "^1.57.0",
         "eslint-plugin-prettier": "^5.5.5",
         "eslint-plugin-unicorn": "^64.0.0",
         "eslint-plugin-vue": "^10.8.0",
         "husky": "^9.1.7",
         "jest": "^30.3.0",
+        "mermaid": "^11.17.2",
         "pinia": "^3.0.4",
         "prettier": "^3.8.1",
         "ts-jest": "^29.4.6",
         "typescript": "^5.9.3",
         "typescript-eslint": "^8.57.2",
         "vitepress": "^1.6.4",
+        "vitepress-plugin-mermaid": "^2.0.17",
         "vue": "^3.5.31"
     },
     "peerDependencies": {
-        "@tanstack/query-core": ">=5.100.6",
+        "@tanstack/vue-query": "^5.103",
         "pinia": ">=2.0.0",
-        "vue": ">=3.0.0",
+        "vue": ">=3.3",
         "zod": ">=4.4.3"
     },
     "peerDependenciesMeta": {

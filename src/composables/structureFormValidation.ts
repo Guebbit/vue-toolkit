@@ -1,3 +1,13 @@
+/**
+ * Reactive form state with optional Zod validation and a submit flow.
+ *
+ * - `form` / `formErrors` refs; errors are keyed by TOP-LEVEL field (nested paths collapse).
+ * - Validation is a pure re-parse of `form`, so it can re-run at any time (e.g. a locale switch).
+ * - Server rejections are normalized from several common API shapes onto the same `formErrors`.
+ *
+ * @module composables/structureFormValidation
+ * @see docs/composables/structure-form-validation.md
+ */
 import {
     computed,
     nextTick,
@@ -10,10 +20,10 @@ import {
 import { type ZodType } from 'zod';
 
 /**
- * In practice the form element, declared structurally so this composable never names a DOM type
- * (the result is only ever runtime-checked for a callable `focus`).
+ * In practice the form element, declared structurally so this composable never names a DOM type.
  */
 export interface IFieldContainer {
+    /** Finds the field to focus; the result is only runtime-checked for a callable `focus`. */
     querySelector: (selectors: string) => unknown;
 }
 
@@ -30,24 +40,17 @@ export const DEFAULT_INVALID_FIELD_SELECTOR = '[aria-invalid="true"]';
  * Options for {@link useStructureFormValidation}.
  */
 export interface IStructureFormValidationOptions<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string, any> = Record<string, any>
 > {
     /**
      * Sources that, when they change, re-run validation over the UNCHANGED form data.
      *
-     * The case this exists for is a language switch. Zod hands back resolved message
-     * *strings*, and {@link useStructureFormValidation} copies them into `formErrors`, so once
-     * `validate()` has returned those strings are inert text: the schema is out of the picture
-     * and re-rendering the component just re-prints the same English error under a now-Italian
-     * label. Re-parsing the same data produces the same set of errors with different strings.
+     * Built for a language switch: `formErrors` holds already-resolved strings, so only a
+     * re-parse re-translates them. Pass `i18n.global.locale` for that; the option stays generic
+     * so the toolkit never depends on vue-i18n.
      *
-     * Deliberately generic rather than a `locale` option: the toolkit must not know that
-     * vue-i18n exists, and "re-validate when X changes" covers other reasons too (a unit
-     * system, a tenant's rules). Pass `i18n.global.locale` and you have the i18n behaviour.
-     *
-     * Only fires for a form that has errors on display. A pristine form the user has not
-     * submitted yet must not sprout red text just because they changed the language.
+     * Only fires while errors are on display: a pristine form must not turn red on a locale change.
      */
     revalidateOn?: WatchSource | WatchSource[];
 
@@ -69,16 +72,16 @@ export interface IStructureFormValidationOptions<
      * Called after a submit was rejected by validation, once the errors are on screen.
      * The "please fix the highlighted fields" toast belongs here rather than at every call site.
      *
-     * @param errors
+     * @param errors - the per-field messages now on display
      */
     onInvalid?: (errors: Partial<Record<keyof T, string[]>>) => void;
 }
 
 /**
- * How applyServerErrors was told to read a rejection.
+ * How `applyServerErrors` maps a rejection onto the form's fields.
  */
 export interface IApplyServerErrorsOptions<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string, any> = Record<string, any>
 > {
     /**
@@ -89,8 +92,7 @@ export interface IApplyServerErrorsOptions<
 
     /**
      * Receives messages that could not be attached to a field: the API's form-level errors, and
-     * any field the form does not have. Without it they are dropped, which is what makes people
-     * distrust server-side validation — the API said no, and the screen says nothing.
+     * any field the form does not have. Without it they are dropped, and the user sees nothing.
      */
     onUnmapped?: (messages: string[]) => void;
 }
@@ -99,22 +101,24 @@ export interface IApplyServerErrorsOptions<
  * One server-reported error: the field it belongs to (if any) and what to say about it.
  */
 interface IServerErrorEntry {
+    /** Server-side field name; absent for a form-level message. */
     field?: string;
+    /** Non-empty message strings for that field. */
     messages: string[];
 }
 
 /**
  * Narrows any value to a plain keyed object.
  *
- * @param value
+ * @param value - anything read off a rejection
  */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
 
 /**
- * Coerce a server-supplied message value — one string or a list — into a clean list.
+ * Coerces a server-supplied message value — one string or a list — into a clean list.
  *
- * @param value
+ * @param value - a message, a list of messages, or junk (which yields `[]`)
  */
 const asMessages = (value: unknown): string[] => {
     if (typeof value === 'string') return value ? [value] : [];
@@ -126,13 +130,13 @@ const asMessages = (value: unknown): string[] => {
 };
 
 /**
- * Read the field name out of one entry of an array-shaped error list.
+ * Reads the field name out of one entry of an array-shaped error list.
  *
  * Covers `field`, `name`, `param` (express-validator) and `path` (a string, or the array Zod
  * emits). Nested paths collapse to their root, since formErrors is keyed by top-level field —
  * the same thing validate() does with Zod issues.
  *
- * @param entry
+ * @param entry - one object from the server's error list
  */
 const readEntryField = (entry: Record<string, unknown>): string | undefined => {
     for (const key of ['field', 'name', 'param']) {
@@ -146,10 +150,10 @@ const readEntryField = (entry: Record<string, unknown>): string | undefined => {
 };
 
 /**
- * Find the error collection inside a rejection, wherever the transport left it: the value itself
+ * Finds the error collection inside a rejection, wherever the transport left it: the value itself
  * (a normalized envelope), `.data` (an unwrapped body), or `.response.data` (a raw axios error).
  *
- * @param error
+ * @param error - the rejected value, exactly as caught
  */
 const findErrorCollection = (error: unknown): unknown => {
     const containers: unknown[] = [error];
@@ -166,12 +170,19 @@ const findErrorCollection = (error: unknown): unknown => {
 };
 
 /**
- * Flatten whichever shape the API used into a uniform entry list:
+ * Keeps only entries that have something to say.
+ *
+ * @param entry - a normalized server error
+ */
+const hasMessages = (entry: IServerErrorEntry): boolean => entry.messages.length > 0;
+
+/**
+ * Flattens whichever shape the API used into a uniform entry list:
  *  - field map, `{ email: 'Taken', password: ['Too short'] }`
  *  - list of objects, `[{ field: 'email', message: 'Taken' }]`
  *  - list of strings, which carry no field and become form-level messages
  *
- * @param collection
+ * @param collection - the `errors` / `issues` value found by findErrorCollection
  */
 const normalizeServerErrors = (collection: unknown): IServerErrorEntry[] => {
     if (Array.isArray(collection))
@@ -184,12 +195,12 @@ const normalizeServerErrors = (collection: unknown): IServerErrorEntry[] => {
                     messages: asMessages(entry.message ?? entry.msg)
                 };
             })
-            .filter(({ messages }) => messages.length > 0);
+            .filter((entry) => hasMessages(entry));
 
     if (isRecord(collection))
         return Object.entries(collection)
             .map(([field, value]): IServerErrorEntry => ({ field, messages: asMessages(value) }))
-            .filter(({ messages }) => messages.length > 0);
+            .filter((entry) => hasMessages(entry));
 
     return [];
 };
@@ -198,18 +209,15 @@ const normalizeServerErrors = (collection: unknown): IServerErrorEntry[] => {
  * Form management composable.
  * Handles reactive form state, optional Zod schema validation and submission flow.
  *
- * @param initialData - Initial values for the form fields
- * @param schema      - Optional Zod schema used for validation. Accepts a plain schema, a ref,
- *                      or a getter. `toValue` is applied inside `validate()` and nowhere else,
- *                      so a plain schema whose messages are thunks (`error: () => t('…')`) is
- *                      resolved just as late as a getter would be — prefer the plain schema,
- *                      since a getter that is accidentally called at the call site
- *                      (`schema(t)` instead of `() => schema(t)`) type-checks, runs, and
- *                      silently freezes the language.
- * @param options     - See {@link IStructureFormValidationOptions}
+ * @param initialData - initial values for the form fields, and the first reset baseline
+ * @param schema      - optional Zod schema: plain, ref or getter, resolved inside `validate()`
+ *                      only. Prefer a plain schema with thunk messages (`error: () => t('…')`):
+ *                      a getter accidentally called at the call site freezes the language.
+ * @param options     - see {@link IStructureFormValidationOptions}
+ * @returns form state (`form`, `formErrors`, flags) and the actions that drive it
  */
 export const useStructureFormValidation = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string, any> = Record<string, any>
 >(
     initialData: T = {} as T,
@@ -218,56 +226,57 @@ export const useStructureFormValidation = <
 ) => {
     /**
      * Baseline values resetForm() restores and isDirty compares against.
-     * Starts as a copy of initialData, but is mutable via setInitialData so a
-     * record fetched after this composable was created can become the new
-     * baseline (see setInitialData / activateAutoHydrate).
+     * Starts as a copy of initialData; setInitialData / activateAutoHydrate replace it, so a
+     * record fetched later can become the new baseline.
      */
     const initialFormData = ref<T>({ ...initialData } as T);
 
     /**
-     * Reactive form data
+     * Live form values, bound to the inputs.
      */
     const form = ref<T>({ ...initialFormData.value } as T);
 
     /**
-     * Per-field validation errors.
-     * Each key maps to a list of error messages for that field.
+     * Per-field validation errors: top-level field name -> its messages.
+     * Holds resolved strings, so a language change needs a re-validate (see `revalidateOn`).
      */
     const formErrors = ref<Partial<Record<keyof T, string[]>>>({});
 
     /**
-     *
+     * Whether errors should be displayed.
+     * Separate from `formErrors` so validation can run silently; handleSubmit and revealErrors
+     * turn it on, an accepted submit turns it off.
      */
     const showFormErrors = ref(false);
 
     /**
-     * Whether a submission is currently in progress
+     * Whether a handleSubmit handler is currently running.
      */
     const isSubmitting = ref(false);
 
     /**
-     * True when there are no validation errors
+     * True when there are no validation errors.
      */
     const isValid = computed(() => Object.keys(formErrors.value).length === 0);
 
     /**
-     * True when the form data differs from the initial values
+     * True when the form data differs from the baseline (JSON comparison, key order included).
      */
     const isDirty = computed(
         () => JSON.stringify(form.value) !== JSON.stringify(initialFormData.value)
     );
 
     /**
-     * Merge partial data into the form
+     * Merges partial data into the form.
      *
-     * @param data
+     * @param data - fields to overwrite; the rest keep their current value
      */
     const setForm = (data: Partial<T>) => {
         form.value = { ...form.value, ...data } as T;
     };
 
     /**
-     * Reset form to initial values and clear all errors
+     * Resets the form to the baseline and clears all errors.
      */
     const resetForm = () => {
         form.value = { ...initialFormData.value } as T;
@@ -275,27 +284,26 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Replace the baseline values that resetForm() restores and isDirty compares
-     * against. Does not touch the live form or its errors by itself — call
-     * resetForm() afterwards (or see activateAutoHydrate) to apply it to `form`.
+     * Replaces the baseline that resetForm() restores and isDirty compares against.
+     * Leaves the live form alone — call resetForm() (or use activateAutoHydrate) to apply it.
      *
-     * @param data
+     * @param data - the new baseline, shallow-copied
      */
     const setInitialData = (data: T) => {
         initialFormData.value = { ...data } as T;
     };
 
     /**
-     * Clear all validation errors
+     * Clears all validation errors.
      */
     const clearErrors = () => {
         formErrors.value = {};
     };
 
     /**
-     * Set validation error(s) for a specific field
+     * Sets the validation error(s) of one field, replacing what it had.
      *
-     * @param field
+     * @param field  - the form field the messages belong to
      * @param errors - a single message or an array of messages
      */
     const setFieldError = (field: keyof T, errors: string | string[]) => {
@@ -306,9 +314,9 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Remove validation errors for a specific field
+     * Removes the validation errors of one field.
      *
-     * @param field
+     * @param field - the form field to clear
      */
     const clearFieldError = (field: keyof T) => {
         const { [field]: _removed, ...rest } = formErrors.value;
@@ -316,8 +324,8 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Validate the current form value against the schema (if provided).
-     * Updates {@link formErrors} reactively.
+     * Validates the current form value against the schema (if provided).
+     * Replaces {@link formErrors} with the outcome.
      *
      * @returns true when validation passes (or no schema is set), false otherwise
      */
@@ -337,6 +345,8 @@ export const useStructureFormValidation = <
 
         const errors: Partial<Record<keyof T, string[]>> = {};
         for (const issue of result.error.issues) {
+            // Zod: `path` is the key trail to the failing value; keep only the top-level field.
+            // An empty path is a root-level issue, which has no field to attach to.
             const field = issue.path[0] as keyof T;
             if (field === undefined) continue;
             if (!errors[field]) errors[field] = [];
@@ -348,7 +358,7 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Move focus to the first invalid field, for accessibility after a failed submit.
+     * Moves focus to the first invalid field, for accessibility after a failed submit.
      * A no-op without formElement, and tolerant of what it finds: the selector is
      * caller-configurable, so only something with a callable focus is worth acting on.
      */
@@ -363,18 +373,21 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Put the errors already in formErrors on screen: showFormErrors on, wait for the render,
+     * Puts the errors already in formErrors on screen: showFormErrors on, wait for the render,
      * focus the first invalid field, call onInvalid.
      *
      * The wait is why this is a function and not an assignment: fields only acquire their invalid
      * markers once showFormErrors has propagated, so focusing any earlier finds nothing.
      *
      * Called by handleSubmit; call it directly when you validate by hand.
+     *
+     * @returns a promise resolving once focus and onInvalid have run
      */
     const revealErrors = (): Promise<void> =>
         Promise.resolve()
             .then(() => {
                 showFormErrors.value = true;
+                // Vue: resolves after the DOM has re-rendered with the invalid markers
                 return nextTick();
             })
             .then(() => {
@@ -383,9 +396,8 @@ export const useStructureFormValidation = <
             });
 
     /**
-     * Attach the errors an API rejected a submit with to the fields they belong to, and reveal
-     * them. Turns "uniqueness / cross-record rules the browser cannot check" into red text under
-     * the right input instead of a generic toast.
+     * Attaches the errors an API rejected a submit with to the fields they belong to, and reveals
+     * them: server-only rules (uniqueness, cross-record) become red text under the right input.
      *
      * Merges onto what is already displayed rather than replacing it: an API that answered about
      * one field said nothing about the others, and clearing them invents an all-clear.
@@ -424,17 +436,16 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Validate (optionally) and then call the provided submit handler.
+     * Validates (optionally) and then calls the provided submit handler.
      * Sets {@link isSubmitting} for the duration of the async operation.
      *
-     * Owns showFormErrors across the whole flow, so no call site has to: a rejected submit
-     * reveals (see revealErrors), an accepted one hides. A handler that THROWS leaves it off —
-     * an API failure is not a statement about any field. Catch it and call applyServerErrors
-     * when it is.
+     * Owns showFormErrors across the whole flow: a rejected submit reveals (see revealErrors),
+     * an accepted one hides. A handler that THROWS leaves it off — an API failure is not a
+     * statement about any field; catch it and call applyServerErrors when it is.
      *
      * @param onSubmit       - handler called with the current form value
      * @param withValidation - when true (default) the form is validated first
-     * @returns true on success, false when validation failed or an error was thrown
+     * @returns true on success, false when validation failed; a handler failure rejects
      */
     const handleSubmit = (
         onSubmit: (data: T) => Promise<void> | void,
@@ -456,11 +467,8 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Watches a source (e.g. a fetched record) and, whenever it resolves to a
-     * defined value, adopts it as the new reset baseline (setInitialData) and
-     * applies it to the form (resetForm) — so the form auto-hydrates once the
-     * record arrives instead of staying on the original initialData passed to
-     * this composable.
+     * Auto-hydrates the form from a source (e.g. a fetched record): every defined value becomes
+     * the new baseline (setInitialData) and is applied to the form (resetForm).
      *
      * @param currentItem - reactive source to watch, e.g. selectedRecord from useStructureRestApi
      * @returns the underlying watch handle (call it to stop watching)
@@ -473,18 +481,14 @@ export const useStructureFormValidation = <
                 setInitialData(item);
                 resetForm();
             },
-            { immediate: true }
+            { immediate: true } // hydrate right away when the record is already loaded
         );
 
-    /**
-     * Re-translate what is already on screen — see {@link IStructureFormValidationOptions}.
-     *
-     * `validate()` is deterministic on `form.value`, so re-running it against unchanged data
-     * yields the same set of errors with freshly-resolved messages. The `isValid` guard is what
-     * keeps it from being destructive: with no errors showing there is nothing to re-translate,
-     * and running anyway would splash red onto a form the user has not submitted yet.
-     */
+    // Re-translates what is already on screen (see IStructureFormValidationOptions.revalidateOn):
+    // validate() is deterministic on form.value, so the errors stay and their messages refresh.
+    // The isValid guard keeps a pristine form from turning red.
     if (options.revalidateOn)
+        // Vue: one source or an array of them; fires on change only (not immediately)
         watch(options.revalidateOn, () => {
             if (!isValid.value) validate();
         });
@@ -515,6 +519,6 @@ export const useStructureFormValidation = <
  * shape (a store that re-exports it, a component prop, a test helper).
  */
 export type IStructureFormValidation<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string, any> = Record<string, any>
 > = ReturnType<typeof useStructureFormValidation<T>>;

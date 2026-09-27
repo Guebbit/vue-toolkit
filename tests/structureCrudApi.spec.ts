@@ -1,11 +1,15 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * useStructureCrudApi: a whole resource declared from its API calls. Each supplied operation
+ * powers its methods; a missing one makes them reject naming it. Built through `runTracked`, so
+ * the instance's scope — and every watcher a test starts on it — stops after each test.
+ */
 
 import { nextTick, ref } from 'vue';
 import {
     useStructureCrudApi,
     type IStructureCrudOperations
 } from '../src/composables/structureCrudApi';
-import { clearAllInstances, track } from './structureRestApi/_helpers/harness';
+import { clearAllInstances, newTestClient, runTracked } from './structureRestApi/_helpers/harness';
 
 interface IProduct {
     id: string;
@@ -33,10 +37,10 @@ const OTHER: IProduct = { id: 'p2', title: 'Second', price: 20 };
  * missing, rather than deeper down with a less obvious message.
  */
 const makeReadOnly = () =>
-    track(
+    runTracked(() =>
         useStructureCrudApi<IProduct, string, IProductFilters>(
             { list: jest.fn().mockResolvedValue([PRODUCT]) },
-            { identifiers: 'id' }
+            { identifiers: 'id', resourceKey: 'products', queryClient: newTestClient() }
         )
     );
 
@@ -45,25 +49,41 @@ const makeReadOnly = () =>
  * store ended up holding and which call was made to get there.
  */
 const makeCrud = (
-    overrides: Partial<IStructureCrudOperations<IProduct, string, IProductFilters, any, any>> = {}
+    overrides: Partial<
+        IStructureCrudOperations<
+            IProduct,
+            string,
+            IProductFilters,
+            Partial<IProduct>,
+            IProductUpdate
+        >
+    > = {}
 ) => {
     const operations = {
         list: jest.fn().mockResolvedValue([PRODUCT, OTHER]),
-        search: jest.fn().mockResolvedValue([PRODUCT]),
+        search: jest.fn().mockResolvedValue({ items: [PRODUCT], totalItems: 1 }),
         get: jest.fn().mockResolvedValue(PRODUCT),
         create: jest.fn().mockResolvedValue(PRODUCT),
         update: jest.fn().mockResolvedValue({ ...PRODUCT, title: 'Updated' }),
         remove: jest.fn().mockResolvedValue({ deleted: true }),
         ...overrides
     };
-    const api = track(
-        useStructureCrudApi<IProduct, string, IProductFilters, any, any>(operations, {
-            identifiers: 'id',
-            TTL: 3_600_000
-        })
+    const api = runTracked(() =>
+        useStructureCrudApi<IProduct, string, IProductFilters, Partial<IProduct>, IProductUpdate>(
+            operations,
+            {
+                identifiers: 'id',
+                resourceKey: 'products',
+                staleTime: 3_600_000,
+                queryClient: newTestClient()
+            }
+        )
     );
     return { api, operations };
 };
+
+/** A read-only resource, as the missing-operation table drives it. */
+type TReadOnlyApi = ReturnType<typeof makeReadOnly>;
 
 describe('useStructureCrudApi', () => {
     afterEach(clearAllInstances);
@@ -90,10 +110,15 @@ describe('useStructureCrudApi', () => {
         });
 
         it('starts from initialFilters when given', () => {
-            const api = track(
+            const api = runTracked(() =>
                 useStructureCrudApi<IProduct, string, IProductFilters>(
                     {},
-                    { identifiers: 'id', initialFilters: { text: 'seed' } }
+                    {
+                        identifiers: 'id',
+                        resourceKey: 'products',
+                        queryClient: newTestClient(),
+                        initialFilters: { text: 'seed' }
+                    }
                 )
             );
             expect(api.filters.value).toEqual({ text: 'seed' });
@@ -112,7 +137,7 @@ describe('useStructureCrudApi', () => {
             const { api, operations } = makeCrud();
             api.watchList();
             await nextTick();
-            operations.search.mockClear();
+            jest.mocked(operations.search).mockClear();
 
             api.filters.value = { text: 'chair' };
             await nextTick();
@@ -184,6 +209,15 @@ describe('useStructureCrudApi', () => {
             await search();
             expect(api.pageItemList.value).toEqual([PRODUCT]);
         });
+
+        it('reports the search total', async () => {
+            const { api } = makeCrud({
+                search: jest.fn().mockResolvedValue({ items: [PRODUCT], totalItems: 42 })
+            });
+            const { search } = api.watchList();
+            await search();
+            expect(api.totalItems.value).toBe(42);
+        });
     });
 
     describe('searchNow', () => {
@@ -210,11 +244,16 @@ describe('useStructureCrudApi', () => {
         });
 
         it('returns to initialFilters, not to empty, when the resource has defaults', async () => {
-            const search = jest.fn().mockResolvedValue([]);
-            const api = track(
+            const search = jest.fn().mockResolvedValue({ items: [], totalItems: 0 });
+            const api = runTracked(() =>
                 useStructureCrudApi<IProduct, string, IProductFilters>(
                     { search },
-                    { identifiers: 'id', initialFilters: { text: 'seed' } }
+                    {
+                        identifiers: 'id',
+                        resourceKey: 'products',
+                        queryClient: newTestClient(),
+                        initialFilters: { text: 'seed' }
+                    }
                 )
             );
             api.filters.value = { text: 'chair' };
@@ -227,7 +266,7 @@ describe('useStructureCrudApi', () => {
         it('bypasses the cache, because Reset is a request for the truth', async () => {
             const { api, operations } = makeCrud();
             await api.searchNow();
-            operations.search.mockClear();
+            jest.mocked(operations.search).mockClear();
 
             await api.resetFilters();
 
@@ -240,6 +279,13 @@ describe('useStructureCrudApi', () => {
             const { api, operations } = makeCrud();
             await api.fetchPage(3, 25);
             expect(operations.search).toHaveBeenCalledWith({}, 3, 25);
+        });
+
+        it('resolves plain items, discarding totalItems', async () => {
+            const { api } = makeCrud({
+                search: jest.fn().mockResolvedValue({ items: [PRODUCT], totalItems: 99 })
+            });
+            await expect(api.fetchPage(1, 10)).resolves.toEqual([PRODUCT]);
         });
 
         it('leaves the shared search state alone', async () => {
@@ -399,12 +445,12 @@ describe('useStructureCrudApi', () => {
 
     describe('operations that were not supplied', () => {
         it.each([
-            ['get', (api: any) => api.fetchOne('p1')],
-            ['create', (api: any) => api.createOne({ title: 'x' })],
-            ['update', (api: any) => api.updateOne('p1', { title: 'x' })],
-            ['remove', (api: any) => api.deleteOne('p1')],
-            ['search', (api: any) => api.searchNow()],
-            ['search', (api: any) => api.fetchPage()]
+            ['get', (api: TReadOnlyApi) => api.fetchOne('p1')],
+            ['create', (api: TReadOnlyApi) => api.createOne({ title: 'x' })],
+            ['update', (api: TReadOnlyApi) => api.updateOne('p1', { title: 'x' })],
+            ['remove', (api: TReadOnlyApi) => api.deleteOne('p1')],
+            ['search', (api: TReadOnlyApi) => api.searchNow()],
+            ['search', (api: TReadOnlyApi) => api.fetchPage()]
         ])('rejects naming the missing "%s" operation', async (operation, call) => {
             const api = makeReadOnly();
             await expect(call(api)).rejects.toThrow(

@@ -1,9 +1,9 @@
 /**
- * TTL — freshness of fetchPaginate over time.
- *   - VALID: repeating the same (page, pageSize) just under TTL → cache hit
- *   - STALE: repeating it past TTL → API called again
+ * staleTime — freshness of fetchPaginate over time.
+ *   - VALID: repeating the same (page, pageSize) just under staleTime → cache hit
+ *   - STALE: repeating it past staleTime → API called again
  *
- * (fetchSearch's TTL behaviour lives in tests/structureSearchApi/ttl/ttl.search.spec.ts)
+ * (fetchSearch's staleTime behaviour lives in tests/structureSearchApi/staleTime/staleTime.search.spec.ts)
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -11,8 +11,8 @@ import { apiResolve } from '../_helpers/fakeApi';
 import { buildProducts, type IProduct } from '../_helpers/fixtures';
 import { useFakeClock, advance, restoreClock } from '../_helpers/time';
 
-const TTL = 10_000;
-const makeProducts = () => makeComposable<IProduct, number>({ TTL });
+const STALE_TIME = 10_000;
+const makeProducts = () => makeComposable<IProduct, number>({ staleTime: STALE_TIME });
 
 beforeEach(() => useFakeClock());
 afterEach(() => {
@@ -20,23 +20,23 @@ afterEach(() => {
     restoreClock();
 });
 
-describe('TTL · fetchPaginate', () => {
-    it('VALID just under TTL → served from cache', async () => {
+describe('staleTime · fetchPaginate', () => {
+    it('VALID just under staleTime → served from cache', async () => {
         const c = makeProducts();
         const first = apiResolve(buildProducts(10, 1));
         const second = apiResolve(buildProducts(10, 1));
         await c.fetchPaginate(first, 1, 10);
-        await advance(TTL - 1);
+        await advance(STALE_TIME - 1);
         await c.fetchPaginate(second, 1, 10);
         expect(second).not.toHaveBeenCalled();
     });
 
-    it('STALE past TTL → API called again', async () => {
+    it('STALE past staleTime → API called again', async () => {
         const c = makeProducts();
         const first = apiResolve(buildProducts(10, 1));
         const second = apiResolve(buildProducts(10, 1));
         await c.fetchPaginate(first, 1, 10);
-        await advance(TTL + 1);
+        await advance(STALE_TIME + 1);
         await c.fetchPaginate(second, 1, 10);
         expect(second).toHaveBeenCalledTimes(1);
     });

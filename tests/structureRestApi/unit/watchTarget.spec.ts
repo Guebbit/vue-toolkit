@@ -1,16 +1,16 @@
 /**
  * UNIT — watchTarget: fetchTarget's reactive counterpart.
- *   - fires immediately (by default) for the id present at creation
+ *   - fires at once for the id present at creation
  *   - selects eagerly, before the fetch resolves
  *   - refetches and re-selects when the id source changes
- *   - a nullish id is a no-op, unless clearOnEmpty is set
- *   - immediate: false skips the initial run
- *   - selectEager: false selects only after a successful fetch
- *   - onSuccess/onError/onSettled fire with the right arguments
+ *   - a nullish id fetches nothing and leaves the selection as it is
+ *   - onSuccess/onError/onSettled fire with the right arguments; a failure clears the selection
+ *
+ * (The handle contract shared with the other watchers lives in watchers.spec.ts.)
  */
 
 import { ref } from 'vue';
-import { makeComposable, clearAllInstances } from '../_helpers/harness';
+import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
@@ -19,15 +19,12 @@ const make = () => makeComposable<IUser, number>();
 
 const fakeApiCall = () => jest.fn((id: number) => Promise.resolve(USERS.find((u) => u.id === id)));
 
-/** Flushes the microtask queue past runQuery's several internal `.then` hops. */
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 describe('UNIT · watchTarget', () => {
     it('fires immediately for the id present at creation, and selects it', async () => {
         const c = make();
         const id = ref<number | undefined>(1);
         const apiCall = fakeApiCall();
-        const stop = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(id, apiCall);
 
         expect(apiCall).toHaveBeenCalledTimes(1);
         expect(c.selectedIdentifier.value).toBe(1);
@@ -39,7 +36,7 @@ describe('UNIT · watchTarget', () => {
     it('selects the id eagerly, before the fetch promise resolves', () => {
         const c = make();
         const id = ref<number | undefined>(1);
-        const stop = c.watchTarget(id, fakeApiCall());
+        const { stop } = c.watchTarget(id, fakeApiCall());
 
         // Synchronous, before any microtask runs — proves selection isn't gated on the fetch
         expect(c.selectedIdentifier.value).toBe(1);
@@ -50,7 +47,7 @@ describe('UNIT · watchTarget', () => {
         const c = make();
         const id = ref<number | undefined>(1);
         const apiCall = fakeApiCall();
-        const stop = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(id, apiCall);
         await flush();
 
         id.value = 2;
@@ -67,7 +64,7 @@ describe('UNIT · watchTarget', () => {
         const c = make();
         const id = ref<number | undefined>(1);
         const apiCall = fakeApiCall();
-        const stop = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(id, apiCall);
         await flush();
 
         id.value = undefined;
@@ -84,7 +81,7 @@ describe('UNIT · watchTarget', () => {
         const onSuccess = jest.fn();
         const onSettled = jest.fn();
         const onError = jest.fn();
-        const stop = c.watchTarget(id, fakeApiCall(), { onSuccess, onError, onSettled });
+        const { stop } = c.watchTarget(id, fakeApiCall(), { onSuccess, onError, onSettled });
         await flush();
 
         expect(onSuccess).toHaveBeenCalledWith(USERS[0], 1);
@@ -98,8 +95,7 @@ describe('UNIT · watchTarget', () => {
         const id = ref<number | undefined>(1);
         const apiCall = jest.fn(() => Promise.reject(new Error('network error')));
         // no onError/onSettled passed: the optional-chained calls must not blow up
-        const stop = c.watchTarget(id, apiCall);
-        await flush();
+        const { stop } = c.watchTarget(id, apiCall);
         await flush();
 
         expect(c.selectedIdentifier.value).toBeUndefined();
@@ -114,12 +110,11 @@ describe('UNIT · watchTarget', () => {
         const onSuccess = jest.fn();
         const onError = jest.fn();
         const onSettled = jest.fn();
-        const stop = c.watchTarget(id, apiCall, {
+        const { stop } = c.watchTarget(id, apiCall, {
             onSuccess,
             onError,
             onSettled
         });
-        await flush();
         await flush();
 
         expect(onError).toHaveBeenCalledWith(error, 1);

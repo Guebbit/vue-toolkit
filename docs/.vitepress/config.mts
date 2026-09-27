@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 // https://vitepress.dev/reference/site-config
-export default defineConfig({
+// withMermaid: renders ```mermaid fences as diagrams (the pages that describe a flow use them).
+export default withMermaid(defineConfig({
   title: '@guebbit/vue-toolkit',
   description: 'Vue 3 composables and Pinia stores for CRUD screens: caching, optimistic updates, rollback, and form validation.',
   base: '/vue-toolkit/',
@@ -28,6 +30,7 @@ export default defineConfig({
           { text: 'useStructureRestApi', link: '/composables/structure-rest-api' },
           { text: 'useStructureSearchApi', link: '/composables/structure-search-api' },
           { text: 'useStructureDataManagement', link: '/composables/structure-data-management' },
+          { text: 'useIsLoading', link: '/composables/is-loading' },
           { text: 'useStructureFormValidation', link: '/composables/structure-form-validation' },
           { text: 'useUploadProgress', link: '/composables/upload-progress' },
           { text: 'useAsyncAction', link: '/composables/async-action' },
@@ -45,4 +48,4 @@ export default defineConfig({
 
     socialLinks: [{ icon: 'github', link: 'https://github.com/Guebbit/vue-toolkit' }]
   }
-})
+}))

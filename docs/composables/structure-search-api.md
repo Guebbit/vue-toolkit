@@ -1,16 +1,20 @@
 # useStructureSearchApi
 
-Filtered, paginated search on top of [`useStructureRestApi`](./structure-rest-api). Adds a
-page-cache keyed by the filters that produced each page, and a watcher that re-runs the search
-when the page changes.
+Filtered, server-paginated search on top of [`useStructureRestApi`](./structure-rest-api). It **is**
+a `useStructureRestApi` (same options, everything it returns passed through) plus:
 
-It **is** a `useStructureRestApi` — it creates one internally and spreads everything it returns,
-so `fetchTarget`, `createTarget`, `itemDictionary` and the rest are all still there. You do not
-compose the two; you use this one instead.
+- a `search` cache kind: one entry per page, holding the page's ids **and** the server's
+  `totalItems`;
+- an **applied search**, which decides what the screen shows;
+- `watchSearch`, an active query that keeps the applied search's current page fetched.
+
+You do not compose the two composables: use this one instead.
 
 ## Quickstart
 
 ```ts
+import { ref } from 'vue'
+import { defineStore } from 'pinia'
 import { useStructureSearchApi } from '@guebbit/vue-toolkit'
 
 interface IProductFilters {
@@ -19,137 +23,200 @@ interface IProductFilters {
 }
 
 export const useProductsStore = defineStore('products', () => {
+    // the live filters: a form edits them in place
     const filters = ref<IProductFilters>({})
 
     const api = useStructureSearchApi<IProduct, string, string, IProductFilters>(
         () => filters.value,
-        { identifiers: 'id' }
+        { resourceKey: 'products' }
     )
 
-    const { search } = api.watchSearch((currentFilters, page, pageSize) =>
-        listProducts({ ...currentFilters, page, pageSize }).then((r) => r.data.items)
+    const { search, error } = api.watchSearch((appliedFilters, page, pageSize) =>
+        listProducts({ ...appliedFilters, page, pageSize }).then((r) => ({
+            items: r.data.items,
+            totalItems: r.data.total
+        }))
     )
 
-    return { ...api, filters, search }
+    return { ...api, filters, search, searchError: error }
 })
 ```
 
 ```vue
-<!-- the current page of the current search -->
-<ProductRow v-for="item in pageItemList" :key="item.id" :item="item" />
-<v-pagination v-model="pageCurrent" :length="pageTotal" />
+<script setup lang="ts">
+import { storeToRefs } from 'pinia'
+
+const { pageItemList, totalItems, pageCurrent, pageTotal } = storeToRefs(useProductsStore())
+</script>
+
+<template>
+    <!-- the current page of the applied search -->
+    <ProductRow v-for="item in pageItemList" :key="item.id" :item="item" />
+    <span>{{ totalItems }} products</span>
+    <v-pagination v-model="pageCurrent" :length="pageTotal" />
+</template>
 ```
 
-Changing `pageCurrent` or `pageSize` re-runs the search on its own. Changing `filters` does not —
-see below.
+Changing `pageCurrent` or `pageSize` fetches the new page on its own. Editing `filters` does
+nothing until `search()` runs.
 
-## Filters are read, not watched
+## The applied search
 
-This is the one thing to understand about this composable, and it is deliberate.
+```mermaid
+flowchart LR
+    F["live filters<br/>(bound to a form)"] -- "search() · fetchSearch · CRUD searchNow / resetFilters" --> A["applied search<br/>detached copy + key"]
+    A --> K["page key<br/>filters · pageSize · page · key"]
+    P["pageCurrent · pageSize"] --> K
+    K --> E[("page entry<br/>ids + totalItems")]
+    E --> L["pageItemList"]
+    E --> T["totalItems · pageTotal"]
+```
 
-`watchSearch` watches `pageCurrent` and `pageSize`. It **reads** your filters at the moment a
-search runs, and never watches them, because "when should a filter edit trigger a search" is a UI
-decision the toolkit has no business making: as-you-type and on-submit are both correct, for
-different screens.
+- **Live filters** are whatever `filtersSource` produces. A form may edit them in place.
+- **The applied search** is a detached copy of the filters, taken when a search is applied, plus
+  the `key` it ran with. Plain objects and arrays are rebuilt and Vue proxies unwrapped, so later
+  edits to the live filters never reach it.
+- `pageItemList`, `totalItems` and `pageTotal` read the applied search's entry for the current
+  `pageCurrent` and `pageSize`. Before anything is applied they are `[]`, `0` and `0`.
+- Editing the live filters never changes what is shown and never fetches. A page change does not
+  apply them either: it fetches another page of the **applied** search.
+- Only these apply the live filters: `search()` on the `watchSearch` handle, `fetchSearch(...)`
+  (with the filters it is given), and on [`useStructureCrudApi`](./structure-crud-api)
+  `searchNow()` / `resetFilters()`. `watchSearch` with `immediate` (the default) also applies them
+  once, at creation, when nothing is applied yet.
 
-So a filter change takes effect the next time a search runs. Usually you want that to be now, from
-a submit handler — and usually you want to go back to page 1 while you are at it:
+Binding a filter form straight to the live filters is therefore safe: typing never blanks or
+moves the list. When to apply is the screen's decision: on submit, or as you type:
 
 ```ts
+// on submit: back to page 1, then apply
 const applyFilters = () => {
     pageCurrent.value = 1
     return search()
 }
+
+// as you type (watchDebounced from @vueuse/core)
+watchDebounced(filters, applyFilters, { debounce: 300, deep: true })
 ```
 
-`search()` exists precisely for the case the watcher cannot cover: the user was already on page 1,
-so `pageCurrent` did not change and nothing fired.
+## watchSearch
 
-For as-you-type search, watch the filters yourself and debounce as you see fit:
+`watchSearch(apiCall, settings?)` returns `IWatchSearchHandle<T>`.
+
+- `apiCall: (filters, page, pageSize) => Promise<{ items, totalItems }>` receives the **applied**
+  filters, never the live ones: each fetch sends the filters, page and page size its own query was
+  built from, even if `pageCurrent` or the applied search has moved on since.
+- The active query follows the applied search, `pageCurrent` and `pageSize`. It re-runs when any
+  of them changes, when its entry is invalidated (a mutation of this resource, or
+  `invalidateQueries` from anywhere), and when `dependsOn` changes. It stops with the scope that
+  created it, or with `stop()`.
+
+`settings: IWatchSearchSettings<T, F>`:
+
+| Setting                                         | Default | Meaning                                                                              |
+| ----------------------------------------------- | ------- | ------------------------------------------------------------------------------------ |
+| `immediate`                                     | `true`  | Search now with the current filters. `false`: the query stays disabled until `search()`. |
+| `forced`, `merge`, `partial`, `staleTime`, `key` |         | As on [`useStructureRestApi`](./structure-rest-api#settings-reference). `key` is part of the search it applies. |
+| `onSuccess(items, filters)`                     |         | After a successful fetch, or a switch to a page already cached and fresh.            |
+| `onError(error, filters)`                       |         | After a failed fetch.                                                                |
+| `onSettled(items, error, filters)`              |         | After either.                                                                        |
+
+The callbacks receive the applied filters. They fire when a fetch of the watched page lands (it
+succeeds or fails), once when the page or the applied search switches to data already cached and
+fresh with no fetch running (none runs then), and once when `search()` finds the page already
+shown cached and fresh. A fetch that never lands fires nothing: one cancelled by an update or
+delete of this resource, one still paused offline, one for a page the watcher has already left. A
+switch during a fetch fires once, not twice.
+
+The handle:
+
+| Field            | Meaning                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `search(forced?)` | Applies the live filters and fetches the current page. If that page is cached and fresh (and not `forced`) it settles without a fetch, `onSuccess` included. Resolves `{ items, totalItems }`, or `undefined` on failure. Leaves `pageCurrent` alone. |
+| `refetch()`      | Fetches the current page of the applied search now, joining a fetch already running. Resolves `{ items, totalItems }` as cached after the fetch: a failure leaves the previous page in place (and shows in `error`). Before any search is applied (`immediate: false`), resolves the empty result without calling `apiCall`. |
+| `error`          | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                          |
+| `stop()`         | Ends the watcher. Its pages stay cached.                                                             |
+
+Neither `search()` nor `refetch()` rejects: a failure shows in `error` and `onError`, and only
+`search()` resolves `undefined` for it.
+
+## totalItems and pageTotal
+
+`apiCall` resolves `{ items, totalItems }`. The total is stored next to the page's ids, so a page
+served from cache still has it.
+
+- `totalItems` is the applied search's total for the current page. While a new page loads, it
+  shows the applied search's most recent total from any of its cached pages, so the pager does not
+  vanish on a page change.
+- `pageTotal` is `Math.ceil(totalItems / pageSize)`.
+- An API that reports no total can resolve `totalItems: 0` (or the item count).
+
+## fetchSearch
+
+`fetchSearch(apiCall, filters = {}, page = 1, pageSize = 10, settings?)`, with
+`apiCall: () => Promise<{ items, totalItems }>` and `settings`: `forced`, `merge`, `partial`,
+`staleTime`, `key`.
+
+- Makes `filters` (and `settings.key`) the applied search, replacing whatever was applied,
+  `watchSearch`'s included: an active `watchSearch` then follows it.
+- Resolves `{ items, totalItems }` for the page it was asked for, from cache on a hit.
+- `pageItemList` and `totalItems` still read `pageCurrent` and `pageSize`, not `fetchSearch`'s own
+  `page` and `pageSize` arguments. For the screen to show the fetched page, pass the refs' values
+  (inside the store of the quickstart):
 
 ```ts
-watchDebounced(filters, () => { pageCurrent.value = 1; search() }, { debounce: 300, deep: true })
-```
+const { pageCurrent, pageSize } = api
 
-## `pageItemList` is the current search's page
-
-`useStructureRestApi.pageItemList` is a slice of the whole local dictionary — correct when the
-dictionary holds exactly one list, wrong as soon as two searches share it. This composable
-overrides it to mean *the items that answered the current filters, on the current page*.
-
-Which is why the `filtersSource` you pass to the composable and the one your search runs against
-must be the same source. `watchSearch` is pre-bound to the composable's own `filtersSource` for
-that reason: it cannot be handed a different one by accident.
-
-The item **data** lives in the shared dictionary, as always. What is cached per search is only the
-list of ids that answered it, keyed by `(filters, pageSize)` and then by page number.
-
-## Server-reported totals
-
-Not this composable's concern, on purpose. `apiCall` resolves with plain items; if your API also
-reports a total, read it out of your own response and keep it in your own state:
-
-```ts
-const total = ref(0)
-
-const { search } = api.watchSearch((filters, page, pageSize) =>
-    listProducts({ ...filters, page, pageSize }).then((response) => {
-        total.value = response.data.total
-        return response.data.items
-    })
+api.fetchSearch(
+    () =>
+        listProducts({ ...filters.value, page: pageCurrent.value, pageSize: pageSize.value }).then(
+            (r) => ({ items: r.data.items, totalItems: r.data.total })
+        ),
+    filters.value,
+    pageCurrent.value,
+    pageSize.value
 )
 ```
 
-Note that the inherited `pageTotal` is computed from the **local dictionary** size, not from a
-server total, so it is only meaningful for a fully-local list. For server-side pagination, derive
-your own from the total above.
+- Nothing observes a page fetched this way: in a browser it is dropped 5 minutes later (see
+  [cache lifetime](./structure-rest-api#cache-lifetime)), and `pageItemList`/`totalItems` empty
+  out with it. A screen should use `watchSearch`.
 
-## Cache bookkeeping
+## Reading the cache
 
-Each search's pages are cached under a key built from its filters (canonicalized, so key order
-never matters) plus `pageSize`. `fetchSearch` prunes before every search: a cached search whose
-underlying TanStack entries have all expired is dropped, and at most 50 searches are kept.
-
-Same principle as `useStructureRestApi`'s `maxRecords` — a bound on absurd growth, not an
-expiry policy. Nothing is dropped for being old, because stale ids still render a list while the
-fresh copy downloads.
-
-`resetAll()` and `destroy()` clear both halves — the inherited item dictionary and query cache,
-plus this composable's search index — so one call tears down the whole store.
+| Method                                                          | Purpose                                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `searchGet(filters, page = 1, pageSize = 10, { key? })`         | The cached items of one page, without fetching. `filters` is an object or a `searchKeyGen` string; `key` must match the one the page was fetched with. |
+| `checkSearch(filters = {}, page = 1, pageSize = 10, { key?, staleTime? })` | Would that `fetchSearch` be served from cache?                                   |
+| `isPageCached({ key?, staleTime? })`                            | `checkSearch` for the **live** filters and the current `pageCurrent`/`pageSize`: would applying the edited filters fetch? |
+| `isPaginateCached({ key?, staleTime? })`                        | `checkPaginate(pageCurrent, pageSize)`, for `fetchPaginate`.                                |
+| `searchKeyGen(filters)`                                         | The canonical string a filters object maps to. Property order and `undefined` properties do not change it. |
 
 ## API
 
-`useStructureSearchApi<T, K, P, F>(filtersSource, settings?)`
+`useStructureSearchApi<T, K, P, F>(filtersSource, settings)`
 
-| Parameter       | Type                        | Purpose                                                                 |
-| --------------- | --------------------------- | ------------------------------------------------------------------------ |
-| `filtersSource` | `WatchSource<F>`            | Ref, computed or getter producing the current filters. Read on each search, and by `pageItemList`. |
-| `settings`      | `IStructureRestApi`         | Forwarded verbatim to the internal `useStructureRestApi` (`identifiers`, `TTL`, `loadingKey`, `getLoading`/`setLoading`, …). |
+| Parameter       | Type                | Purpose                                                                                |
+| --------------- | ------------------- | -------------------------------------------------------------------------------------- |
+| `filtersSource` | `WatchSource<F>`    | Ref, computed or getter producing the live filters. Read when a search is applied (and by `isPageCached`), never watched. |
+| `settings`      | `IStructureRestApi` | The resource's options, as on [`useStructureRestApi`](./structure-rest-api#setup-options). `resourceKey` is required. |
 
-Everything `useStructureRestApi` returns, plus:
+Returns everything `useStructureRestApi` returns, with these redefined or added:
 
-| Property / method                                   | Purpose                                                                                  |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `pageItemList`                                       | **Overridden** — items of the current search's current page.                              |
-| `watchSearch(apiCall, settings?)`                    | Watches `pageCurrent`/`pageSize` and re-runs the search. Returns `{ stop, search }`. `settings` takes `immediate` (default `true`), `onSuccess`, `onError`, `onSettled`, plus any `IFetchSettings`. |
-| `fetchSearch(apiCall, filters, page, pageSize, settings?)` | One page of one search, imperatively.                                              |
-| `checkSearch(filters, page, pageSize, settings?)`    | Would that call be served from cache?                                                     |
-| `isPageCached(settings?)`                            | `checkSearch` for the current filters/page/pageSize.                                      |
-| `isPaginateCached(settings?)`                        | The same question for `fetchPaginate` (no filters).                                       |
-| `searchGet(key, page, pageSize)`                     | Cached items for a search, without fetching. `key` is a filters object or a `searchKeyGen` string. |
-| `searchKeyGen(object)`                               | The stable, canonicalized key a filters object maps to.                                   |
-| `searchCached`                                       | Ref — the raw `filters → page → ids` index.                                               |
-| `searchCleanup()`                                    | Prunes dead searches. Called for you before each `fetchSearch`.                           |
-| `resetSearches()`                                    | Drops the search index only, leaving items and query cache alone.                          |
-| `resetAll()` / `destroy(forced?)`                    | **Overridden** — the inherited teardown, plus the search index.                            |
+| Member                                                           | Meaning                                                              |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `pageItemList`                                                   | `ComputedRef<T[]>`: items of the applied search's current page.      |
+| `pageTotal`                                                      | `ComputedRef<number>`: `Math.ceil(totalItems / pageSize)`.           |
+| `totalItems`                                                     | `ComputedRef<number>`: the applied search's server-reported total.   |
+| `watchSearch`, `fetchSearch`                                     | See above.                                                           |
+| `searchGet`, `checkSearch`, `isPageCached`, `isPaginateCached`, `searchKeyGen` | See [Reading the cache](#reading-the-cache).           |
 
 ## Gotchas
 
-- **`onError` is not optional in practice.** `watchSearch`'s search runs inside a watcher, so an
-  unhandled rejection is swallowed exactly as any other watcher callback's would be. Pass
-  `onError` or your failed searches are silent.
-- **`pageSize` is part of the cache key.** The same filters at a different page size are a
-  different search, with its own pages. That is correct — page 2 of 10 is not page 2 of 25 — but
-  it does mean changing page size discards nothing and re-fetches everything.
-- **`pageTotal` is inherited, and local.** See above: derive your own from the server's total for
-  server-side pagination.
+- **`pageSize` is part of the cache key.** Page 2 of 10 is not page 2 of 25. Changing `pageSize`
+  also sets `pageCurrent` back to 1 (on this composable and `useStructureCrudApi`).
+- **Filters are plain data.** They are compared by content (canonical JSON), so keep them to
+  objects, arrays, primitives and Dates.
+- **`resetAll()`** drops this resource's search pages with everything else; an active
+  `watchSearch` then fetches its page again.
+- **A watcher never rejects.** Read `error` or pass `onError`, or a failed search goes unnoticed.

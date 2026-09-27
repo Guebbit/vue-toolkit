@@ -8,11 +8,14 @@ import { buildArticles, type IArticle } from '../../structureRestApi/_helpers/fi
 
 afterEach(clearAllInstances);
 
+const make = () => makeSearchComposable<IArticle, number>();
+
 describe('MODIFIER · forced', () => {
     it('fetchSearch: forced re-hits the API', async () => {
-        const { searchApi } = makeSearchComposable<IArticle, number>();
-        const first = apiResolve(buildArticles(5, 'tech', 1));
-        const second = apiResolve(buildArticles(5, 'tech', 1));
+        const { searchApi } = make();
+        const tech = buildArticles(5, 'tech', 1);
+        const first = apiResolve({ items: tech, totalItems: tech.length });
+        const second = apiResolve({ items: tech, totalItems: tech.length });
         await searchApi.fetchSearch(first, { category: 'tech' }, 1);
         await searchApi.fetchSearch(second, { category: 'tech' }, 1, 10, { forced: true });
         expect(second).toHaveBeenCalledTimes(1);

@@ -1,5 +1,5 @@
 /**
- * TTL — fetchMultiple batches ONLY the stale ids.
+ * staleTime — fetchMultiple batches ONLY the stale ids.
  *
  * Per-id freshness means a single fetchMultiple can mix "near in time" (still
  * fresh, served locally) and "far in time" (stale, refetched) ids. We prime two
@@ -11,8 +11,8 @@ import { apiResolve } from '../_helpers/fakeApi';
 import { USERS, type IUser } from '../_helpers/fixtures';
 import { useFakeClock, advance, restoreClock } from '../_helpers/time';
 
-const TTL = 10_000;
-const make = () => makeComposable<IUser, number>({ TTL });
+const STALE_TIME = 10_000;
+const make = () => makeComposable<IUser, number>({ staleTime: STALE_TIME });
 
 beforeEach(() => useFakeClock());
 afterEach(() => {
@@ -20,12 +20,12 @@ afterEach(() => {
     restoreClock();
 });
 
-describe('TTL · fetchMultiple', () => {
+describe('staleTime · fetchMultiple', () => {
     it('ALL fresh (near in time) → no network call', async () => {
         const c = make();
         await c.fetchTarget(apiResolve(USERS[0]), 1);
         await c.fetchTarget(apiResolve(USERS[1]), 2);
-        await advance(TTL - 1);
+        await advance(STALE_TIME - 1);
         const batch = apiResolve([USERS[0], USERS[1]]);
         const result = await c.fetchMultiple(batch, [1, 2]);
         expect(batch).not.toHaveBeenCalled();
@@ -36,7 +36,7 @@ describe('TTL · fetchMultiple', () => {
         const c = make();
         await c.fetchTarget(apiResolve(USERS[0]), 1);
         await c.fetchTarget(apiResolve(USERS[1]), 2);
-        await advance(TTL + 1);
+        await advance(STALE_TIME + 1);
         const batch = apiResolve([USERS[0], USERS[1]]);
         await c.fetchMultiple(batch, [1, 2]);
         expect(batch).toHaveBeenCalledTimes(1);

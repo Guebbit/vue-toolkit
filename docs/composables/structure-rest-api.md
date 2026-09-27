@@ -1,15 +1,18 @@
 # useStructureRestApi
 
-The REST layer. Wraps [`useStructureDataManagement`](/composables/structure-data-management) and
-adds fetch/mutate methods backed by a [TanStack Query](https://tanstack.com/query) `QueryClient`:
-caching, request de-duplication, staleness (TTL), and optimistic mutations with automatic
-rollback on failure.
+A REST resource on one [TanStack Query](https://tanstack.com/query) `QueryClient`. Every record,
+list, page and search you fetch is a TanStack query; this composable adds normalization (one record,
+one cache entry), a reactive read-only view over those entries, optimistic mutations with
+rollback, and scoping by whose data it is (`dependsOn`). TanStack owns caching, request
+de-duplication, staleness, invalidation and loading.
 
-The pattern throughout: you pass in your own already-parameterized fetch closure (an
-`() => Promise<...>` wrapping `axios`/`fetch`/whatever you use), and the composable handles
-caching, loading state, and store sync around it. It never assumes an HTTP client.
+You pass your own already-parameterized fetch closure (`() => Promise<...>` around `axios`,
+`fetch`, a generated client, anything). No HTTP client is assumed.
 
 ## Quickstart
+
+App setup (`QueryClient` + `VueQueryPlugin`) is on [Getting Started](/guide/getting-started#app-setup).
+Then, inside a component's `setup()` or a Pinia setup store:
 
 ```ts
 import { useStructureRestApi } from '@guebbit/vue-toolkit'
@@ -21,144 +24,387 @@ interface IUser {
     email: string
 }
 
-const users = useStructureRestApi<IUser, number>({ identifiers: 'id' })
+// resourceKey is required: the first segment of every query and mutation this resource makes
+const users = useStructureRestApi<IUser, number>({ resourceKey: 'users' })
 
-// Load the list — cached for `TTL` ms (default 1h) and deduplicated across callers
-await users.fetchAll(() => axios.get('/api/users').then((r) => r.data))
+// cached for `staleTime` (default 1 hour), de-duplicated across callers
+await users.fetchAll(() => axios.get<IUser[]>('/api/users').then((r) => r.data))
 
-// Render straight from the store
 users.itemList.value // IUser[]
 users.getRecord(1) // IUser | undefined
-users.loading.value // true while any request is in flight
+users.loading.value // true while anything of this resource is in flight
 
-// Update — the UI updates immediately (optimistic) and rolls back automatically
-// if the request rejects. No cache invalidation to write by hand: the item's
-// cache entry is reseeded from the response.
+// optimistic: the record changes now, and goes back if the request fails
 await users.updateTarget(
-    () => axios.put('/api/users/1', { name: 'New name' }).then((r) => r.data),
+    () => axios.put<IUser>('/api/users/1', { name: 'New name' }).then((r) => r.data),
     { name: 'New name' },
     1
 )
 ```
 
-Opening the same user's detail view afterwards (`fetchTarget(apiCall, 1)`) is a cache hit — no
-extra request — because `fetchAll` and `updateTarget` both seed the per-item cache entry as they
-go.
+Opening user 1's detail view afterwards (`fetchTarget(apiCall, 1)`) is a cache hit: `fetchAll`
+and `updateTarget` both write the record's own cache entry.
+
+Another store invalidates this resource through the shared client:
+
+```ts
+queryClient.invalidateQueries({ queryKey: ['users'] })
+```
+
+## One cache
+
+Every entry of a resource lives under a key that starts with `resourceKey`, then says what the
+entry holds (its **kind**), then which `dependsOn` value it was fetched under:
+
+```mermaid
+flowchart LR
+    subgraph QC["QueryClient (one per app)"]
+        T["target entries<br/>[resourceKey, 'target', dependsOn, String(id)]<br/>one per record"]
+        L["list entries: all · parent · page · search<br/>hold ids only"]
+        N["any entries<br/>[resourceKey, 'any', dependsOn, ...key]"]
+    end
+    L -- "ids point at" --> T
+    T --> V["itemDictionary / itemList<br/>read-only view, current dependsOn"]
+    L --> R["getListByParent<br/>search pageItemList"]
+```
+
+| Kind     | Key                                                                   | Holds                   | Filled by                                                        |
+| -------- | --------------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `target` | `[resourceKey, 'target', dependsOn, String(id)]`                      | one record              | `fetchTarget`, `watchTarget`, every list fetch, `createTarget`/`updateTarget`, `addRecord`/`editRecord` |
+| `all`    | `[resourceKey, 'all', dependsOn, ...key]`                             | ids                     | `fetchAll`, `watchAll`                                           |
+| `parent` | `[resourceKey, 'parent', dependsOn, String(parentId), ...key]`        | ids                     | `fetchByParent`, `watchByParent`, `addToParent`/`removeFromParent` |
+| `page`   | `[resourceKey, 'page', dependsOn, pageSize, page, ...key]`            | ids                     | `fetchPaginate`                                                  |
+| `search` | `[resourceKey, 'search', dependsOn, filters, pageSize, page, ...key]` | ids + `totalItems`      | [`useStructureSearchApi`](./structure-search-api)                |
+| `any`    | `[resourceKey, 'any', dependsOn, ...key]`                             | whatever `apiCall` resolves | `fetchAny` with a `key`, `watchAny`                          |
+
+- A list holds ids, never records: a record fetched by a list and by `fetchTarget` is one entry.
+- Record and parent ids are keyed as strings: `5` and `'5'` (a route param) address the same
+  entry, and relation ids compare as strings too. A raw `queryClient` call that addresses a record
+  uses the string id: `queryClient.invalidateQueries({ queryKey: ['users', 'target', [], '1'] })`
+  (`[]` is the default `dependsOn`).
+- `itemDictionary` is a computed view of the `target` entries under the current `dependsOn`, so
+  it follows anything that changes the cache, `queryClient.clear()` from elsewhere included.
+- Calls with no stable identity (`fetchAny` without `key`, `fetchTarget` without an id,
+  `fetchMultiple`'s batch) still run as queries, under a random `any` key that is dropped once
+  they settle, so `isLoading` sees them.
+- Two instances with the same `resourceKey` on the same client read and write the same entries.
+  Each keeps its own selection and client-side pagination. They must share one `dependsOn`: see
+  [dependsOn](#dependson).
 
 ## Setup options
 
-Passed to `useStructureRestApi<T, K, P>(options)`:
+`useStructureRestApi<T, K, P>(options)`, `options: IStructureRestApi`:
 
-| Option         | Default                | Purpose                                                                               |
-| -------------- | ----------------------- | -------------------------------------------------------------------------------------- |
-| `identifiers`  | `'id'`                  | Field name (or array, for composite keys) used to key records.                       |
-| `loadingKey`   | random                  | Key used for loading state and to namespace this instance's query cache entries.      |
-| `TTL`          | `3_600_000` (1h)        | Default staleTime, in ms, for all fetch methods. Overridable per call.                |
-| `maxRecords`   | `100_000`               | Critical-mass backstop on the store size — see [Gotchas](#gotchas). `0` disables it.  |
-| `delimiter`    | `'|'`                   | Joins composite identifier parts into a single dictionary key.                       |
-| `getLoading` / `setLoading` | —         | Wire loading state into an external store instead of the composable's internal one.  |
-| `queryClient`  | new internal instance   | Provide an external `QueryClient` to share cache/loading across composable instances. |
+| Option        | Default                   | Purpose                                                                                                   |
+| ------------- | ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `resourceKey` | **required**              | First segment of every query and mutation key: what `invalidateQueries({ queryKey: [resourceKey] })` and `useIsLoading` address. |
+| `identifiers` | `'id'`                    | The record field that identifies a record, or several fields (order matters) joined by `delimiter`.       |
+| `delimiter`   | `'\|'`                    | Joins the values of multiple `identifiers` into one id.                                                   |
+| `staleTime`   | `3_600_000` (1 hour)      | How long (ms) fetched data counts as fresh. A per-call `staleTime` overrides it.                          |
+| `dependsOn`   | `() => []`                | The values this resource's data depends on (`() => [session.userId, locale.value]`). See [dependsOn](#dependson). |
+| `maxRecords`  | `10_000`                  | Critical-mass backstop on cached records. `0` disables it. See [maxRecords](#maxrecords).                 |
+| `queryClient` | `useQueryClient()`        | The client this resource lives on. The default needs an injection context (component `setup()`, or a Pinia setup store in an app with `VueQueryPlugin`); pass the client explicitly anywhere else. |
 
-## API
+`T` is the record type, `K` its id type, `P` a parent's id type (for `fetchByParent` and the
+relations).
 
-### Fetching
+## Reading
 
-| Method                                                    | Purpose                                                                                     |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `fetchAny(apiCall, settings?)`                          | Generic fetch — loading + optional caching, for calls that don't fit the other shapes.      |
-| `fetchAll(apiCall, settings?)`                             | Fetch and cache a full list.                                                                 |
-| `fetchByParent(apiCall, parentId, settings?)`              | Like `fetchAll`, scoped to a `belongsTo` parent; updates `parentHasMany`.                     |
-| `fetchTarget(apiCall, id?, settings?)`                     | Fetch a single item; per-item freshness tracking.                                            |
-| `fetchMultiple(apiCall, ids?, settings?)`                  | Fetch several ids in one call, but only the stale ones — fresh ids are served from cache.    |
-| `fetchSearch(apiCall, filters?, page?, pageSize?, settings?)` | Fetch a filtered, paginated page. `apiCall` may resolve a plain array or a `[items, total]` tuple. |
-| `fetchPaginate(apiCall, page?, pageSize?, settings?)`      | `fetchSearch` with no filters — server pagination.                                          |
+### One-shot reads
 
-### Mutating
+| Method                                                | Settings it reads                               | Resolves                                                      |
+| ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
+| `fetchAll(apiCall, settings?)`                        | `forced`, `merge`, `partial`, `staleTime`, `key` | the list's items                                             |
+| `fetchByParent(apiCall, parentId, settings?)`         | `forced`, `merge`, `partial`, `staleTime`, `key` | the parent's children                                        |
+| `fetchPaginate(apiCall, page = 1, pageSize = 10, settings?)` | `forced`, `merge`, `partial`, `staleTime`, `key` | the page's items (a plain server page, no filters)   |
+| `fetchTarget(apiCall, id?, settings?)`                | `forced`, `merge`, `staleTime`                  | the stored record                                             |
+| `fetchMultiple(apiCall, ids = [], settings?)`         | `forced`, `merge`, `staleTime`                  | the requested ids' records: fetched ones first, then cached   |
+| `fetchAny(apiCall, settings?)`                        | `forced`, `staleTime`, `key`                    | whatever `apiCall` resolves                                   |
 
-| Method                                                              | Purpose                                                                              |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `createTarget(apiCall, dummyData?, settings?)`                      | Optionally shows `dummyData` immediately under a temporary id, then swaps in the real record on success; rolls back on failure. `settings.fetchLike` (default `true`) controls whether the target cache is seeded. |
-| `updateTarget(apiCall, itemData, id?, settings?)`                   | Optimistic merge into the record, confirmed/rolled back by the request outcome. `settings.fetchLike`/`settings.fetchAgain` (both default `true`) control target-cache seeding and whether the response replaces the record. |
-| `deleteTarget(apiCall, id, settings?)`                              | Optimistic delete; restores the record if the request fails.                        |
-| `saveRecords(items, merge?, onSave?)`                               | Lower-level: writes a batch of items into the store (used internally by every fetch method; rarely called directly). |
+What they share:
 
-### Search cache
+- A cached entry that is still fresh is served without calling `apiCall`. Concurrent calls for
+  the same entry join one request.
+- A failure rejects. An entry that already held data keeps it (stale data still renders); an entry
+  that failed before ever holding data is removed.
+- A read the toolkit cancels itself (a `dependsOn` change; an update or delete of that record, or,
+  for a list read, of any record of the scope) resolves with what is cached instead of rejecting, and its answer, if it still arrives, is not
+  stored. Neither is an answer that arrives after `dependsOn` moved on.
 
-| Method / property                          | Purpose                                                                 |
-| --------------------------------------------- | -------------------------------------------------------------------------- |
-| `searchGet(filters, page?, pageSize?)`      | Read back the stored items for a given (filters, page, pageSize).      |
-| `searchGetTotal(filters, pageSize?)`        | Server-reported total for a search, if the API returned the tuple shape. |
-| `searchSetTotal(filters, total, pageSize?)` | Set the total manually (e.g. it came from a separate call).            |
-| `searchKeyGen(object)`                      | The stable cache-key serializer `fetchSearch` uses internally — exposed for advanced use. |
-| `searchCleanup()`                           | Prunes stale/excess search buckets. Called automatically by `fetchSearch`. |
-| `searchCached` / `searchTotals`             | Raw refs backing the above, exposed for inspection.                    |
+Per method:
 
-### Loading
+- **`fetchTarget`** with an id reads through that record's entry. Without an id there is nothing to
+  look up, so it always asks the server, and stores the answer under the record's own id. An
+  `undefined` or `null` answer is no record: nothing is stored, and with an id the entry is cached
+  as "nothing" until it goes stale. `itemList` never holds `null`.
+- **`fetchMultiple`** asks the server only when some of `ids` are missing or stale, with one call
+  of `apiCall` (it receives no arguments; build it from `checkMultiple(ids).expiredIds` to request
+  just those). Resolves one slot per requested id, `[...expired, ...cached]` in that order, with
+  `undefined` for an id the server did not return.
+- **`fetchAny`** is for answers that are not records. With `key`, a normal cached read under
+  `[resourceKey, 'any', dependsOn, ...key]`. Without, it always asks the server and caches nothing.
 
-| Property / method              | Purpose                                                    |
-| --------------------------------- | -------------------------------------------------------------- |
-| `loading`                      | Computed — true while anything tracked under `loadingKey` is in flight. |
-| `startLoading(postfix?)` / `stopLoading(postfix?)` | Manual, ref-counted loading control, if you need it outside a fetch call. |
+### Active reads (`watch*`)
 
-### Lifecycle
+Each `watch*` is a TanStack `useQuery` in its own effect scope: it fetches now, and again whenever
+its key changes (an id, a parent id, `dependsOn`) or its entry is invalidated. It stops with the
+component or store that created it, or with `stop()`.
 
-| Property / method   | Purpose                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `queryClient`        | The underlying TanStack `QueryClient` — exposed for direct inspection or manual teardown.        |
-| `destroy(forced?)`   | Clears the query cache and resets the store. Auto-called on Vue effect-scope disposal; call it yourself for standalone (non-component) usage. |
-| `resetRecords()`     | Empties the item dictionary (inherited).                                                          |
-| `resetSearches()`    | Empties `searchCached`/`searchTotals` without touching records or the query cache.                |
-| `resetAll()`         | `resetRecords()` + `resetSearches()` + clears parent relations — does **not** touch the query cache. |
+| Method                                         | Arguments                                                                                   | Returns                                     |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `watchTarget(idSource, apiCall, settings?)`    | `idSource`: Ref or getter of `K \| undefined \| null`. `apiCall: (id) => Promise<T \| undefined>`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
+| `watchAll(apiCall, settings?)`                 | `settings: IFetchSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`                 | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes). `settings: IFetchSettings` | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchAny(apiCall, settings)`                  | `settings`: `{ key, forced?, staleTime? }`. `key` is **required**: an active query needs a stable identity | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
 
-### Inherited from `useStructureDataManagement`
+Each fetch sends what its own query was built from: `watchTarget`'s `apiCall` receives the id,
+and `watchByParent`'s the parent id, of the query that is running, never a live value that has
+moved on since.
 
-Everything documented on the [`useStructureDataManagement`](/composables/structure-data-management)
-page — `itemDictionary`, `itemList`, `getRecord`, `getRecords`, `addRecord`, `addRecords`,
-`editRecord`, `deleteRecord`, `selectedIdentifier`/`selectedRecord`, `lastInsertedIdentifier(s)`/
-`lastInsertedRecord`, client pagination (`pageCurrent`, `pageSize`, `pageTotal`, `pageOffset`,
-`pageItemList`), and parent relations (`parentHasMany`, `addToParent`, `removeFromParent`,
-`removeDuplicateChildren`, `getRecordsByParent`, `getListByParent`) are all available directly on
-the object `useStructureRestApi` returns.
+Every watcher returns the same handle, `IWatchHandle<R>`:
 
-## Fetch settings
+| Field       | Meaning                                                                                                    |
+| ----------- | ---------------------------------------------------------------------------------------------------------- |
+| `stop()`    | Ends the watcher. Its entry stays cached (see [cache lifetime](#cache-lifetime)).                          |
+| `refetch()` | Fetches now. Joins a fetch already running instead of restarting it. Resolves with the watched data as cached after the fetch: a failure leaves the previous data in place (and shows in `error`). **Never rejects.** |
+| `error`     | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                                |
 
-Every fetch/mutate method accepts a trailing settings object (`IFetchSettings`):
+A watcher never rejects, so a failure shows only in `error`, and in `onError` on the watchers
+that take callbacks (`watchTarget`, and `watchSearch` on the search layer).
 
-| Option          | Default | Purpose                                                                                       |
-| ------------------ | --------- | -------------------------------------------------------------------------------------------------- |
-| `forced`         | `false` | Bypass the cache and always hit the network.                                                  |
-| `loading`        | `true`  | Whether this call participates in `loading`/`startLoading`/`stopLoading`.                     |
-| `merge`          | `false` | Merge fetched fields into existing records instead of replacing them wholesale.               |
-| `TTL`            | instance TTL | Per-call staleTime override.                                                             |
-| `lastUpdateKey`  | `''`    | Extra cache-key segment — use it to give independent cache buckets to otherwise-identical calls (e.g. one per server-side page variant). |
-| `loadingKey`     | instance loadingKey | Override which loading key this call reports to.                                 |
-| `mismatch`       | `false` | Skip reseeding the per-item target cache — use when a fetch returns partial fields that shouldn't be mistaken for a full record. |
-| `fetchLike`      | `true`  | `createTarget`/`updateTarget` only — seed the per-item target cache as if the record had just been fetched. |
-| `fetchAgain`     | `true`  | `updateTarget` only — apply the request's response as the record's new data. Turn off if the response isn't the full updated item. |
+```ts
+const userId = ref<number | null>(null)
+
+const { error, refetch } = users.watchTarget(
+    userId,
+    (id) => axios.get<IUser>(`/api/users/${id}`).then((r) => r.data),
+    { onError: (failure) => console.error(failure) }
+)
+// users.selectedRecord follows userId
+```
+
+`watchTarget` specifics:
+
+- It **selects**: every non-nullish id becomes `selectedIdentifier` right away, so a cached record
+  renders at once. A failed fetch clears the selection.
+- A nullish id leaves the selection as it is and fetches nothing; `refetch()` then resolves
+  `undefined` without calling `apiCall`.
+- `onSuccess(record, id)`, `onError(error, id)`, `onSettled(record, error, id)` fire when a fetch
+  of the watched record lands (it succeeds or fails), and once when the id switches to a record
+  already cached and fresh with no fetch running (none runs then). That includes the first id.
+- A fetch that never lands fires nothing: one cancelled by an update or delete, one still paused
+  offline, one for an id the watcher has already left. A switch during a fetch fires once, not
+  twice.
+
+`forced: true` on a watcher means every mount and every key switch asks the server.
+
+### Pre-flight checks
+
+"Would this call be served from cache?", answered from the cache alone, without calling any API.
+True when the entry is cached and fresh within `staleTime` (the call's, or the resource's). An
+invalidated entry counts as stale. There is no `forced` variant: a forced call always fetches.
+
+| Method                                                 | Asks about                                               |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| `checkTarget(id, { staleTime? })`                      | `fetchTarget(apiCall, id)`                               |
+| `checkAll({ key?, staleTime? })`                       | `fetchAll`                                               |
+| `checkByParent(parentId, { key?, staleTime? })`        | `fetchByParent`                                          |
+| `checkPaginate(page = 1, pageSize = 10, { key?, staleTime? })` | `fetchPaginate`                                  |
+| `checkAny(key?, { staleTime? })`                       | `fetchAny` with that key; always `false` without one     |
+| `checkMultiple(ids = [], { staleTime? })`              | `fetchMultiple`: returns `{ cachedIds, expiredIds }`     |
+
+## Writing
+
+| Method                                               | Settings                            | Resolves                                   |
+| ---------------------------------------------------- | ----------------------------------- | ------------------------------------------ |
+| `createTarget(apiCall, dummyData?, settings?)`       | `key`                               | the stored record                          |
+| `updateTarget<F = T>(apiCall, itemData, id?, settings?)` | `merge`, `key`, `applyResponse` | `apiCall`'s result (`apiCall: () => Promise<F>`) |
+| `deleteTarget(apiCall, id, settings?)`               | `key`                               | `apiCall`'s result                         |
+| `mutateAny(apiCall, settings?)`                      | `key`                               | `apiCall`'s result                         |
+
+Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'delete' | 'any', id?]`,
+so `loading`, `isLoading` and `useIsLoading` see it.
+
+- **`createTarget`**: `dummyData`, if given, renders at once under a temporary id and is removed
+  when the call settles, whatever it resolved. On success the returned record is stored as freshly
+  fetched (an empty answer stores nothing), and this resource's lists are marked stale.
+- **`updateTarget`** and **`deleteTarget`** are optimistic, and share one protocol:
+  1. Cancel the record's own in-flight read (a `fetchTarget` or `watchTarget` of that id) and
+     every list read of the current scope (`all`, `parent`, `page`, `search`). A cancelled read's
+     answer is never stored, so an older answer cannot undo the edit or bring a deleted record
+     back.
+  2. Apply the change locally: `updateTarget` merges `itemData` into the record, `deleteTarget`
+     removes it. Skipped if `dependsOn` changed in the meantime.
+  3. Send the request. On failure, put the record back as it was, freshness included (a record
+     that did not exist is removed), but only if it still holds this call's change: a newer change
+     owns it otherwise, so a failed older update never undoes a newer one.
+  4. Once the request settles, success or failure, mark this resource's lists stale.
+- **`updateTarget`** on success stores the response as the record's new, full data (`merge: true`
+  merges it in instead). A response that is not a record object (`undefined`, `null`, an array, a
+  primitive), or `applyResponse: false`, keeps the optimistic patch as the record. `id` defaults
+  to the id inside `itemData`.
+- **`mutateAny`**: a command with no record shape. Invalidates nothing; call
+  `queryClient.invalidateQueries` yourself when it changes data.
+- Marking the lists stale reaches every list kind (`all`, `parent`, `page`, `search`): active list
+  watchers refetch now, the others on their next read.
+- If `dependsOn` changes while a mutation runs, its result is not stored, its rollback is skipped
+  and no list is marked stale: the old scope's data never lands in the new one.
+
+## Loading
+
+| Member            | Type                        | Meaning                                                                          |
+| ----------------- | --------------------------- | -------------------------------------------------------------------------------- |
+| `loading`         | `ComputedRef<boolean>`      | True while anything of this resource is in flight. Same as `isLoading()`.        |
+| `isLoading(key?)` | `(key?: string[]) => boolean` | True while a query or mutation of this resource runs whose `key` **starts with** `key`. A plain function: call it inside a `computed`. |
+
+`isLoading` matches by segment prefix: `isLoading(['dash'])` is true while a call made with
+`key: ['dash', 'w1']` runs. With no argument it covers everything of the resource: every query
+and mutation on the client whose first key segment is `resourceKey`.
+
+A call's `key` comes from its settings. `fetchTarget`, `fetchMultiple` and `watchTarget` take no
+`key` (a record has one cache entry, not a bucket per caller), so `isLoading(key)` never matches
+them, by design: only `loading` / `isLoading()` see them.
+
+```ts
+const saving = computed(() => users.isLoading(['profile-form']))
+
+users.updateTarget(save, patch, id, { key: ['profile-form'] })
+```
+
+For "is any of these resources busy" across the app, see [`useIsLoading`](./is-loading).
+
+## Records and relations
+
+Everything [`useStructureDataManagement`](./structure-data-management) returns is on the resource
+too, backed by the cache (its `identifier` under the name `identifierKey`, listed further down):
+
+| Member                                                         | Behaviour here                                                                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `itemDictionary`, `itemList`                                   | Read-only view of the records under the current `dependsOn`. Change records through the methods, never in place. |
+| `getRecord(...idParts)`, `getRecords(ids)`                     | Read the view.                                                                                   |
+| `addRecord(item)`, `addRecords`, `editRecord(data, id?, create?)`, `editRecords` | Local writes: stored, but a record's freshness does not move. A new record starts stale, an invalidated one stays invalidated, so the next `fetchTarget` asks the server. |
+| `setRecords(items)`                                            | Replaces every record of the current scope; none counts as fetched. Marks the scope's lists stale without refetching them. |
+| `deleteRecord(id)`                                             | Removes one record.                                                                              |
+| `resetRecords()`                                               | Removes every record of the current scope, and marks its lists stale: active list watchers refetch (and bring their records back). |
+| `selectedIdentifier`, `selectedRecord`                         | Selection. `watchTarget` sets it; `fetchTarget` does not.                                        |
+| `lastInsertedIdentifier(s)`, `lastInsertedRecord`              | Last-inserted tracking.                                                                          |
+| `pageCurrent`, `pageSize`, `pageTotal`, `pageOffset`, `pageItemList` | Client-side pagination over `itemList`. The search layer redefines `pageItemList`/`pageTotal`. |
+| `parentHasMany`                                                | `ComputedRef<Record<P, K[]>>`: each parent's child ids, the union of all its `parent` buckets (see below), keyed by the parent id as a string. |
+| `addToParent(parentId, childId)`                               | Adds the child to the parent's keyless entry, unless the parent already lists it.                |
+| `removeFromParent(parentId, childId)`, `removeDuplicateChildren(parentId)` | Edit every bucket of that parent.                                                  |
+| `getRecordsByParent(parentId?)`, `getListByParent(parentId?)`  | The records of `parentHasMany[parentId]` (by id / as a list, in the relation's order); ids with no cached record are skipped. No `parentId`: none. |
+
+A parent's **buckets** are its keyless `parent` entry plus every `fetchByParent(..., { key })`
+entry for it. Its children are the union of their ids, in first-seen order, without duplicates.
+The relation editors write those entries directly and mark them stale, so the next
+`fetchByParent` asks the server.
+
+Plus the resource's identity and plumbing:
+
+| Member                                  | Meaning                                                                          |
+| --------------------------------------- | -------------------------------------------------------------------------------- |
+| `resourceKey`, `maxRecords`             | The options, as resolved.                                                        |
+| `identifierKey`                         | The identifier field name(s), joined by `delimiter`.                             |
+| `createIdentifier(item, identifiers?)`  | The id of a record (fills a missing identifier with a random fallback).          |
+| `queryClient`                           | The client, `markRaw`'d so it survives a Pinia setup store's `reactive()` wrapper. |
+| `resetAll()`                            | Drops every entry of this resource under the current `dependsOn`, then refetches what active watchers show. |
+
+## Settings reference
+
+`IFetchSettings`, plus `IUpdateTargetSettings` for `updateTarget`. Each method reads only the
+fields listed in its table above; its TypeScript signature accepts only those.
+
+| Setting         | Default               | Meaning                                                                                              |
+| --------------- | --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `forced`        | `false`               | Run with `staleTime: 0`: anything cached counts as stale, so the server is asked. A concurrent call for the same entry joins this request instead of racing it. On a watcher: every mount and key switch asks the server. |
+| `merge`         | `false`               | Merge the fetched fields into the stored record instead of replacing it.                             |
+| `staleTime`     | the resource's        | Freshness window (ms) for this call.                                                                 |
+| `key`           | none                  | Extra segments appended to the cache key of a list, `fetchAny` or `watchAny` call: an independent bucket for the same call shape. Also what `isLoading(key)` matches, on queries and mutations alike. |
+| `partial`       | `false`               | The answer holds partial records: merge them (never replace) and keep each record's freshness, so the next full `fetchTarget` still asks the server. List-shaped fetches only. |
+| `applyResponse` | `true`                | `updateTarget` only: store the response as the record (a response that is not a record object is never stored). Turn off when the response is not the record (an acknowledgement, say). |
+
+## dependsOn
+
+`dependsOn` is a getter returning whose data this is: `() => [session.userId, locale.value]`.
+Every call reads it when it starts and files its entries under that value. It has to read
+reactive state (a ref, a store field) for a change to be noticed.
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Res as Resource
+    participant QC as QueryClient
+    participant W as Active watcher
+    App->>Res: dependsOn changes (logout, language)
+    Res->>QC: cancel + drop every entry under the old value
+    W->>QC: its key now embeds the new value
+    QC-->>W: served from cache, or fetched
+    Note over Res,QC: an answer from the old value arrives
+    Res--xQC: not stored
+    App->>Res: updateTarget(...) succeeds
+    Res->>QC: mark this resource's lists stale
+    QC-->>W: active lists refetch
+```
+
+- Under the old value, everything is cancelled and dropped (records included), not merely marked
+  stale: one user's data never shows for the next, and a language switch never mixes languages.
+- An answer or rollback that arrives after the change is discarded.
+- Active watchers switch to the new value on their own.
+- One `dependsOn` per `resourceKey`. When a resource is created, it drops every entry of its
+  `resourceKey` cached under another `dependsOn` value: the scope changed while no instance was
+  alive to clean up. A second instance created under another value therefore drops the first
+  one's entries.
+
+## Cache lifetime
+
+- **Records and parent lists** (`target`, `parent`) are never garbage-collected: they stay cached
+  while nothing watches them, because stale data is what renders while fresh data downloads. They
+  leave only through `dependsOn` (a change, or the sweep when a resource is created),
+  `resetRecords`/`resetAll`, `deleteRecord`/`deleteTarget`, `maxRecords`, or your own
+  `queryClient` calls. `getListByParent` therefore keeps working after
+  `fetchByParent`, with no watcher.
+- **Everything else** (`all`, `page`, `search`, `any`) keeps your client's default `gcTime`:
+  TanStack's is 5 minutes in a browser (unlimited on a server), unless your `QueryClient` sets
+  another. So a search page or list fetched imperatively (`fetchSearch`, `fetchAll`,
+  `fetchPaginate`, keyed `fetchAny`) **disappears 5 minutes after nothing observes it**: a search's
+  `pageItemList` and `totalItems` empty out, and the next call asks the server again. A `watch*`
+  observes its entry and keeps it alive while it runs. (The records a list fetched stay either
+  way, so `itemList` is unaffected.)
+- Stopping a scope (unmount, store disposal, `stop()`) ends subscriptions and watchers. It never
+  removes cache entries.
+- Removing an entry that an active watcher observes empties it in place instead, so the watcher
+  stays attached. `resetAll()` then refetches what active watchers show (views empty, then the
+  watched data comes back). `resetRecords()` refetches only active list watchers (it marks the
+  lists stale), not a `watchTarget`. `deleteRecord`/`deleteTarget` and the `maxRecords` wipe
+  refetch nothing themselves: a watcher fetches again on its next invalidation, window focus or
+  key change.
+
+## maxRecords
+
+A critical-mass backstop, not an eviction policy: records are never evicted for being old.
+
+- When a list-shaped fetch (`fetchAll`, `fetchByParent`, `fetchPaginate`, `fetchSearch`, their
+  watchers) or `fetchMultiple` is about to write a batch, and the records cached under the current
+  `dependsOn` plus the batch's **new** records would exceed `maxRecords`, every other entry of the
+  current scope is dropped first (records, lists, searches).
+- Only records not cached yet count: refetching a list that is already cached adds nothing, so it
+  never triggers the wipe.
+- The fetch that crosses the bound keeps its own entry: it resolves its items and caches its list.
+  Queries still fetching are spared too: their answers are on the way.
+- Single-record writes (`fetchTarget`, `watchTarget`, the mutations, `addRecord`/`editRecord`)
+  never trigger it.
+- Harmless for server-paginated screens. An infinite-scroll screen rendering `itemList` sees the
+  list collapse to the last batch: set `maxRecords: 0` and prune yourself if that matters.
 
 ## Gotchas
 
-- **`maxRecords` is a critical-mass backstop, not a cache policy.** Records are never evicted for
-  being old — stale data is what keeps a list on screen while a fresh copy downloads. Past
-  `maxRecords`, the *entire* store is wiped and immediately repopulated with the incoming batch.
-  Harmless for server-paginated UIs; visible for infinite-scroll UIs that render `itemList`
-  directly (the list collapses to the last batch). Set it to `0` and prune manually if that
-  matters to you.
-- **Two caches, two jobs.** `itemDictionary` (from `useStructureDataManagement`) owns *what to
-  render* — it's synchronous, reactive, and never evicted on a timer. The TanStack `queryClient`
-  owns *when to fetch* — staleness, in-flight dedup, retries. A query-cache entry expiring only
-  means "we forgot this was fresh"; it never deletes the item itself. This split is what gives
-  stale-while-revalidate behavior for free: an expired item keeps rendering the old value for the
-  whole flight of the refetch.
-- **`mismatch: true`** when a fetch call returns partial fields (e.g. a list endpoint that omits
-  some detail-only fields) that shouldn't overwrite a fuller cached record's freshness.
-- **`watchTarget` selects, `fetchTarget` does not.** `watchTarget` sets `selectedIdentifier`
-  before each fetch and clears it on failure, because it is bound to a screen's id: whatever it is
-  watching *is* the current record. `fetchTarget` is the imperative primitive and only stores —
-  loading a record is not the same as putting it on screen, and a prefetch or a background refresh
-  must not steal the selection from what the user is looking at. Assign `selectedIdentifier`
-  yourself when you do want it, or use
-  [`useStructureCrudApi`](./structure-crud-api)'s `fetchOne`, which does exactly that.
-- **`destroy()`** is wired to the current Vue effect scope automatically (component `setup`,
-  Pinia setup store, `effectScope`). In standalone usage with no active scope, call it yourself —
-  nothing warns you if you don't.
+- **`watchTarget` selects, `fetchTarget` does not.** A watcher is bound to a screen's id, so what it
+  watches *is* the current record. `fetchTarget` only stores: a prefetch or a background refresh
+  must not steal the selection. Set `selectedIdentifier` yourself, or use
+  [`useStructureCrudApi`](./structure-crud-api)'s `fetchOne`, which selects.
+- **Records are read-only.** Write through `editRecord`/`updateTarget`, never by mutating a record
+  you read back.
+- **`partial: true`** for a list endpoint that omits detail-only fields: it merges, and does not
+  make the fuller record look freshly fetched.
+- **`fetchMultiple`'s `apiCall` gets no ids.** Use `checkMultiple` to learn which ones it will ask
+  for.

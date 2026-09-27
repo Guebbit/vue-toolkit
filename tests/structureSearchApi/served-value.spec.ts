@@ -12,7 +12,11 @@ afterEach(clearAllInstances);
 describe('VALUE · served on a cache hit (search)', () => {
     it('searchGet: returns items in order with full fields', async () => {
         const { searchApi } = makeSearchComposable<IUser, number>();
-        await searchApi.fetchSearch(apiResolve([USERS[0], USERS[1], USERS[2]]), { q: 'a' }, 1);
+        await searchApi.fetchSearch(
+            apiResolve({ items: [USERS[0], USERS[1], USERS[2]], totalItems: 3 }),
+            { q: 'a' },
+            1
+        );
         expect(searchApi.searchGet({ q: 'a' }, 1)).toEqual([USERS[0], USERS[1], USERS[2]]);
     });
 });

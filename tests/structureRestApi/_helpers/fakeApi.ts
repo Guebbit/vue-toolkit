@@ -4,8 +4,10 @@
  * Plain module (not a *.spec.ts) so Jest's testMatch ignores it.
  */
 
-/** A call-counting stub that resolves with `data`. */
-export function apiResolve<T>(data: T): jest.Mock<Promise<T>, []> {
+/** A call-counting stub that resolves with `data` (undefined when omitted). */
+export function apiResolve(): jest.Mock<Promise<undefined>, []>;
+export function apiResolve<T>(data: T): jest.Mock<Promise<T>, []>;
+export function apiResolve<T>(data?: T): jest.Mock<Promise<T | undefined>, []> {
     return jest.fn(() => Promise.resolve(data));
 }
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nextTick, ref } from 'vue';
+import { effectScope, nextTick, ref, type EffectScope } from 'vue';
 import { useStructureFormValidation } from '../src/composables/structureFormValidation';
 
 interface ILoginForm {
@@ -32,11 +32,29 @@ const localizedSchema = (message: () => string) =>
     });
 
 describe('useStructureFormValidation', () => {
+    /** The running test's scope: the watchers its composables start stop with it. */
+    let scope: EffectScope;
+
+    /**
+     * Builds the composable (or starts a watcher on it) inside the running test's scope.
+     *
+     * @param build - what to run in the scope
+     * @returns what `build` returns
+     */
+    const inScope = <R>(build: () => R): R => scope.run(build)!;
+
+    /** A login-form composable, built in the running test's scope. */
+    const make = (...parameters: Parameters<typeof useStructureFormValidation<ILoginForm>>) =>
+        inScope(() => useStructureFormValidation<ILoginForm>(...parameters));
+
     let composable: ReturnType<typeof useStructureFormValidation<ILoginForm>>;
 
     beforeEach(() => {
-        composable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema);
+        scope = effectScope();
+        composable = make(INITIAL_LOGIN, loginSchema);
     });
+
+    afterEach(() => scope.stop());
 
     // ─── form reactive ref ────────────────────────────────────────────────────
 
@@ -113,14 +131,14 @@ describe('useStructureFormValidation', () => {
     describe('activateAutoHydrate', () => {
         it('does nothing while the source is undefined', () => {
             const source = ref<ILoginForm | undefined>(undefined);
-            composable.activateAutoHydrate(source);
+            inScope(() => composable.activateAutoHydrate(source));
             expect(composable.form.value).toEqual(INITIAL_LOGIN);
             expect(composable.isDirty.value).toBe(false);
         });
 
         it('adopts the source as the new baseline as soon as it resolves', async () => {
             const source = ref<ILoginForm | undefined>(undefined);
-            composable.activateAutoHydrate(source);
+            inScope(() => composable.activateAutoHydrate(source));
 
             source.value = { email: 'hydrated@test.com', password: 'hydratedPass' };
             await nextTick();
@@ -137,7 +155,7 @@ describe('useStructureFormValidation', () => {
                 email: 'first@test.com',
                 password: 'firstPass'
             });
-            composable.activateAutoHydrate(source);
+            inScope(() => composable.activateAutoHydrate(source));
             await nextTick();
 
             composable.setForm({ email: 'locallyEdited@test.com' });
@@ -265,7 +283,7 @@ describe('useStructureFormValidation', () => {
 
     describe('validate (without schema)', () => {
         it('always returns true when no schema is provided', () => {
-            const noSchemaComposable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN);
+            const noSchemaComposable = make(INITIAL_LOGIN);
             const ok = noSchemaComposable.validate();
             expect(ok).toBe(true);
             expect(noSchemaComposable.formErrors.value).toEqual({});
@@ -277,7 +295,7 @@ describe('useStructureFormValidation', () => {
     describe('validate (reactive schema getter)', () => {
         it('re-resolves a getter schema on every validate() call, e.g. after a locale switch', () => {
             let currentMessage = 'Invalid email address (en)';
-            const getterComposable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, () =>
+            const getterComposable = make(INITIAL_LOGIN, () =>
                 z.object({ email: z.string().email(currentMessage), password: z.string() })
             );
 
@@ -294,7 +312,7 @@ describe('useStructureFormValidation', () => {
 
         it('accepts a ref-wrapped schema the same way', () => {
             const schemaRef = ref(loginSchema);
-            const refComposable = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, schemaRef);
+            const refComposable = make(INITIAL_LOGIN, schemaRef);
             const ok = refComposable.validate();
             expect(ok).toBe(false);
             expect(refComposable.formErrors.value.email).toBeDefined();
@@ -302,7 +320,7 @@ describe('useStructureFormValidation', () => {
 
         it('resolves a schema whose messages are thunks just as late as a getter', () => {
             let currentMessage = 'Invalid email address (en)';
-            const thunkComposable = useStructureFormValidation<ILoginForm>(
+            const thunkComposable = make(
                 INITIAL_LOGIN,
                 // built ONCE, at setup — only the message is deferred
                 z.object({
@@ -336,7 +354,7 @@ describe('useStructureFormValidation', () => {
                 en: 'Invalid email address',
                 it: 'Indirizzo email non valido'
             };
-            const localeComposable = useStructureFormValidation<ILoginForm>(
+            const localeComposable = make(
                 INITIAL_LOGIN,
                 localizedSchema(() => messages[locale.value]!),
                 { revalidateOn: locale }
@@ -353,11 +371,7 @@ describe('useStructureFormValidation', () => {
 
         it('leaves a pristine form pristine', async () => {
             const locale = ref('en');
-            const pristineComposable = useStructureFormValidation<ILoginForm>(
-                INITIAL_LOGIN,
-                loginSchema,
-                { revalidateOn: locale }
-            );
+            const pristineComposable = make(INITIAL_LOGIN, loginSchema, { revalidateOn: locale });
 
             locale.value = 'it';
             await nextTick();
@@ -369,11 +383,7 @@ describe('useStructureFormValidation', () => {
 
         it('does nothing to a form that validated cleanly', async () => {
             const locale = ref('en');
-            const validComposable = useStructureFormValidation<ILoginForm>(
-                INITIAL_LOGIN,
-                loginSchema,
-                { revalidateOn: locale }
-            );
+            const validComposable = make(INITIAL_LOGIN, loginSchema, { revalidateOn: locale });
 
             validComposable.setForm({ email: 'valid@test.com', password: 'validPassword' });
             expect(validComposable.validate()).toBe(true);
@@ -388,7 +398,7 @@ describe('useStructureFormValidation', () => {
             const locale = ref('en');
             const unitSystem = ref('metric');
             let revalidations = 0;
-            const multiComposable = useStructureFormValidation<ILoginForm>(
+            const multiComposable = make(
                 INITIAL_LOGIN,
                 localizedSchema(() => {
                     revalidations += 1;
@@ -510,7 +520,7 @@ describe('useStructureFormValidation', () => {
         it('focuses the first invalid field of the given form', async () => {
             const field = { focus: jest.fn() };
             const formElement = createForm(field);
-            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+            const withForm = make(INITIAL_LOGIN, loginSchema, {
                 formElement
             });
 
@@ -522,7 +532,7 @@ describe('useStructureFormValidation', () => {
 
         it('honours a custom selector, for kits that mark the wrapper', async () => {
             const formElement = createForm({ focus: jest.fn() });
-            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+            const withForm = make(INITIAL_LOGIN, loginSchema, {
                 formElement,
                 invalidFieldSelector: '.v-input--error input'
             });
@@ -535,7 +545,7 @@ describe('useStructureFormValidation', () => {
         it('reads the form element through a ref, so a template ref works', async () => {
             const field = { focus: jest.fn() };
             const formElement = ref<ReturnType<typeof createForm>>();
-            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+            const withForm = make(INITIAL_LOGIN, loginSchema, {
                 formElement
             });
 
@@ -556,7 +566,7 @@ describe('useStructureFormValidation', () => {
 
         it('tolerates a match that cannot be focused', async () => {
             const formElement = createForm({ notAFocusMethod: true });
-            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+            const withForm = make(INITIAL_LOGIN, loginSchema, {
                 formElement
             });
             await expect(withForm.revealErrors()).resolves.toBeUndefined();
@@ -564,7 +574,7 @@ describe('useStructureFormValidation', () => {
 
         it('calls onInvalid with the errors on display', async () => {
             const onInvalid = jest.fn();
-            const withHook = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+            const withHook = make(INITIAL_LOGIN, loginSchema, {
                 onInvalid
             });
 
@@ -579,7 +589,7 @@ describe('useStructureFormValidation', () => {
         it('is reached by a failed handleSubmit, hook and focus included', async () => {
             const field = { focus: jest.fn() };
             const onInvalid = jest.fn();
-            const withForm = useStructureFormValidation<ILoginForm>(INITIAL_LOGIN, loginSchema, {
+            const withForm = make(INITIAL_LOGIN, loginSchema, {
                 formElement: createForm(field),
                 onInvalid
             });

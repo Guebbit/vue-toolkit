@@ -5,7 +5,6 @@
  * touched. Optional `latency` uses setTimeout (drive it with jest fake timers).
  * Plain module (not a *.spec.ts) so Jest's testMatch ignores it.
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export interface IServerOptions {
     /** When > 0, responses resolve after this many ms (needs fake timers to advance). */
@@ -71,8 +70,8 @@ export function createServer<T extends { id: number }>(
     /** POST /resource — create; auto-assigns an id when absent. */
     const create = (data: Partial<T>) => () => {
         calls.create += 1;
-        const id = (data as any).id ?? (autoId += 1);
-        const item = { ...(data as any), id } as T;
+        const id = data.id ?? (autoId += 1);
+        const item = { ...data, id } as T;
         store.set(id, item);
         return settle({ ...item } as T);
     };

@@ -2,7 +2,9 @@
  * UNIT — search helper functions (pure-ish, cache-adjacent).
  *   - searchKeyGen: stable, order-independent, value/property sensitive
  *   - searchGet: empty when nothing cached; accepts object or pre-serialised key
- *   - searchCleanup: keeps live entries, prunes orphaned ones
+ *
+ * The page→ids index is a read-only view derived from the cache, so there is nothing to prune
+ * or cap by hand; the record bound is covered in lifecycle/maxRecords.spec.ts.
  */
 
 import { makeSearchComposable, clearAllInstances } from '../_helpers/harness';
@@ -52,33 +54,12 @@ describe('UNIT · searchGet', () => {
     it('accepts a pre-serialised string key', async () => {
         const { searchApi } = make();
         const filters = { category: 'tech' };
-        await searchApi.fetchSearch(apiResolve(buildArticles(5, 'tech', 1)), filters, 1);
+        const articles = buildArticles(5, 'tech', 1);
+        await searchApi.fetchSearch(
+            apiResolve({ items: articles, totalItems: articles.length }),
+            filters,
+            1
+        );
         expect(searchApi.searchGet(searchApi.searchKeyGen(filters), 1)).toHaveLength(5);
-    });
-});
-
-describe('UNIT · searchCleanup', () => {
-    it('keeps entries whose backing query is still live', async () => {
-        const { searchApi } = make();
-        await searchApi.fetchSearch(
-            apiResolve(buildArticles(3, 'tech', 1)),
-            { category: 'tech' },
-            1
-        );
-        searchApi.searchCleanup();
-        expect(searchApi.searchGet({ category: 'tech' }, 1)).toHaveLength(3);
-    });
-
-    it('prunes entries whose backing query has been evicted', async () => {
-        const { searchApi } = make();
-        await searchApi.fetchSearch(
-            apiResolve(buildArticles(3, 'tech', 1)),
-            { category: 'tech' },
-            1
-        );
-        searchApi.queryClient.clear(); // evict all TanStack entries → orphaned
-        searchApi.searchCleanup();
-        expect(searchApi.searchGet({ category: 'tech' }, 1)).toEqual([]);
-        expect(Object.keys(searchApi.searchCached.value)).toHaveLength(0);
     });
 });

@@ -1,5 +1,5 @@
 /**
- * TTL — concurrent and immediately-successive calls.
+ * staleTime — concurrent and immediately-successive calls.
  *   - Two identical in-flight fetches DEDUPE to a single API call (TanStack
  *     shares the running promise for the same query key).
  *   - Concurrent fetches on DIFFERENT keys each run.
@@ -17,7 +17,7 @@ afterEach(clearAllInstances);
 
 const make = () => makeComposable<IUser, number>();
 
-describe('TTL · concurrency', () => {
+describe('staleTime · concurrency', () => {
     it('two identical in-flight fetchAll calls dedupe to ONE API call', async () => {
         const c = make();
         const { call, control } = deferredApi<IUser[]>();
@@ -28,12 +28,12 @@ describe('TTL · concurrency', () => {
         expect(call).toHaveBeenCalledTimes(1);
     });
 
-    it('concurrent fetches on different lastUpdateKeys each run', async () => {
+    it('concurrent fetches on different keys each run', async () => {
         const c = make();
         const a = deferredApi<IUser[]>();
         const b = deferredApi<IUser[]>();
-        const p1 = c.fetchAll(a.call, { lastUpdateKey: 'A' });
-        const p2 = c.fetchAll(b.call, { lastUpdateKey: 'B' });
+        const p1 = c.fetchAll(a.call, { key: ['A'] });
+        const p2 = c.fetchAll(b.call, { key: ['B'] });
         a.control.resolve([...USERS]);
         b.control.resolve([...USERS]);
         await Promise.all([p1, p2]);

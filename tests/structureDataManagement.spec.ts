@@ -128,3 +128,13 @@ describe('useStructureDataManagement', () => {
         });
     });
 });
+
+describe('useStructureDataManagement · parent ids', () => {
+    it('treats 0 as a real parent id', () => {
+        const store = useStructureDataManagement<ITestItem, number, number>();
+        store.addRecord({ id: 1, name: 'child' });
+        store.addToParent(0, '1');
+
+        expect(store.getListByParent(0)).toEqual([{ id: 1, name: 'child' }]);
+    });
+});

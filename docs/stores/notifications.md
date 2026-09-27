@@ -1,7 +1,6 @@
 # useNotificationsStore
 
-A Pinia store (id `'notifications'`) for toast-style messages and simple named dialog visibility
-flags.
+A Pinia store (id `'notifications'`) for toast-style messages.
 
 ## Quickstart
 

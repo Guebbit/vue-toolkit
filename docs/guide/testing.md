@@ -43,11 +43,11 @@ const identifier = false ? identifiers.join(delimiter) : identifiers;
 ```
 
 ```ts
-// src/composables/structureRestApi.ts — original
-if (pending === 0) return; // never go negative
+// src/internal/restResource.ts — original
+if (cached.length + incoming <= maxRecords) return; // under the bound: keep everything
 
-// mutated: the guard is removed ("what if we let it go negative?")
-if (true) return;
+// mutated: the boundary moves ("what if exactly maxRecords already triggered the wipe?")
+if (cached.length + incoming < maxRecords) return;
 ```
 
 Typical mutation categories:
@@ -124,14 +124,13 @@ with the source, which is the fastest way to decide "real gap or equivalent muta
 > The full run mutates the whole `src/` tree and takes a few minutes. While iterating, scope it to
 > one file with `npx stryker run --mutate "src/composables/structureDataManagement.ts"`.
 
-## A bug this actually caught
+## What a surviving mutant tells you
 
-Mutation testing isn't just bookkeeping. Chasing survivors in `structureDataManagement.ts` surfaced
-a real bug in `createIdentifier`: when given a **custom single identifier**, it ignored the argument
-and used the default identifier instead — so the type signature advertised `string | string[]`, but
-only the array form worked. No existing test had ever passed a custom single identifier, so the code
-was both green and wrong. The gap the mutants pointed at was the same gap that hid the bug; writing
-the test that closed it is what exposed the bug.
+A surviving mutant is a change to the code that no test notices: it points at behaviour nothing
+pins down, which is exactly where a bug can sit unseen. `createIdentifier`, for instance, accepts a
+custom identifier as `string | string[]`. A suite that only ever passes the array form lets a
+mutant in the single-string branch survive, and would let a real bug there pass just as quietly.
+The test that kills the mutant is the test that would catch the bug.
 
 That's the whole point: **a test that can't fail can't protect you.** Mutation testing finds the
 tests that can't fail.

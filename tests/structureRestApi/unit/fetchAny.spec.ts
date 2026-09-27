@@ -3,9 +3,9 @@
  *
  * fetchAny wraps ANY async call returning ANY shape. Its direct job:
  *   - resolve with the call's result
- *   - cache ONLY when a lastUpdateKey is given (opt-in), keyed per lastUpdateKey
- *   - honour forced; on error clear the entry so a retry runs
- *   - manage the loading flag (unless loading:false)
+ *   - cache ONLY when a key is given (opt-in), keyed per key
+ *   - honour forced; a failed first call leaves no entry behind, so a retry runs
+ *   - count toward isLoading() while in flight, key or no key
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -28,7 +28,7 @@ describe('UNIT · fetchAny', () => {
         await expect(c.fetchAny(jest.fn(() => Promise.resolve(true)))).resolves.toBe(true);
     });
 
-    it('WITHOUT lastUpdateKey runs the call every time (no caching)', async () => {
+    it('WITHOUT a key runs the call every time (no caching)', async () => {
         const c = make();
         const first = jest.fn(() => Promise.resolve(1));
         const second = jest.fn(() => Promise.resolve(2));
@@ -38,22 +38,22 @@ describe('UNIT · fetchAny', () => {
         expect(second).toHaveBeenCalledTimes(1);
     });
 
-    it('WITH lastUpdateKey serves the second identical call from cache', async () => {
+    it('WITH a key serves the second identical call from cache', async () => {
         const c = make();
         const first = jest.fn(() => Promise.resolve(1));
         const second = jest.fn(() => Promise.resolve(2));
-        await c.fetchAny(first, { lastUpdateKey: 'stats' });
-        const result = await c.fetchAny(second, { lastUpdateKey: 'stats' });
+        await c.fetchAny(first, { key: ['stats'] });
+        const result = await c.fetchAny(second, { key: ['stats'] });
         expect(second).not.toHaveBeenCalled();
         expect(result).toBe(1);
     });
 
-    it('treats different lastUpdateKeys as independent buckets', async () => {
+    it('treats different keys as independent buckets', async () => {
         const c = make();
         const a = jest.fn(() => Promise.resolve('a'));
         const b = jest.fn(() => Promise.resolve('b'));
-        await c.fetchAny(a, { lastUpdateKey: 'endpoint-a' });
-        await c.fetchAny(b, { lastUpdateKey: 'endpoint-b' });
+        await c.fetchAny(a, { key: ['endpoint-a'] });
+        await c.fetchAny(b, { key: ['endpoint-b'] });
         expect(a).toHaveBeenCalledTimes(1);
         expect(b).toHaveBeenCalledTimes(1);
     });
@@ -62,8 +62,8 @@ describe('UNIT · fetchAny', () => {
         const c = make();
         const first = jest.fn(() => Promise.resolve(1));
         const second = jest.fn(() => Promise.resolve(2));
-        await c.fetchAny(first, { lastUpdateKey: 'stats' });
-        await c.fetchAny(second, { lastUpdateKey: 'stats', forced: true });
+        await c.fetchAny(first, { key: ['stats'] });
+        await c.fetchAny(second, { key: ['stats'], forced: true });
         expect(second).toHaveBeenCalledTimes(1);
     });
 
@@ -72,38 +72,38 @@ describe('UNIT · fetchAny', () => {
         await expect(c.fetchAny(apiReject('boom'))).rejects.toThrow('boom');
     });
 
-    it('clears a failed cached entry so the next call retries', async () => {
+    it('a failed first call leaves no cache entry behind, so the next call retries', async () => {
         const c = make();
-        await expect(c.fetchAny(apiReject(), { lastUpdateKey: 'stats' })).rejects.toThrow();
+        await expect(c.fetchAny(apiReject(), { key: ['stats'] })).rejects.toThrow();
+        expect(
+            c.queryClient.getQueryCache().find({ queryKey: ['resource', 'any', [], 'stats'] })
+        ).toBeUndefined();
         const retry = jest.fn(() => Promise.resolve('ok'));
-        await expect(c.fetchAny(retry, { lastUpdateKey: 'stats' })).resolves.toBe('ok');
+        await expect(c.fetchAny(retry, { key: ['stats'] })).resolves.toBe('ok');
         expect(retry).toHaveBeenCalledTimes(1);
     });
 
-    it('toggles loading during the call and back to false', async () => {
+    it('counts toward isLoading() during the call, key or no key', async () => {
         const c = make();
-        let during = false;
+        let duringNoKey = false;
         await c.fetchAny(
             jest.fn(() => {
-                during = c.loading.value as boolean;
+                duringNoKey = c.isLoading();
                 return Promise.resolve(1);
             })
         );
-        expect(during).toBe(true);
-        expect(c.loading.value).toBe(false);
-    });
+        expect(duringNoKey).toBe(true);
+        expect(c.isLoading()).toBe(false);
 
-    it('loading:false leaves the flag untouched', async () => {
-        const c = make();
-        let during = true;
+        let duringWithKey = false;
         await c.fetchAny(
             jest.fn(() => {
-                during = c.loading.value as boolean;
+                duringWithKey = c.isLoading(['stats']);
                 return Promise.resolve(1);
             }),
-            { loading: false }
+            { key: ['stats'] }
         );
-        expect(during).toBe(false);
-        expect(c.loading.value).toBe(false);
+        expect(duringWithKey).toBe(true);
+        expect(c.isLoading(['stats'])).toBe(false);
     });
 });

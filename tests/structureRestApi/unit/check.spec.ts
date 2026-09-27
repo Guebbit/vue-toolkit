@@ -6,11 +6,11 @@
  * Each check mirrors its fetch* counterpart's query key. Contract asserted here:
  *   - cold cache → false (nothing cached yet)
  *   - after a matching fetch* call → true (would be served from cache)
- *   - a call with a DIFFERENT key (different id / parentId / filters / page / lastUpdateKey)
+ *   - a call with a DIFFERENT key (different id / parentId / filters / page / key)
  *     stays false — checks must not cross-report unrelated cache slots
  *
- * (The TTL boundary itself — true just under TTL, false just past it — lives in
- * ttl/ttl.check.spec.ts, alongside the rest of the freshness suite.)
+ * (The staleTime boundary itself — true just under it, false just past it — lives in
+ * staleTime/staleTime.check.spec.ts, alongside the rest of the freshness suite.)
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -38,13 +38,6 @@ describe('UNIT · checkTarget', () => {
         await c.fetchTarget(apiResolve(USERS[0]), 1);
         expect(c.checkTarget(2)).toBe(false);
     });
-
-    it('respects lastUpdateKey as a separate bucket', async () => {
-        const c = make();
-        await c.fetchTarget(apiResolve(USERS[0]), 1, { lastUpdateKey: 'v2' });
-        expect(c.checkTarget(1)).toBe(false);
-        expect(c.checkTarget(1, { lastUpdateKey: 'v2' })).toBe(true);
-    });
 });
 
 describe('UNIT · checkAll', () => {
@@ -67,17 +60,17 @@ describe('UNIT · checkByParent', () => {
 });
 
 describe('UNIT · checkAny', () => {
-    it('always false without a lastUpdateKey (fetchAny never caches that call)', async () => {
+    it('always false without a key (fetchAny never caches that call)', async () => {
         const c = make();
         await c.fetchAny(async () => 'ok');
         expect(c.checkAny()).toBe(false);
     });
 
-    it('true after fetchAny primed the given lastUpdateKey', async () => {
+    it('true after fetchAny primed the given key', async () => {
         const c = make();
-        expect(c.checkAny('report-1')).toBe(false);
-        await c.fetchAny(async () => 'ok', { lastUpdateKey: 'report-1' });
-        expect(c.checkAny('report-1')).toBe(true);
+        expect(c.checkAny(['report-1'])).toBe(false);
+        await c.fetchAny(async () => 'ok', { key: ['report-1'] });
+        expect(c.checkAny(['report-1'])).toBe(true);
     });
 });
 

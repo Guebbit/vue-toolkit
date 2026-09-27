@@ -1,22 +1,33 @@
+/**
+ * A whole resource — list, filtered search, read, create, update, delete — declared from the API
+ * calls that reach it.
+ *
+ * `useStructureSearchApi` with the wiring done: each operation you supply powers a ready-made
+ * method, and a missing one makes its methods reject with a clear error. Everything the search
+ * layer returns is passed through, so this is a convenience, never a ceiling.
+ *
+ * @module composables/structureCrudApi
+ * @see docs/composables/structure-crud-api.md
+ */
 import { ref, type Ref, type WatchSource } from 'vue';
-import { useStructureSearchApi, type IWatchSearchSettings } from './structureSearchApi';
-import type { IFetchSettings, IStructureRestApi } from './structureRestApi';
+import { detachedCopy } from '../internal/plainData';
+import {
+    useStructureSearchApi,
+    type ISearchResult,
+    type IWatchSearchSettings
+} from './structureSearchApi';
+import type { IFetchSettings, IStructureRestApi, IWatchTargetSettings } from './structureRestApi';
 
 /**
- * The API calls a resource is reached through.
+ * The API calls a resource is reached through. All optional: a read-only resource supplies
+ * `list`/`get` and nothing else, and a method whose operation is missing rejects naming it.
  *
- * All optional: a read-only resource supplies list/get and nothing else, and a method whose
- * operation is missing returns a rejection naming it.
- *
- * @key T - the record
- * @key K - its identifier
- * @key F - the search filters
- * @key C - the create payload
- * @key U - the update payload
- * @key O - per-call options forwarded to your HTTP client (axios config, AbortSignal, ...)
+ * Type parameters: `T` the record, `K` its identifier, `F` the search filters, `C` the create
+ * payload, `U` the update payload, `O` per-call options the writes (createOne, updateOne,
+ * deleteOne) forward to your HTTP client (axios config, AbortSignal, ...).
  */
 export interface IStructureCrudOperations<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>,
     F = object,
@@ -25,18 +36,16 @@ export interface IStructureCrudOperations<
     O = unknown
 > {
     /** Every record, unpaginated. Powers fetchList. */
-    list?: (options?: O) => Promise<(T | undefined)[]>;
+    list?: () => Promise<(T | undefined)[]>;
 
-    /** One page of a filtered search. Powers watchList, searchNow, resetFilters, fetchPage. */
-    search?: (
-        filters: F,
-        page: number,
-        pageSize: number,
-        options?: O
-    ) => Promise<(T | undefined)[]>;
+    /**
+     * One page of a filtered search, with the server's total — what keeps "124 orders" and the
+     * pager right even on a cache hit. Powers watchList, searchNow, resetFilters, fetchPage.
+     */
+    search?: (filters: F, page: number, pageSize: number) => Promise<ISearchResult<T>>;
 
     /** One record by id. Powers fetchOne, watchOne. */
-    get?: (id: K, options?: O) => Promise<T | undefined>;
+    get?: (id: K) => Promise<T | undefined>;
 
     /** Creates a record, resolving with it as stored. */
     create?: (data: C, options?: O) => Promise<T | undefined>;
@@ -48,34 +57,28 @@ export interface IStructureCrudOperations<
     remove?: (id: K, options?: O) => Promise<unknown>;
 
     /**
-     * Turns an update payload into the patch updateOne applies locally, default the payload
-     * itself. Override when the two differ, e.g. a multipart form whose payload carries a File
+     * Turns an update payload into the patch updateOne applies locally (default: the payload
+     * itself). Override when the two differ, e.g. a multipart form whose payload carries a File
      * the record has no business holding: `({ imageUpload, ...fields }) => fields`
      */
     optimisticPatch?: (data: U) => Partial<T>;
 }
 
-/**
- * Composable customization settings: everything useStructureRestApi accepts, plus the filters.
- */
+/** Options of a CRUD resource: everything useStructureRestApi accepts, plus the filters. */
 export interface IStructureCrudSettings<F = object> extends IStructureRestApi {
-    // Starting value of `filters`, and what resetFilters() returns to
+    /** Starting value of `filters`, and what resetFilters() returns to. */
     initialFilters?: F;
 }
 
 /**
- * A whole resource — list, filtered search, read, create, update, delete — from the API calls
- * that reach it.
+ * A whole resource from the API calls that reach it.
  *
- * useStructureSearchApi with the wiring done. Everything it returns is passed through, so this
- * layer is a convenience and never a ceiling: drop to fetchTarget, fetchByParent, searchGet and
- * the rest for anything it does not cover.
- *
- * @param operations - see {@link IStructureCrudOperations}
- * @param settings   - see {@link IStructureCrudSettings}
+ * @param operations - see IStructureCrudOperations
+ * @param settings - see IStructureCrudSettings
+ * @returns the resource
  */
 export const useStructureCrudApi = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>,
     F = object,
@@ -84,178 +87,197 @@ export const useStructureCrudApi = <
     O = unknown,
     P extends string | number = string | number
 >(
-    operations: IStructureCrudOperations<T, K, F, C, U, O> = {},
-    { initialFilters, ...settings }: IStructureCrudSettings<F> = {}
+    operations: IStructureCrudOperations<T, K, F, C, U, O>,
+    { initialFilters, ...settings }: IStructureCrudSettings<F>
 ) => {
     /**
-     * Current search filters, everything except pagination.
+     * A fresh copy of the initial filters: `filters` is edited in place by forms, so it must
+     * never share objects with `initialFilters`.
      *
-     * Editing this does NOT re-run the search: as-you-type vs on-submit is a decision about the
-     * screen, not about the resource. Change it, then call searchNow().
+     * @returns the copy
      */
-    const filters = ref((initialFilters ?? {}) as F) as Ref<F>;
+    const initialCopy = (): F => detachedCopy((initialFilters ?? {}) as F);
 
+    /**
+     * The live search filters, everything except pagination. Editing them does NOT run a search
+     * (as-you-type vs on-submit is the screen's decision): change them, then call searchNow().
+     */
+    const filters = ref(initialCopy()) as Ref<F>;
+
+    /** The search resource, reading `filters`. */
     const api = useStructureSearchApi<T, K, P, F>(() => filters.value, settings);
 
     /**
-     * Answer for a call whose operation was never supplied.
-     * A rejection, not a throw, so it surfaces through the same .catch as a failed request.
+     * Runs `run` with the named operation, or rejects naming it when it was never supplied: a
+     * rejection, not a throw, so it surfaces through the same `.catch` as a failed request.
      *
-     * @param operation
+     * @param name - the operation
+     * @param run - what to do with it
+     * @returns what `run` resolves
      */
-    const missing = <R>(operation: keyof IStructureCrudOperations<T, K, F, C, U, O>): Promise<R> =>
-        Promise.reject(
-            new Error(`useStructureCrudApi - no "${String(operation)}" operation was supplied`)
-        );
+    const withOperation = <N extends 'list' | 'search' | 'get' | 'create' | 'update' | 'remove', R>(
+        name: N,
+        run: (operation: NonNullable<IStructureCrudOperations<T, K, F, C, U, O>[N]>) => Promise<R>
+    ): Promise<R> => {
+        const operation = operations[name];
+        return operation
+            ? run(operation as NonNullable<IStructureCrudOperations<T, K, F, C, U, O>[N]>)
+            : Promise.reject(
+                  new Error(`useStructureCrudApi - no "${name}" operation was supplied`)
+              );
+    };
 
     /**
-     * Apply optimisticPatch, or treat the payload as the patch when there is none.
+     * The patch updateOne applies locally: optimisticPatch's, or the payload itself.
      *
-     * @param data
+     * @param data - the update payload
+     * @returns the patch
      */
     const toPatch = (data: U): Partial<T> =>
         operations.optimisticPatch ? operations.optimisticPatch(data) : (data as Partial<T>);
 
     /**
-     * Fetch every record into the dictionary.
+     * Fetch every record.
      *
-     * @param settings - forwarded to fetchAll (forced, TTL, merge, ...)
+     * @param fetchSettings - forwarded to fetchAll (forced, staleTime, merge, ...)
+     * @returns the records
      */
-    const fetchList = (settings: IFetchSettings = {}) =>
-        operations.list
-            ? api.fetchAll(() => operations.list!(), settings)
-            : missing<(T | undefined)[]>('list');
+    const fetchList = (fetchSettings: IFetchSettings = {}) =>
+        withOperation('list', (list) => api.fetchAll(() => list(), fetchSettings));
 
     /**
-     * Fetch one unfiltered page, without touching the shared search state.
+     * Fetch one unfiltered page without touching the applied search: it goes through
+     * fetchPaginate, and the total the search operation reports is discarded.
      *
-     * @param page
-     * @param pageSize
-     * @param settings - forwarded to fetchPaginate
+     * @param page - page number
+     * @param pageSize - page size
+     * @param fetchSettings - forwarded to fetchPaginate
+     * @returns the page's records
      */
-    const fetchPage = (page = 1, pageSize = 10, settings: IFetchSettings = {}) =>
-        operations.search
-            ? api.fetchPaginate(
-                  () => operations.search!({} as F, page, pageSize),
-                  page,
-                  pageSize,
-                  settings
-              )
-            : missing<(T | undefined)[]>('search');
+    const fetchPage = (page = 1, pageSize = 10, fetchSettings: IFetchSettings = {}) =>
+        withOperation('search', (search) =>
+            api.fetchPaginate(
+                () => search({} as F, page, pageSize).then(({ items }) => items),
+                page,
+                pageSize,
+                fetchSettings
+            )
+        );
 
     /**
-     * Run the filtered search and keep it running: now, then on every pageCurrent/pageSize change.
+     * The active search: now (unless `immediate: false`), then on every page or page-size
+     * change, invalidation or `dependsOn` change.
      *
-     * @param settings - forwarded to watchSearch. Pass onError: this runs inside a watcher, so a
-     *                   rejection is otherwise swallowed
-     * @returns { stop, search } — search() re-runs with whatever `filters` now holds
+     * @param watchSettings - forwarded to watchSearch; failures show in `error` and `onError`
+     * @returns the watcher handle; its search() applies whatever `filters` now holds
      */
-    const watchList = (settings: IWatchSearchSettings<T, F> = {}) =>
+    const watchList = (watchSettings: IWatchSearchSettings<T, F> = {}) =>
         api.watchSearch(
             (currentFilters, page, pageSize) =>
-                operations.search
-                    ? operations.search(currentFilters, page, pageSize)
-                    : missing<(T | undefined)[]>('search'),
-            settings
+                withOperation('search', (search) => search(currentFilters, page, pageSize)),
+            watchSettings
         );
 
     /**
-     * Apply the current filters from page one — the "Search" button.
+     * Apply the current filters from page one: the "Search" button.
      *
-     * Resetting the page is the point: watchList's watcher fires on a page CHANGE, so a user
-     * already on page 1 would otherwise press Search and see nothing happen.
-     *
-     * @param settings - forwarded to fetchSearch
+     * @param fetchSettings - forwarded to fetchSearch
+     * @returns the first page, with the search's total
      */
-    const searchNow = (settings: IFetchSettings = {}) => {
+    const searchNow = (fetchSettings: IFetchSettings = {}) => {
         api.pageCurrent.value = 1;
-        return operations.search
-            ? api.fetchSearch(
-                  () => operations.search!(filters.value, 1, api.pageSize.value),
-                  filters.value,
-                  1,
-                  api.pageSize.value,
-                  settings
-              )
-            : missing<(T | undefined)[]>('search');
-    };
-
-    /**
-     * Clear every filter and search again from page one.
-     * Forced: Reset asks for the truth, and answering it out of the cache that produced the state
-     * being reset is what it does not mean.
-     *
-     * @param settings - forwarded to fetchSearch
-     */
-    const resetFilters = (settings: IFetchSettings = {}) => {
-        filters.value = (initialFilters ?? {}) as F;
-        return searchNow({ forced: true, ...settings });
-    };
-
-    /**
-     * Fetch one record and select it, so selectedRecord is what the screen is showing.
-     *
-     * Selects up front and undoes it on failure — same order as watchTarget, so a record already
-     * in the dictionary renders instead of blanking the page. Use fetchTarget directly to load a
-     * record WITHOUT making it current.
-     *
-     * @param id
-     * @param settings - forwarded to fetchTarget
-     */
-    const fetchOne = (id: K, settings: IFetchSettings = {}) => {
-        if (!operations.get) return missing<T | undefined>('get');
-        api.selectedIdentifier.value = id;
-        return api
-            .fetchTarget(() => operations.get!(id), id, settings)
-            .catch((error: unknown) => {
-                api.selectedIdentifier.value = undefined;
-                throw error;
-            });
-    };
-
-    /**
-     * fetchOne's reactive counterpart: selects and (re)fetches whenever the id changes.
-     *
-     * @param idSource - nullish clears the selection
-     */
-    const watchOne = (idSource: WatchSource<K | undefined | null>) =>
-        api.watchTarget(idSource, (id) =>
-            operations.get ? operations.get(id) : missing<T | undefined>('get')
+        return withOperation('search', (search) =>
+            api.fetchSearch(
+                () => search(filters.value, 1, api.pageSize.value),
+                filters.value,
+                1,
+                api.pageSize.value,
+                fetchSettings
+            )
         );
+    };
+
+    /**
+     * Clear every filter and search again from page one. Forced: a reset asks for the truth, not
+     * for the cache that produced the state being reset.
+     *
+     * @param fetchSettings - forwarded to fetchSearch
+     * @returns the first page, with the search's total
+     */
+    const resetFilters = (fetchSettings: IFetchSettings = {}) => {
+        filters.value = initialCopy();
+        return searchNow({ forced: true, ...fetchSettings });
+    };
+
+    /**
+     * Fetch one record and select it, so selectedRecord is what the screen shows. Selects up
+     * front and undoes it on failure — unless another id was selected meanwhile — so a cached
+     * record renders at once. Use fetchTarget to load a record without selecting it.
+     *
+     * @param id - the record id
+     * @param fetchSettings - forwarded to fetchTarget (forced, merge, staleTime)
+     * @returns the record
+     */
+    const fetchOne = (
+        id: K,
+        fetchSettings: Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'> = {}
+    ) =>
+        withOperation('get', (get) => {
+            api.selectedIdentifier.value = id;
+            return api
+                .fetchTarget(() => get(id), id, fetchSettings)
+                .catch((error: unknown) => {
+                    if (api.selectedIdentifier.value === id)
+                        api.selectedIdentifier.value = undefined;
+                    throw error;
+                });
+        });
+
+    /**
+     * fetchOne's active counterpart: selects and keeps fetched whatever id `idSource` produces.
+     * A nullish id leaves the selection as it is.
+     *
+     * @param idSource - Ref, ComputedRef or getter producing the id
+     * @param watchSettings - forwarded to watchTarget (forced, merge, staleTime, callbacks)
+     * @returns the watcher handle
+     */
+    const watchOne = (
+        idSource: WatchSource<K | undefined | null>,
+        watchSettings: IWatchTargetSettings<T, K> = {}
+    ) => api.watchTarget(idSource, (id) => withOperation('get', (get) => get(id)), watchSettings);
 
     /**
      * Create a record and store it.
      *
-     * @param data
+     * @param data - the create payload
      * @param options - per-call HTTP options, forwarded to the operation
+     * @returns the stored record
      */
     const createOne = (data: C, options?: O) =>
-        operations.create
-            ? api.createTarget(() => operations.create!(data, options))
-            : missing<T | undefined>('create');
+        withOperation('create', (create) => api.createTarget(() => create(data, options)));
 
     /**
-     * Update a record, applying the change locally first and rolling it back on failure.
+     * Update a record: applied locally first, rolled back on failure.
      *
-     * @param id
-     * @param data    - see optimisticPatch for what reaches local state
+     * @param id - the record id
+     * @param data - the update payload (see optimisticPatch for what reaches local state)
      * @param options - per-call HTTP options, forwarded to the operation
+     * @returns the operation's result
      */
     const updateOne = (id: K, data: U, options?: O) =>
-        operations.update
-            ? api.updateTarget(() => operations.update!(id, data, options), toPatch(data), id)
-            : missing<T | undefined>('update');
+        withOperation('update', (update) =>
+            api.updateTarget(() => update(id, data, options), toPatch(data), id)
+        );
 
     /**
-     * Delete a record and drop it from the dictionary.
+     * Delete a record: removed locally first, restored on failure.
      *
-     * @param id
+     * @param id - the record id
      * @param options - per-call HTTP options, forwarded to the operation
+     * @returns the operation's result
      */
     const deleteOne = (id: K, options?: O) =>
-        operations.remove
-            ? api.deleteTarget(() => operations.remove!(id, options), id)
-            : missing<unknown>('remove');
+        withOperation('remove', (remove) => api.deleteTarget(() => remove(id, options), id));
 
     return {
         ...api,
@@ -274,11 +296,9 @@ export const useStructureCrudApi = <
     };
 };
 
-/**
- * Everything {@link useStructureCrudApi} returns.
- */
+/** Everything {@link useStructureCrudApi} returns. */
 export type IStructureCrudApi<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>,
     F = object,

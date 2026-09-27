@@ -4,7 +4,7 @@
  *   - after a matching fetchSearch call → true (would be served from cache)
  *   - a different page of the same search is a different bucket
  *
- * (The TTL boundary itself lives in tests/structureSearchApi/ttl/ttl.check.spec.ts.)
+ * (The staleTime boundary itself lives in staleTime/staleTime.check.spec.ts.)
  */
 
 import { makeSearchComposable, clearAllInstances } from '../_helpers/harness';
@@ -21,7 +21,7 @@ describe('UNIT · checkSearch', () => {
         const filters = { role: 'admin' };
         expect(searchApi.checkSearch(filters, 1, 10)).toBe(false);
         await searchApi.fetchSearch(
-            apiResolve([{ id: 1, name: 'Alice' } as IUser]),
+            apiResolve({ items: [{ id: 1, name: 'Alice' } as IUser], totalItems: 1 }),
             filters,
             1,
             10

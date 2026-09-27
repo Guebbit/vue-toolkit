@@ -1,3 +1,251 @@
+# 5.0.0
+
+`useStructureRestApi` is rebuilt directly on [TanStack Query](https://tanstack.com/query) as the
+single source of truth for records, lists, searches, freshness, invalidation, and loading. TanStack
+came in with 2.0 (`afb162b`) only to replace the old TTL timestamps: the hand-rolled dictionary
+stayed around it through 4.x, so the toolkit ran **two** caches, and TanStack was used as a clock
+that never knew what was actually on screen. This release closes four related frontend bugs traced
+to that split:
+- the next user to log in could still see the previous user's data (nothing scoped the cache to
+  *who* the data belonged to);
+- a language switch emptied whatever page was on screen (same root cause: nothing kept fetched
+  pages tied to a language);
+- a paginated list's pager could vanish on a cache hit (the server-reported total was never stored
+  alongside the page that produced it);
+- another store's list could go stale on screen indefinitely (invalidating it did nothing, because
+  nothing was watching it live).
+
+All four are now structural, not patched: a resource's cache lives entirely in one shared
+`QueryClient`, scoped by a `dependsOn` getter (whose data, which language), and every `watch*` call
+is an active TanStack observer that reacts to invalidation on its own.
+
+## Changed
+
+- **BREAKING** — `@guebbit/vue-toolkit` now peers on `@tanstack/vue-query ^5.103` instead of
+  `@tanstack/query-core`. `vue-query` **is** `query-core` plus the Vue layer (it re-exports all of
+  it and depends on an exact version internally), so installing `@tanstack/query-core` directly
+  alongside it is a real failure, not a warning — two copies means a client built from the wrong
+  one silently never fetches, and `instanceof CancelledError` answers `false` across the pair.
+  Remove `@tanstack/query-core` from your own `package.json`, install `@tanstack/vue-query`, and
+  set it up once per app:
+  ```ts
+  import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
+  const queryClient = new QueryClient()
+  app.use(VueQueryPlugin, { queryClient })
+  ```
+  4.x's private client set `retry: false` and `networkMode: 'always'`; a `new QueryClient()`
+  keeps TanStack's defaults instead, so a `watch*` query retries a failure 3 times (in a browser)
+  before reporting it, and queries and mutations pause while the browser reports itself offline.
+  To keep the 4.x behaviour, set them on the client:
+  ```ts
+  new QueryClient({
+      defaultOptions: {
+          queries: { retry: false, networkMode: 'always' },
+          mutations: { networkMode: 'always' }
+      }
+  })
+  ```
+  There is no private, toolkit-owned `QueryClient` any more — every `useStructureRestApi`/
+  `useStructureSearchApi`/`useStructureCrudApi` call either takes one explicitly via its
+  `queryClient` option or finds it through this injection (which also works inside a Pinia setup
+  store). One shared client per app is what makes cross-resource cache invalidation possible at
+  all. `vue` peer moves to `>=3.3` (`vue-query`'s own floor).
+- **BREAKING** — `loadingKey` → **`resourceKey`**, and it is now **required**, with no random
+  fallback. It's the key every query and mutation a resource makes starts with — what
+  `queryClient.invalidateQueries({queryKey:[resourceKey]})` addresses from another store, and what
+  `setQueryDefaults` uses to keep records cached. A random default would silently defeat both for
+  any resource that forgot to set one. The returned `loadingKey` field is renamed the same way:
+  read `resourceKey`.
+- **BREAKING** — `TTL` → **`staleTime`**, both as a composable option and a per-call setting. "Time
+  to live" implied the data gets removed once it expires; it doesn't — stale data keeps rendering
+  while a fresh copy downloads, same as always. Only the name changed.
+- **BREAKING** — `lastUpdateKey: 'x'` → **`key: ['x']`**, now an array. It still namespaces
+  independent buckets for an otherwise-identical list or `fetchAny` call, and is now also what
+  `isLoading(key)` matches a call by — on queries **and** mutations (`createTarget`,
+  `updateTarget`, `deleteTarget`, `mutateAny` take it for that). `fetchTarget`/`fetchMultiple`/
+  `watchTarget` take no `key`: a record has exactly one cache entry, keyed only by id.
+  `checkAny`'s first argument follows: `checkAny('x')` → `checkAny(['x'])`.
+- **BREAKING** — per-call settings are typed per method: each method accepts only the fields it
+  reads, and passing another is a type error. `fetchTarget`/`fetchMultiple`: `forced`, `merge`,
+  `staleTime`. `fetchAny`: `forced`, `staleTime`, `key`. `createTarget`/`deleteTarget`/`mutateAny`:
+  `key`. `updateTarget`: `merge`, `key`, `applyResponse` (`IUpdateTargetSettings`). `watchTarget`:
+  `forced`, `merge`, `staleTime` plus its callbacks (`IWatchTargetSettings`). `checkAll`/
+  `checkByParent`/`checkPaginate`: `key`, `staleTime`; `checkTarget`/`checkMultiple`/`checkAny`:
+  `staleTime` (`checkAny`'s key is its first argument). List fetches and their watchers take the
+  whole `IFetchSettings`.
+- **BREAKING** — `mismatch` → **`partial`**, same dual effect (merge instead of replace, and don't
+  count the write as freshly-fetched) — renamed because "the response holds partial records" is
+  what it always meant; "mismatch" described nothing about the actual behaviour.
+- **BREAKING** — `fetchAgain` → **`applyResponse`** (`updateTarget` only): trust the response as the
+  record's new, full data. Same option, clearer name — it never re-fetched anything, the old name
+  promised a request that doesn't happen. An empty response (`undefined`/`null`) keeps the
+  optimistic patch as the record; the resource's lists are invalidated either way.
+- **BREAKING** — records are read-only. 4.x's `itemDictionary` and `parentHasMany` were writable
+  refs, so writing into a record read back (`getRecord(1).name = 'x'`) or into the dictionary
+  changed the store. On `useStructureRestApi` they are now computed views over the cache: a write
+  into `getRecord(x)` or `itemDictionary` is ignored with a Vue warning, and `parentHasMany` is
+  rebuilt from the cache on every change, so an in-place edit of it is lost. Migration: write
+  through `addRecord`/`editRecord`/`updateTarget`, and link children with `addToParent`.
+- **BREAKING** — `fetchMultiple` resolves the requested ids: one slot per id, the fetched ones
+  first, then the cached ones, `undefined` for an id the server left out. 4.x resolved every item
+  the server returned (whatever its id), then the cached ones.
+- **BREAKING** — raw cache keys carry record and parent ids as strings:
+  `[resourceKey, 'target', dependsOn, String(id)]`,
+  `[resourceKey, 'parent', dependsOn, String(parentId), ...key]`. `5` and `'5'` (a route param)
+  now address one entry. A raw `queryClient` call that addresses a record or a parent list must
+  use the string id.
+- **BREAKING** (types) — `useStructureCrudApi`'s read operations take no `options` parameter:
+  `list: () => …`, `search: (filters, page, pageSize) => …`, `get: (id) => …`. It was never
+  forwarded to them; `O` now types only `create`/`update`/`remove`. `updateTarget`'s `apiCall` is
+  typed `() => Promise<F>` (4.x: `() => Promise<F | (T | undefined)[]>`); a response that is not
+  a record object (empty, an array, a primitive) keeps the optimistic patch.
+- **BREAKING** — `forced` keeps its name and its intent (skip the cache, get fresh data), but its
+  mechanism changed: it now runs the call with `staleTime: 0` instead of dropping the cache entry
+  first. A concurrent, non-forced call for the same thing joins this same request instead of racing
+  it — dropping the entry first would have cancelled that other call with a rejection.
+- **BREAKING** — a search's `apiCall` (and `fetchSearch`/`watchSearch`/the CRUD `search` operation)
+  now resolves **`{ items, totalItems }`** instead of a bare array, and so do `fetchSearch`, the
+  watcher's `search()`, `searchNow()` and `resetFilters()`. `totalItems` is stored alongside the
+  page it came from, so it — and the derived `pageTotal` — now survive a cache hit, which closes
+  the vanishing-pager bug above. `fetchPage` (unfiltered, via `fetchPaginate`) still resolves a bare
+  array and discards `totalItems`.
+- **BREAKING** — **The applied search.** What `pageItemList`, `pageTotal` and `totalItems` show
+  follows the *applied* search — a detached copy of the filters (plus its `key`) taken when a
+  search is applied — not the live filters. Only `search()`, `fetchSearch`, and the CRUD
+  `searchNow()`/`resetFilters()` apply the live filters (and `watchSearch` once at creation, with
+  `immediate`); a page or page-size change fetches another page of the applied search without
+  re-reading them. Fixes a real bug: binding a filter form's inputs straight to the live `filters`
+  blanked the list while the user typed, before Search was pressed. Migration: call `search()` (or
+  `searchNow()`) wherever an edit of the filters should take effect.
+- **BREAKING** — on `useStructureSearchApi`/`useStructureCrudApi`, changing `pageSize` now also
+  resets `pageCurrent` to `1`, in the same fetch — a page number from the old page size rarely
+  means anything under the new one. The client-side pagination of `useStructureDataManagement`/
+  `useStructureRestApi` is unchanged.
+- **BREAKING** — every watcher returns a handle **`{ stop, refetch, error }`** (`IWatchHandle`).
+  `watchTarget` (and the CRUD `watchOne`) returned a bare stop function (`WatchStopHandle`), and
+  `watchSearch` (the CRUD `watchList`) returned `{ stop, search }`. Migration:
+  `const stop = watchTarget(...)` → `const { stop } = watchTarget(...)`. `refetch()` fetches now,
+  joins a fetch already running instead of restarting it, and resolves with the watched data as
+  cached after the fetch (a failure leaves the previous data); a watcher never rejects — failures
+  show in `error` (and `onError` where offered). `watchSearch` adds `search()`
+  (`IWatchSearchHandle`), which resolves `undefined` on failure; `watchAny` adds `data`.
+- **BREAKING** — `useStructureCrudApi`'s `operations` parameter is required: it no longer defaults
+  to `{}`. `settings` was already effectively required, since it carries `resourceKey`. Migration:
+  `useStructureCrudApi()` → `useStructureCrudApi({}, { resourceKey: '...' })`.
+- **BREAKING** — a resource's data outlives the effect scope that built it. 4.x cleared the
+  dictionary (and its private client) when the owning component or store was disposed; now
+  stopping a scope ends the resource's cache subscriptions and its watchers, and every entry stays
+  in the shared `QueryClient`. Call `resetAll()` first, or let a `dependsOn` change drop it, when
+  data must leave memory.
+- `watchTarget`/`watchSearch` (and the CRUD `watchOne`/`watchList`) are now **active**: built on
+  TanStack's `useQuery`, so an `invalidateQueries` call from anywhere, or a `dependsOn` change,
+  re-runs them on their own — no imperative refetch needed.
+- `watchOne(idSource, settings?)` forwards `settings` (`forced`, `merge`, `staleTime`, and the
+  `onSuccess`/`onError`/`onSettled` callbacks) to `watchTarget`.
+- `loading` stays on every resource, now derived from TanStack: true while any query or mutation
+  under the resource's `resourceKey` is in flight (the same as `isLoading()`).
+- `resetAll()` now drops every kind of a resource's entries under the current `dependsOn`
+  (records, lists, searches) in one call, rather than only resetting the local dictionary and
+  parent relations, and refetches what active watchers show: the views empty, then the watched
+  data comes back. `resetRecords()` removes records only, and marks the lists stale (their ids may
+  now point at nothing), so active list watchers refetch.
+- Cache lifetime: records and parent lists (`getListByParent`) are never garbage-collected, as the
+  4.x dictionary never was. The `all`/`page`/`search`/`any` entries follow the client's `gcTime`
+  (TanStack's default: 5 minutes in a browser once nothing observes them) — 4.x kept its own
+  search page index, and gave its private client a `gcTime` of at least `TTL`. A search page
+  fetched imperatively with `fetchSearch` therefore empties `pageItemList`/`totalItems` 5 minutes
+  after nothing observes it; `watchSearch` keeps it alive.
+- `maxRecords`' default drops from `100_000` to `10_000` — a record costs more as a TanStack query
+  than as a plain object (measured for 10 000 records: ~2.2 MB as plain objects, ~10.5 MB as
+  queries, i.e. ~0.8–1 KB more per record), so the same backstop now sits at a tighter bound.
+- Crossing `maxRecords` now drops every other entry of the current scope — lists and searches too,
+  not only records — while the list fetch that crossed it keeps its own entry, resolving its items
+  and caching its list. Only records not cached yet count towards the bound (4.x counted the whole
+  incoming batch), so refetching a list that is already cached never triggers the wipe.
+  Queries still fetching are spared, since their answers are on the way. `fetchMultiple` enforces
+  the bound as well; `fetchTarget`/`watchTarget` no longer trigger it (in 4.x they did), so no
+  single-record write does: the mutations never did.
+- `parentHasMany`/`getRecordsByParent`/`getListByParent` on `useStructureRestApi` read the cache: a
+  parent's children are the union of its keyless entry and every `fetchByParent(..., { key })`
+  bucket for it, in first-seen order, without duplicates. `addToParent` writes the keyless entry;
+  `removeFromParent`/`removeDuplicateChildren` edit every bucket of the parent. Edited entries are
+  marked stale, so the next `fetchByParent` asks the server.
+
+## Added
+
+- **`dependsOn`** — a getter returning the values a resource's data depends on (whose data, which
+  language): `dependsOn: () => [session.viewer?.id ?? 'guest', locale.value]`. Read fresh at the
+  start of every call; when it changes, the resource's entries under the old value — records
+  included — are cancelled and removed (not merely marked stale), every active `watch*` re-runs
+  under the new one, and an answer or rollback that settles afterwards is dropped. Closes the
+  cross-user and cross-language data leaks above.
+- **`watchAll`**, **`watchByParent`**, **`watchAny`** — the active counterparts of `fetchAll`/
+  `fetchByParent`/`fetchAny`, so a view never has to fetch imperatively from `onMounted` or a click
+  handler. `watchAll`/`watchByParent` take the full `IFetchSettings` (`forced`: every mount or key
+  switch asks the server); `watchByParent`'s `parentId` may be a plain value, a Ref or a getter,
+  and re-runs when it changes, and its `apiCall` receives the parent id the running query is for. `watchAny(apiCall, { key, forced?, staleTime? })` requires `key` (an
+  active query needs a stable identity) and also returns `data`, since its answer isn't a record.
+- **`mutateAny(apiCall, { key? })`** — a command that doesn't fit `createTarget`/`updateTarget`/
+  `deleteTarget`'s record shape, run as a one-shot TanStack mutation. Does not auto-invalidate
+  anything — it has no defined relationship to any record or list.
+- **`isLoading(key?)`** on every resource — a plain function, true while a query or mutation of
+  the resource runs whose `key` starts with the given segments (`isLoading(['dash'])` covers a call
+  keyed `['dash', 'w1']`); no key: anything of the resource. Call it inside a `computed`.
+- **`useIsLoading(prefixes?, queryClient?)`** — a new standalone composable: "is any of these
+  resources busy" across the whole app, matching by `resourceKey` string prefix (the same rule
+  `useCoreStore`'s `isLoading` already uses). Built on `useIsFetching`/`useIsMutating`; the optional
+  `queryClient` is for code with no injection context.
+- **`totalItems`** on `useStructureSearchApi`/`useStructureCrudApi` — the applied search's
+  server-reported total, for "124 orders"; `pageTotal` is now derived from it instead of a local
+  item count. While a new page loads it keeps the applied search's latest known total.
+- `searchGet(filters, page, pageSize, { key? })` — an optional fourth argument reads a page cached
+  under a `key` bucket.
+- `resourceKey` and `editRecords` on the object `useStructureRestApi` returns.
+- Exported types: `IWatchHandle`, `IWatchCallbacks`, `IWatchTargetSettings`, `IWatchSearchHandle`,
+  `ISearchResult`, `IUpdateTargetSettings`, `IRecordStore`.
+- `useStructureDataManagement` gains an optional, advanced third parameter, `recordStore`: the
+  write surface its CRUD methods go through instead of owning a plain `ref` directly. Defaults to a
+  local, in-memory store (so the composable is unaffected on its own) — `useStructureRestApi`
+  supplies a TanStack-backed one, which is what turns `itemDictionary` into a live, read-only view
+  of the query cache rather than a second copy of it.
+- Documentation page for `useIsLoading`, and diagrams of the cache layout, the `dependsOn` flow and
+  the applied search.
+
+## Removed
+
+- **BREAKING** — `destroy()`, `startLoading()`/`stopLoading()`, `saveRecords`, the `getLoading`/
+  `setLoading` options, the per-call `loading` and `loadingKey` settings, `fetchLike`,
+  `searchCleanup()`/`resetSearches()`/`searchCached` and the `ISearchCache` type.
+  - `destroy()`: there is no private client left to tear down; stopping the owning scope ends the
+    subscriptions and watchers, and `resetAll()` removes the data.
+  - Loading: `loading` itself stays (see Changed); what is gone is the manual ref-count and its
+    wiring. TanStack already knows what is in flight, so there is nothing to connect an external
+    store to (`getLoading`/`setLoading`), and no per-call opt-out (`loading: false`) or per-call
+    loading name (`loadingKey`): tag a call with `key` and ask `isLoading(key)`.
+  - `fetchLike`: storing the record "as fetched" is now what `createTarget` always does, and what
+    `updateTarget` does with its response; `updateTarget` opts out with `applyResponse: false`.
+  - The search page→ids index: a search's pages are cache entries now, read directly; there is no
+    separate index to clean up or cap.
+
+## Fixed
+
+- `createTarget` left the `dummyData` placeholder on screen when the API resolved empty; it is now
+  removed whatever the call resolved, and the lists are marked stale on any success.
+- A failed `fetchOne` cleared the selection even when a newer `fetchOne` had selected another id
+  meanwhile; it now clears it only while it is still the failed id.
+- `useStructureCrudApi`'s `resetFilters()` restored whatever had been typed instead of the initial
+  filters: `ref(initialFilters)` wrapped the caller's object, so a form editing `filters` in place
+  rewrote `initialFilters` too. `filters` is now a detached copy that never shares objects with
+  `initialFilters`.
+- `removeFromParent` on a parent with no recorded children threw a `TypeError`; it now leaves that
+  parent with an empty list.
+- `useStructureDataManagement`'s `getRecordsByParent`/`getListByParent` returned nothing for a
+  parent id of `0` or `''`; those are real parent ids now, and only an omitted (`undefined`) one
+  means "no parent".
+- `docs/guide/getting-started.md` claimed `@tanstack/query-core`/`vue-query` were regular
+  dependencies landing in your bundle automatically; neither was ever true (the former was a peer,
+  the latter wasn't referenced at all). Corrected alongside the peer-dependency change above.
+
 # 4.0.0
 
 ## Changed

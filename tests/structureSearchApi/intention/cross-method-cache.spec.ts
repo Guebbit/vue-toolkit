@@ -1,7 +1,7 @@
 /**
  * INTENTION — fetchSearch seeds the shared per-item target cache, same as every
  * other producer (see tests/structureRestApi/intention/cross-method-cache.spec.ts).
- * fetchSearch is built on top of fetchPaginate, which does the actual seeding.
+ * fetchSearch runs on the same list-query protocol as fetchAll, which does the actual seeding.
  */
 
 import { makeSearchComposable, clearAllInstances } from '../_helpers/harness';
@@ -13,8 +13,9 @@ afterEach(clearAllInstances);
 describe('INTENTION · cross-method cache seeding (search)', () => {
     it('fetchSearch → fetchTarget(id) is served from cache', async () => {
         const { searchApi } = makeSearchComposable<IArticle, number>();
+        const articles = buildArticles(3, 'tech', 1);
         await searchApi.fetchSearch(
-            apiResolve(buildArticles(3, 'tech', 1)),
+            apiResolve({ items: articles, totalItems: articles.length }),
             { category: 'tech' },
             1
         );

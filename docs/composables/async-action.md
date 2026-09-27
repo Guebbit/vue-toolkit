@@ -8,8 +8,9 @@ The `useStructure*` family is about **records** — identified, cached, mutated,
 another. Plenty of calls are not that. A dashboard panel asks one endpoint one question and
 renders the answer; there is no identity to key it by and nothing to cache it against.
 
-`useStructureRestApi`'s `fetchAny` covers the loading half of that case, but exposes neither the
-payload nor the failure. So every screen writes the same block once per endpoint:
+`useStructureRestApi`'s `fetchAny` covers the loading half of that case, but keeps neither the
+payload nor the failure as state. (`watchAny` does hold `data` and `error`, as an active, cached
+query under a `key` of a resource.) So every screen writes the same block once per endpoint:
 
 ```ts
 const health = ref<Health>()
@@ -109,8 +110,9 @@ its successor is still in flight. Both are handled:
 ```ts
 const slow = run() // resolves last
 const fast = run() // resolves first
-// data holds `fast`'s payload; loading stays true until `slow` settles
+// data holds `fast`'s payload, and loading goes false when `fast` settles;
+// `slow`'s late answer changes nothing (its run() resolves undefined)
 ```
 
-`reset()` participates in the same rule, so a run started before it can no longer write to the
-state it just cleared.
+`reset()` participates in the same rule, so a run started before it cannot write to the state it
+just cleared.

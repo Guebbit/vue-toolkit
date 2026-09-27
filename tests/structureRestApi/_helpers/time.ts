@@ -1,11 +1,11 @@
 /**
- * Fake-clock helpers for the TTL / concurrency specs.
+ * Fake-clock helpers for the staleTime / concurrency specs.
  *
  * Usage inside a describe:
  *   beforeEach(() => useFakeClock());
  *   afterEach(() => { clearAllInstances(); restoreClock(); });
  *   ...
- *   await advance(TTL + 1); // travel past the stale window
+ *   await advance(STALE_TIME + 1); // travel past the stale window
  *
  * `advance` uses jest.advanceTimersByTimeAsync so pending promise microtasks
  * (the resolved apiCall chains) flush between steps. Immediate (latency-0) APIs

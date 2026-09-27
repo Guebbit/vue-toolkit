@@ -39,7 +39,7 @@ which stops the moment a probe succeeds.
 
 Teardown is automatic: created inside an effect scope — a component `setup`, a Pinia setup store,
 a bare `effectScope` — it stops with that scope. Created outside one, `stop()` is yours to call.
-`stop()` is idempotent, and a probe that outlives teardown can no longer write to `down`.
+`stop()` is idempotent, and a probe that outlives teardown cannot write to `down`.
 
 ## Options
 

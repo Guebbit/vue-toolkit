@@ -1,6 +1,6 @@
 /**
  * PAGINATION — fetchPaginate (server pagination, one page at a time, no filter
- * concept of its own). Each (page, pageSize, lastUpdateKey) is its own cache
+ * concept of its own). Each (page, pageSize, key) is its own cache
  * bucket. See useStructureSearchApi.fetchSearch, built on top of this, for
  * filters/searchGet/totals.
  */
@@ -24,7 +24,7 @@ describe('PAGINATION · fetchPaginate', () => {
         expect(p2).toHaveBeenCalledTimes(1);
     });
 
-    it('does not re-fetch the same page within TTL', async () => {
+    it('does not re-fetch the same page while fresh', async () => {
         const c = make();
         const first = apiResolve(buildProducts(10, 1));
         const second = apiResolve(buildProducts(10, 1));
