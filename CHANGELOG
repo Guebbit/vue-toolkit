@@ -292,6 +292,14 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useUploadProgress`'s `track` shared its `progress` ref across overlapping calls with no
+  ordering guard: whichever call settled first reset the bar to idle even while a second call was
+  still in flight, and a stale call's late progress event could overwrite the newer call's
+  percentage. A per-call token now scopes both the reporter and the idle-reset to the call that
+  started it, so only the newest `track` call can move `progress`. Also, `track(send, { enabled:
+  false })` let a synchronous throw from `send` escape as a thrown error instead of a rejected
+  promise; `send` is now always called inside a `Promise` executor, so a synchronous throw
+  rejects like any other failure.
 - `useStructureFormValidation`'s root-level Zod issues (an empty `path` — a cross-field
   `.refine()` with no `path` option, say) were silently dropped: `validate()` could return `false`
   while `isValid` stayed `true` and nothing showed on screen. A new `formLevelErrors: Ref<string[]>`

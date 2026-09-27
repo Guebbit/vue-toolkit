@@ -140,9 +140,12 @@ jumping around on a number that means nothing.
 
 ## Gotchas
 
-- **It tracks one upload at a time.** Two concurrent `track` calls share the same `progress`, and
-  the first to settle returns it to idle while the second is still running. For a multi-file
-  uploader with a bar per file, create one composable per file.
+- **It tracks one upload at a time.** Two concurrent `track` calls share the same `progress` ref,
+  so the bar can only ever show one of them. The newest call always wins: an earlier call settling
+  (or still reporting) after a newer one started is stale and is ignored, so it neither resets the
+  bar out from under the newer call nor overwrites its percentage. For a multi-file uploader with
+  a bar per file, create one composable per file regardless — one bar cannot show two files' worth
+  of progress at once.
 - **It does not validate anything.** Accepted types and size limits are a separate concern, and
   checking them client-side is a UX affordance rather than a control — the server has to enforce
   them regardless.

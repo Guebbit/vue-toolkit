@@ -52,6 +52,14 @@ export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<
     const isUploading = computed(() => progress.value !== undefined);
 
     /**
+     * Identifies the most recent `track` call. Every call captures its own value at start;
+     * a report or reset from a call whose value no longer matches this one is stale — a
+     * superseded upload settling (or still reporting) after a newer one started — and is
+     * dropped instead of clobbering the bar the newer call owns.
+     */
+    let currentTrackToken = 0;
+
+    /**
      * Records progress from a 0–1 fraction.
      * Clamped: a client reporting `loaded` against a stale total can exceed 1, and a bar rendered
      * at `width: 137%` breaks the layout.
@@ -80,14 +88,26 @@ export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<
         send: (options?: TOptions) => Promise<T>,
         { enabled = true }: ITrackUploadSettings = {}
     ): Promise<T> => {
-        if (!enabled) return send();
+        // Wrapped in a Promise executor so a SYNCHRONOUS throw from send (not just a rejection)
+        // still reaches the caller as a rejected promise instead of escaping this call frame.
+        if (!enabled) return new Promise<T>((resolve) => resolve(send()));
+
+        // This call's own identity: two overlapping track() calls must not let the first to
+        // settle (or report) clobber the bar the other still owns.
+        const token = ++currentTrackToken;
 
         // 0 from the moment the request is in flight: a bar that waits for the first progress
         // event never appears at all on a fast connection.
         progress.value = 0;
 
         // `finally` forwards the value and re-throws the rejection untouched
-        return send(buildOptions(report)).finally(reset);
+        return send(
+            buildOptions((fraction) => {
+                if (token === currentTrackToken) report(fraction);
+            })
+        ).finally(() => {
+            if (token === currentTrackToken) reset();
+        });
     };
 
     return {

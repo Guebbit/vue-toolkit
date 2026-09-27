@@ -90,6 +90,47 @@ describe('useUploadProgress', () => {
             // A bar rendered from `width: 137%` breaks the layout rather than merely looking wrong.
             expect(seen).toEqual([100, 0]);
         });
+
+        it('does not let an earlier overlapping call reset the bar a newer call owns', async () => {
+            let resolveFirst!: () => void;
+            const first = new Promise<void>((resolve) => {
+                resolveFirst = resolve;
+            });
+
+            const firstCall = composable.track(() => first);
+            // The second call starts while the first is still in flight.
+            const secondCall = composable.track(() => new Promise<void>(() => {}));
+
+            resolveFirst();
+            await firstCall;
+
+            // Still owned by the second, still-in-flight call — not reset by the first settling.
+            expect(composable.progress.value).toBe(0);
+            expect(composable.isUploading.value).toBe(true);
+
+            void secondCall;
+        });
+
+        it('does not let a stale overlapping call report over the newer call', async () => {
+            let firstOnProgress!: (fraction: number) => void;
+            let resolveFirst!: () => void;
+            const first = new Promise<void>((resolve) => {
+                resolveFirst = resolve;
+            });
+
+            const firstCall = composable.track((options) => {
+                firstOnProgress = options!.onProgress;
+                return first;
+            });
+            composable.track(() => new Promise<void>(() => {}));
+
+            // The stale (first) call reports after being superseded by the second.
+            firstOnProgress(0.9);
+            expect(composable.progress.value).toBe(0);
+
+            resolveFirst();
+            await firstCall;
+        });
     });
 
     // ─── enabled ──────────────────────────────────────────────────────────────
@@ -122,6 +163,13 @@ describe('useUploadProgress', () => {
             expect(send).toHaveBeenCalledWith(
                 expect.objectContaining({ onProgress: expect.any(Function) })
             );
+        });
+
+        it('rejects instead of throwing when a disabled send throws synchronously', async () => {
+            const send = jest.fn(() => {
+                throw new Error('boom');
+            });
+            await expect(composable.track(send, { enabled: false })).rejects.toThrow('boom');
         });
     });
 
