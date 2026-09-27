@@ -32,6 +32,12 @@ describe('useNotificationsStore', () => {
         expect(store.history[0].visible).toBe(false);
     });
 
+    it('defaults to EToastType.PRIMARY when no type is given', () => {
+        const store = useNotificationsStore();
+        store.addMessage('Hello');
+        expect(store.history[0].type).toBe(EToastType.PRIMARY);
+    });
+
     it('shows visible messages in computed messages', () => {
         const store = useNotificationsStore();
         store.addMessage('Visible', EToastType.PRIMARY);
@@ -97,6 +103,16 @@ describe('useNotificationsStore', () => {
 
             jest.advanceTimersByTime(1_000_000);
             expect(store.messages).toHaveLength(2); // both remain visible forever
+        });
+
+        it('the timer firing after the message was already removed is a safe no-op', () => {
+            const store = useNotificationsStore();
+            const id = store.addMessage('Temporary', EToastType.PRIMARY, 1000);
+            store.removeMessage(id);
+            expect(store.history).toHaveLength(0);
+
+            expect(() => jest.advanceTimersByTime(1000)).not.toThrow();
+            expect(store.history).toHaveLength(0); // still gone, not resurrected
         });
     });
 });

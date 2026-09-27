@@ -6,6 +6,7 @@
  * request genuinely cancelled, not just a promise whose answer is later discarded.
  */
 
+import { ref } from 'vue';
 import { deferred, deferredApi } from '../_helpers/fakeApi';
 import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { USERS, type IUser } from '../_helpers/fixtures';
@@ -51,6 +52,26 @@ describe('UNIT · the read context (signal)', () => {
         await pendingRead;
         save.control.resolve({ ...USERS[0], name: 'Edited' });
         await pendingUpdate;
+    });
+
+    it("a watcher's signal aborts once its own scope stops mid-fetch", async () => {
+        const c = makeComposable<IUser, number>();
+        let captured: AbortSignal | undefined;
+        const read = deferred<IUser | undefined>();
+        const apiCall = jest.fn((id: number, context: IFetchContext) => {
+            captured = context.signal;
+            return read.promise;
+        });
+
+        const handle = c.watchTarget(apiCall, ref<number | undefined>(1));
+        await flush();
+        expect(captured?.aborted).toBe(false);
+
+        handle.stop();
+        await flush();
+        expect(captured?.aborted).toBe(true);
+
+        read.resolve(USERS[0]);
     });
 
     it('an apiCall that ignores the context entirely still works (it is purely additive)', async () => {

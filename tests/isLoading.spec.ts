@@ -8,6 +8,7 @@
  * runInjected); the last one passes the client explicitly instead.
  */
 
+import { effectScope } from 'vue';
 import { useStructureRestApi } from '../src/composables/structureRestApi';
 import { useIsLoading } from '../src/composables/isLoading';
 import {
@@ -164,5 +165,28 @@ describe('useIsLoading', () => {
         await pending;
         await flush();
         expect(isLoading.value).toBe(false);
+    });
+
+    it("stops watching once its own scope stops — useIsFetching/useIsMutating's subscriptions don't leak", async () => {
+        const queryClient = newTestClient();
+        const scope = effectScope();
+        const { cart, isLoading } = scope.run(() => ({
+            cart: useStructureRestApi({ resourceKey: 'cart', queryClient }),
+            isLoading: useIsLoading(['cart'], queryClient)
+        }))!;
+
+        scope.stop();
+
+        // A fetch started AFTER the scope stopped must never be seen: the subscription this
+        // ComputedRef read through onScopeDispose (inside useIsFetching/useIsMutating) is gone.
+        // fetchAll is a one-shot read, not a watcher, so calling it needs no active scope.
+        const { call, control } = deferredApi<Record<string, unknown>[]>();
+        const pending = cart.fetchAll(call);
+        await flush();
+        expect(isLoading.value).toBe(false);
+
+        control.resolve([]);
+        await pending;
+        queryClient.clear();
     });
 });
