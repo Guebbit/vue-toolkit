@@ -94,8 +94,7 @@ is an active TanStack observer that reacts to invalidation on its own.
   rebuilt from the cache on every change, so an in-place edit of it is lost. Migration: write
   through `addRecord`/`editRecord`/`updateTarget`, and link children with `addToParent`.
 - **BREAKING** — `IToastType` → **`EToastType`** (`useNotificationsStore`). The `I` prefix names an
-  interface; an enum gets no such prefix. Bundled into this unreleased major rather than left for
-  the next one. Update the import and every reference.
+  interface; an enum gets no such prefix. Update the import and every reference.
 - **BREAKING** — `fetchMultiple` resolves the requested ids: one slot per id, the fetched ones
   first, then the cached ones, `undefined` for an id the server left out. 4.x resolved every item
   the server returned (whatever its id), then the cached ones.
@@ -527,6 +526,12 @@ is an active TanStack observer that reacts to invalidation on its own.
   some test runners — hit this on every import. `src/` now imports its own modules with a `.js`
   extension, and `tsconfig.json` builds with `module`/`moduleResolution: NodeNext`, so the compiler
   refuses a missing one from now on.
+- `useStructureDataManagement`'s `pageSize` accepted any written value, including `0` or negative
+  — `pageTotal` (`Math.ceil(totalItems / pageSize)`) then read as `Infinity`. `pageSize` is now a
+  `customRef` that clamps a write to a minimum of 1.
+- `editRecord` checked `id` with `!id`, so a falsy-but-real id (`0`, `''`) was treated as "no id
+  given" and silently fell back to inferring the id from `data` instead of editing the record it
+  was actually asked for. Checks `id === undefined` instead — `0` and `''` are real ids.
 
 # 4.0.0
 
@@ -572,7 +577,7 @@ is an active TanStack observer that reacts to invalidation on its own.
 ## Changed
 - Documented that a schema whose messages are thunks (`error: () => t('…')`) is resolved just as late as a getter schema, and is the safer of the two: `toValue(schema)` runs inside `validate()` and nowhere else, while a getter that is accidentally invoked at the call site type-checks and silently freezes the language.
 
-# 2.1.4
+# 2.1.3
 
 ## Fixed
 - `createIdentifier` (in `useStructureDataManagement`/`useStructureRestApi`) now honours a custom **single** identifier passed as its second argument. Previously the custom value was ignored for non-array identifiers and the default identifier was used instead, so `createIdentifier(item, 'slug')` returned `item.id` rather than `item.slug`. The array form was unaffected.
@@ -581,7 +586,7 @@ is an active TanStack observer that reacts to invalidation on its own.
 - Added mutation testing with [Stryker](https://stryker-mutator.io/): `stryker.conf.json` and a `test:mutation` npm script. See the new [Testing](/guide/testing) guide page for what mutation testing is and how to read the results.
 - Expanded the test suite with the gaps mutation testing surfaced: effect-stability tests (reactive re-evaluation of `selectedRecord`/`itemList`/pagination computeds and the ref-counted `loading` flag), effect-scope auto-teardown, direct unit tests for `stableNormalize` and `generateFallbackValue`, identifier-resolution/batch-edit/guard branches of `useStructureDataManagement`, and notification auto-hide timeouts.
 
-# 2.1
+# 2.1.0
 
 ## Added
 - Added `useStructureSearchApi`, a composable built on top of `useStructureRestApi` that owns everything filter/search-related: `fetchSearch`, `watchSearch` (and `watchCurrentSearch`), `checkSearch`, `searchGet`, `searchCleanup`, `resetSearches`, `isPageCached`, `isPaginateCached`, and a search-scoped `pageItemList`.
@@ -603,7 +608,7 @@ is an active TanStack observer that reacts to invalidation on its own.
 - Added `activateAutoHydrate` to `useStructureFormValidation`: watches a reactive source (e.g. a fetched record) and, once it resolves to a defined value, adopts it as the new reset baseline and applies it to the form.
 - Exposed `showFormErrors` from `useStructureFormValidation`.
 
-# 2.0
+# 2.0.0
 
 ## Added
 - Added a richer public API around `useStructureRestApi`, including:
