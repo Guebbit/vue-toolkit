@@ -233,6 +233,11 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `watchTarget` cleared `selectedIdentifier` on any failed fetch, including a background refetch of
+  a record already on screen: a transient network error blanked the detail view even though the
+  previously fetched record was still sitting right there in the cache. The selection is now
+  cleared only when it still points at the failed id **and** nothing is cached for it any more —
+  a genuine "there is nothing left to show" case, not "the latest refetch happened to fail".
 - A watcher's `onSuccess`/`onError`/`onSettled` ran synchronously inside TanStack's own query-cache
   notify dispatch. A callback that threw there corrupted that dispatch mid-flight — TanStack read
   it as the fetch itself failing, putting the query into an error state, firing `onError` for a

@@ -198,7 +198,9 @@ const { error, refetch } = users.watchTarget(
 `watchTarget` specifics:
 
 - It **selects**: every non-nullish id becomes `selectedIdentifier` right away, so a cached record
-  renders at once. A failed fetch clears the selection.
+  renders at once. A failed fetch clears the selection only when nothing is cached for that id
+  either: a failed background refetch of a record already on screen leaves it selected, showing the
+  stale data instead of blanking the screen over a transient error.
 - A nullish id leaves the selection as it is and fetches nothing; `refetch()` then resolves
   `undefined` without calling `apiCall`.
 - `onSuccess(record, id)`, `onError(error, id)`, `onSettled(record, error, id)` fire when a fetch

@@ -4,7 +4,8 @@
  *   - selects eagerly, before the fetch resolves
  *   - refetches and re-selects when the id source changes
  *   - a nullish id fetches nothing and leaves the selection as it is
- *   - onSuccess/onError/onSettled fire with the right arguments; a failure clears the selection
+ *   - onSuccess/onError/onSettled fire with the right arguments; a failure with nothing cached
+ *     clears the selection, but a failed refetch of an already-cached record does not
  *
  * (The handle contract shared with the other watchers lives in watchers.spec.ts.)
  */
@@ -100,6 +101,27 @@ describe('UNIT · watchTarget', () => {
 
         expect(c.selectedIdentifier.value).toBeUndefined();
         stop();
+    });
+
+    it('a failed background refetch keeps the selection and the stale record instead of blanking the screen', async () => {
+        const c = make();
+        const id = ref<number | undefined>(1);
+        let succeed = true;
+        const apiCall = jest.fn(() =>
+            succeed ? Promise.resolve(USERS[0]) : Promise.reject(new Error('network error'))
+        );
+        const handle = c.watchTarget(id, apiCall);
+        await flush();
+        expect(c.selectedRecord.value).toEqual(USERS[0]);
+
+        succeed = false;
+        await handle.refetch(); // never rejects; the failure shows in `error` instead
+        await flush();
+
+        expect(c.selectedIdentifier.value).toBe(1);
+        expect(c.selectedRecord.value).toEqual(USERS[0]); // stale data still renders
+        expect(handle.error.value).toBeInstanceOf(Error);
+        handle.stop();
     });
 
     it('calls onError/onSettled when the fetch rejects, and does not select', async () => {

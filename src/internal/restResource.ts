@@ -674,7 +674,11 @@ export const createRestResource = <
                     onSuccess,
                     onSettled,
                     onError: (error, id) => {
-                        selectedIdentifier.value = undefined;
+                        // A background refetch's failure only blanks the screen when there is
+                        // nothing left to show: a record still cached from before (or from another
+                        // watcher of the same id) keeps rendering as stale data instead.
+                        if (selectedIdentifier.value === id && getRecord(id) === undefined)
+                            selectedIdentifier.value = undefined;
                         onError?.(error, id);
                     }
                 }
