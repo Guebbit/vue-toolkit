@@ -1065,6 +1065,7 @@ export const createRestResource = <
         // loading
         loading: activity.loading,
         isLoading: activity.isLoading,
+        isSaving: activity.isSaving,
 
         // reads
         fetchAny,

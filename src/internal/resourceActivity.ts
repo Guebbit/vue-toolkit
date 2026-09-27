@@ -5,9 +5,9 @@
  * TanStack's caches are not Vue-reactive. One subscription per cache bumps counters: a data
  * counter per kind (records, parent lists, searches…) when an entry of that kind gets new data
  * or leaves the cache, and a status counter on every change at all. Whatever reads a counter —
- * the record view reads the `target` one, `isLoading` the status ones — re-evaluates when it
- * moves, and only then. The subscriptions end with the effect scope (component, Pinia store)
- * the resource was built in.
+ * the record view reads the `target` one, `isLoading`/`isSaving` the status ones — re-evaluates
+ * when it moves, and only then. The subscriptions end with the effect scope (component, Pinia
+ * store) the resource was built in.
  *
  * @module internal/resourceActivity
  */
@@ -149,5 +149,32 @@ export const useResourceActivity = (queryClient: QueryClient, resourceKey: strin
     /** True while anything of this resource is in flight: `isLoading()`, as a computed. */
     const loading = computed(() => isLoading());
 
-    return { version, isLoading, loading };
+    /**
+     * True while an update or delete mutation on record `id` is running — a per-row pending
+     * signal, e.g. for a row's own spinner instead of one shared across the whole list. A plain
+     * function, like `isLoading`: call it inside a `computed` to track it. Create is deliberately
+     * excluded: a record being created has no stable id of its own yet to key this by.
+     *
+     * @param id - the record id
+     * @returns whether a save (update or delete) of that record is in flight
+     */
+    const isSaving = (id: string | number): boolean => {
+        // Read the same counter isLoading does: any mutation of this resource bumps it.
+        void mutationStatus.value;
+        const idKey = String(id);
+        return (
+            queryClient.isMutating({
+                predicate: (mutation) => {
+                    const mutationKey = mutation.options.mutationKey;
+                    return (
+                        mutationKey?.[0] === resourceKey &&
+                        (mutationKey[1] === 'update' || mutationKey[1] === 'delete') &&
+                        mutationKey[2] === idKey
+                    );
+                }
+            }) > 0
+        );
+    };
+
+    return { version, isLoading, loading, isSaving };
 };

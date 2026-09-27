@@ -317,6 +317,13 @@ export interface IStructureRestApi<
     /** True while a query or mutation of this resource runs whose `key` starts with `key`. */
     isLoading: (key?: string[]) => boolean;
 
+    /**
+     * True while an update or delete mutation on record `id` is running — a per-row pending
+     * signal for a row's own spinner, distinct from `loading`/`isLoading`, which cover the whole
+     * resource. A plain function, like `isLoading`: call it inside a `computed` to track it.
+     */
+    isSaving: (id: K) => boolean;
+
     /** Generic read for anything that is not a record. */
     fetchAny: <F = unknown>(
         apiCall: (context: IFetchContext) => Promise<F>,

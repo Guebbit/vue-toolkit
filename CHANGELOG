@@ -219,6 +219,11 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **`isSaving(id)`**: `true` while an `updateTarget`/`deleteTarget` mutation on record `id` is
+  running — a per-row pending signal for a row's own spinner, distinct from `loading`/`isLoading`,
+  which cover the whole resource. A plain function, like `isLoading`: call it inside a `computed`
+  or a template. Deliberately excludes `createTarget` (no stable id of its own yet) and
+  `mutateAny` (no record id at all).
 - **`suspense()` on every `watch*` handle** (`watchTarget`, `watchAll`, `watchByParent`,
   `watchAny`, `watchSearch`): wraps TanStack's own `suspense()`, resolving once the watched data
   is cached — fetching first if needed. For SSR: call it in `onServerPrefetch`, so the fetch

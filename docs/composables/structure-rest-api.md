@@ -300,7 +300,7 @@ invalidated entry counts as stale. There is no `forced` variant: a forced call a
 
 Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'delete' | 'any', id?]`
 (`id` as `String(id)`, the same form a record's query key uses), so `loading`, `isLoading` and
-`useIsLoading` see it.
+`useIsLoading` see it — `isSaving(id)` reads that same `id` segment for `update`/`delete`.
 
 - **`createTarget`**: `dummyData`, if given, renders at once under a temporary id and is removed
   when the call settles, whatever it resolved. On success the returned record is stored as freshly
@@ -339,6 +339,7 @@ Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'del
 | ----------------- | --------------------------- | -------------------------------------------------------------------------------- |
 | `loading`         | `ComputedRef<boolean>`      | True while anything of this resource is in flight. Same as `isLoading()`.        |
 | `isLoading(key?)` | `(key?: string[]) => boolean` | True while a query or mutation of this resource runs whose `key` **starts with** `key`. A plain function: call it inside a `computed`. |
+| `isSaving(id)`    | `(id: K) => boolean`        | True while an `updateTarget`/`deleteTarget` mutation on record `id` is running — a per-row pending signal, distinct from `loading`/`isLoading`, which cover the whole resource. A plain function: call it inside a `computed`. |
 
 `isLoading` matches by segment prefix: `isLoading(['dash'])` is true while a call made with
 `key: ['dash', 'w1']` runs. With no argument it covers everything of the resource: every query
@@ -352,6 +353,17 @@ them, by design: only `loading` / `isLoading()` see them.
 const saving = computed(() => users.isLoading(['profile-form']))
 
 users.updateTarget(save, patch, id, { key: ['profile-form'] })
+```
+
+`isSaving(id)` covers `updateTarget`/`deleteTarget` only — a record being *created* has no stable
+id of its own yet to key this by, and `mutateAny` carries no record id at all. Like `isLoading`,
+call it inside a `computed` or straight in a template — both track it:
+
+```vue
+<tr v-for="user in itemList" :key="user.id">
+    <td>{{ user.name }}</td>
+    <td><Spinner v-if="users.isSaving(user.id)" /></td>
+</tr>
 ```
 
 For "is any of these resources busy" across the app, see [`useIsLoading`](./is-loading).
