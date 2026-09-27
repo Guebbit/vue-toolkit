@@ -2,14 +2,18 @@
  * A resource's writes: optimistic create / update / delete with rollback, and free-form
  * commands, each run as a one-shot TanStack mutation so `isLoading` sees it.
  *
- * Update and delete share one optimistic protocol: cancel the record's own in-flight read, apply
- * the change locally, send the request; then store the result, or put the record back — only if
- * it still holds this call's change, so a failed older call never undoes a newer one. A list read
- * of the scope is never cancelled: it is left to run, and the write guard (see `./writeGuard`)
- * keeps its answer from overwriting this id once it lands, so every id it holds besides this one
- * still gets stored normally. Every local write checks the `dependsOn` snapshot the call started
- * under and is dropped after a scope change. Once the request settles, success or failure, the
- * scope's lists are marked stale.
+ * Update and delete share one optimistic protocol: cancel the record's own in-flight read, snapshot
+ * the record and apply the change locally, send the request; then store the result, or put the
+ * record back — only if it still holds this call's change, so a failed older call never undoes a
+ * newer one. The snapshot is taken right before applying, not at call start, so a same-tick sibling
+ * mutation on the same id rolls back to what THIS call left behind, never to a shared, older
+ * "before either of us ran" value. Whenever a rollback runs, or a success is skipped because a
+ * newer mutation now owns the record, that record is invalidated so an active watcher reconciles it
+ * with the server instead of trusting the local guess. A list read of the scope is never cancelled:
+ * it is left to run, and the write guard (see `./writeGuard`) keeps its answer from overwriting this
+ * id once it lands, so every id it holds besides this one still gets stored normally. Every local
+ * write checks the `dependsOn` snapshot the call started under and is dropped after a scope change.
+ * Once the request settles, success or failure, the scope's lists are marked stale.
  *
  * @module internal/resourceMutations
  */
@@ -131,6 +135,22 @@ export const createResourceMutations = <
         void queryClient.invalidateQueries({ predicate: keys.inScope(scope, LIST_KINDS) });
 
     /**
+     * Marks record `id` stale and, if something is actively watching it, has it refetch. Called
+     * after a rollback or a skipped success: what is left stored (the pre-change snapshot, or
+     * whatever a newer mutation applied) is a local guess, not a server-confirmed value, so it
+     * asks the server to reconcile it instead of leaving the guess marked fresh.
+     *
+     * @param id - the record id
+     * @param scope - the scope the change ran under
+     */
+    const invalidateRecord = (id: K, scope: unknown[]): void =>
+        void queryClient.invalidateQueries({
+            queryKey: keys.target(id, scope),
+            exact: true,
+            refetchType: 'active'
+        });
+
+    /**
      * Cancels record `id`'s own in-flight read, so it never lands an older answer over the
      * change. A list read of the scope is left running (see the module header).
      *
@@ -186,7 +206,7 @@ export const createResourceMutations = <
         onSuccess?: (result: R) => void
     ): Promise<R> => {
         const scopeAtStart = dependsOn();
-        const previous = store.snapshot(id);
+        let previous: IRecordSnapshot<T> | undefined;
         let written: T | undefined;
         // Marks `id` owned for the whole call: a read of it in flight now, or started before this
         // settles, must not land its answer over what this call is about to do (see ./writeGuard).
@@ -194,6 +214,11 @@ export const createResourceMutations = <
         return cancelReads(id, scopeAtStart)
             .then(() => {
                 if (keys.isCurrent(scopeAtStart)) {
+                    // Captured now, not at call start: a same-tick mutation on this id may already
+                    // have applied its own change by the time cancelReads resolves, and a failure
+                    // here must roll back to THAT, not to what the record held before either call
+                    // began (which a same-tick sibling would have captured too).
+                    previous = store.snapshot(id);
                     apply();
                     written = rawRecord(id);
                 }
@@ -208,12 +233,18 @@ export const createResourceMutations = <
                     // call's answer is now stale — applying it would resurrect what the newer
                     // mutation just did, undoing it the same way a stale rollback would.
                     if (rawRecord(id) === written) onSuccess?.(result);
+                    else invalidateRecord(id, scopeAtStart);
                     invalidateLists(scopeAtStart);
                     return result;
                 },
                 (error: unknown) => {
                     if (keys.isCurrent(scopeAtStart)) {
+                        // Read before rollback runs: a newer mutation already owning the record
+                        // (rollback's own guard, below) means there is nothing of THIS call's to
+                        // reconcile — the newer one's outcome stands, confirmed or not yet.
+                        const owned = rawRecord(id) === written;
                         rollback(id, previous, written);
+                        if (owned) invalidateRecord(id, scopeAtStart);
                         invalidateLists(scopeAtStart);
                     }
                     throw error;

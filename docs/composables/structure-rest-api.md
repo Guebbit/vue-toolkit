@@ -241,12 +241,18 @@ so `loading`, `isLoading` and `useIsLoading` see it.
   1. Cancel the record's own in-flight read (a `fetchTarget` or `watchTarget` of that id) — its
      answer is never stored, so it cannot undo the edit or bring a deleted record back. Nothing
      else is cancelled: a list read of the scope keeps running (see the write guarantee above).
-  2. Apply the change locally: `updateTarget` merges `itemData` into the record, `deleteTarget`
-     removes it. Skipped if `dependsOn` changed in the meantime.
+  2. Snapshot the record, then apply the change locally: `updateTarget` merges `itemData` into it,
+     `deleteTarget` removes it. Both skipped if `dependsOn` changed in the meantime. The snapshot is
+     taken right here, not when the call started — a same-tick sibling mutation on the same id may
+     already have applied its own change by this point, and a later rollback returns to THAT, never
+     to a value from before either call ran.
   3. Send the request. Once it settles, only touch the record if it still holds exactly this
      call's own change: a newer mutation on the same id owns it otherwise, so neither a failed
      older update nor a stale older success can undo what that newer one did. On failure the
-     record goes back to what it was before this call (removed, if it did not exist).
+     record goes back to its snapshot (removed, if it did not exist). Either way — a rollback, or a
+     success skipped because a newer mutation now owns the record — the record is invalidated: the
+     value left in place is a local guess, not server-confirmed, so an active watcher reconciles it
+     on its own instead of trusting the guess as fresh.
   4. Once the request settles, success or failure, mark this resource's lists stale.
 - **`updateTarget`** on success stores the response as the record's new, full data (`merge: true`
   merges it in instead). A response that is not a record object (`undefined`, `null`, an array, a
@@ -421,8 +427,10 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   The write guard (see the guarantee above) protects a mutation from a *read*'s stale answer, not
   from another mutation on the same id: `updateTarget`'s success is guarded against a newer
   mutation (a concurrent `deleteTarget` can't be resurrected by a stale `updateTarget` success), but
-  a `deleteTarget` that then itself *fails* still rolls back to whatever the record held at the
-  moment it started — which, raced against another mutation, may be that mutation's own optimistic
-  (not yet server-confirmed) value. Two mutations on the same record from two different call sites
-  is not a pattern this library linearizes; a screen editing one record has one place doing the
-  editing.
+  a `deleteTarget` that then itself *fails* still rolls back to whatever the record held right
+  before it applied its own change — which, raced against another mutation, may be that mutation's
+  own optimistic (not yet server-confirmed) value, not a server-confirmed one. The record is
+  invalidated either way, so an active watcher reconciles it, but a one-shot caller with nothing
+  watching sees that optimistic value until it reads again. Two mutations on the same record from
+  two different call sites is not a pattern this library linearizes; a screen editing one record has
+  one place doing the editing.

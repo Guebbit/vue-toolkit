@@ -1,7 +1,8 @@
 /**
  * UNIT — deleteTarget: direct contract of the optimistic delete.
  *   - removes the item immediately and resolves with the API response
- *   - rolls the item back on error
+ *   - rolls the item back on error, and invalidates it: a rollback is a guess, not a
+ *     server-confirmed value, so it must not be trusted as fresh
  *   - cancels an in-flight read of the same record before removing it
  */
 
@@ -40,14 +41,14 @@ describe('UNIT · deleteTarget', () => {
         expect(get).toHaveBeenCalledTimes(1);
     });
 
-    it('a record restored after a failed delete keeps the freshness it had', async () => {
+    it('a record restored after a failed delete is invalidated, so a later read reconciles it with the server', async () => {
         const c = make();
         await c.fetchAll(apiResolve([...USERS])); // fresh
         await expect(c.deleteTarget(apiReject(), 1)).rejects.toThrow();
 
         const get = apiResolve(USERS[0]);
         await c.fetchTarget(get, 1);
-        expect(get).not.toHaveBeenCalled(); // still fresh: served from cache
+        expect(get).toHaveBeenCalledTimes(1); // the rollback's guess is not trusted as-is
     });
 
     it('cancels an in-flight fetchTarget of the same id: the read resolves instead of rejecting', async () => {

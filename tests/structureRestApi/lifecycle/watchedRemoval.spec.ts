@@ -42,17 +42,17 @@ describe('LIFECYCLE · dropping watched queries', () => {
         expect(c.getRecord(1)).toEqual(USERS[0]);
     });
 
-    it('a failed deleteTarget of a watched record leaves its watcher attached', async () => {
+    it('a failed deleteTarget of a watched record leaves its watcher attached, and reconciles it', async () => {
         const c = makeComposable<IUser, number>();
         const apiCall = jest.fn(() => Promise.resolve(USERS[0]));
         c.watchTarget(ref(1), apiCall);
         await flush();
 
         await expect(c.deleteTarget(() => Promise.reject(new Error('409')), 1)).rejects.toThrow();
-        expect(c.getRecord(1)).toEqual(USERS[0]);
-        await c.queryClient.invalidateQueries({ queryKey: ['resource', 'target'] });
         await flush();
 
+        // the rollback invalidates the record; the still-attached watcher refetches it on its own
         expect(apiCall).toHaveBeenCalledTimes(2);
+        expect(c.getRecord(1)).toEqual(USERS[0]);
     });
 });

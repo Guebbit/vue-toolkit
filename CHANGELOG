@@ -233,6 +233,15 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `updateTarget`/`deleteTarget` snapshotted the record to roll back to **before** cancelling its
+  in-flight read, not right before applying the optimistic edit: two mutations on the same id
+  started in the same tick both captured the same "before either ran" snapshot. If the older one
+  succeeded and the newer one then failed, the newer one's rollback restored that shared snapshot —
+  undoing the older one's already-confirmed change, not just its own — and left the record stamped
+  as fresh with no way to tell it was wrong. The snapshot is now taken right before applying, so a
+  same-tick sibling's rollback returns to what the other call itself left behind; and a rollback, or
+  a success skipped because a newer mutation now owns the record, invalidates it, so an active
+  watcher reconciles it with the server instead of trusting the local guess.
 - `updateTarget`/`deleteTarget` cancelled every list read of the resource's current scope (`all`,
   `parent`, `page`, `search`), not just the record's own: an unrelated in-flight `fetchAll` (or a
   search page, or another parent's list) resolved `[]` on that cancellation and never retried on

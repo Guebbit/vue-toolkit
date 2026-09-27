@@ -7,6 +7,11 @@
  * every list read of the scope, not just the record's own — an unrelated in-flight `fetchAll`
  * would resolve `[]` and never retry. And nothing stopped a read's late answer (`fetchTarget`'s
  * id-less path, `fetchMultiple`) from overwriting a record a mutation had already moved past.
+ *
+ * The last describe block below covers a different race: two mutations on the SAME id, started in
+ * the same tick. Before `resourceMutations.ts`'s snapshot moved to apply time, both captured
+ * "before either ran" as their rollback target, so a same-tick sibling's failure could undo a
+ * confirmed success and land the record back on data from before either call started.
  */
 
 import { deferredApi, apiResolve } from '../_helpers/fakeApi';
@@ -74,5 +79,34 @@ describe('LIFECYCLE · a mutation racing a read of the same scope', () => {
 
         expect(c.getRecord(1)?.name).toBe('Server Won');
         expect(c.getRecord(2)).toEqual(USERS[1]);
+    });
+});
+
+describe('LIFECYCLE · two same-tick mutations on the same id', () => {
+    it("a sibling's rollback returns to what THIS call applied, not to before either ran, and the record is invalidated", async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(apiResolve(USERS[0]), 1); // seed: 'Alice'
+
+        const a = deferredApi<IUser>();
+        const b = deferredApi<IUser>();
+
+        // both start in the same tick, before either's leading cancelReads() has resolved
+        const pendingA = c.updateTarget(a.call, { name: 'A' }, 1);
+        const pendingB = c.updateTarget(b.call, { name: 'B' }, 1);
+
+        // A succeeds, but B has since applied its own edit on top: A's confirmed answer is
+        // discarded rather than resurrected over B's newer, still-optimistic value
+        a.control.resolve({ ...USERS[0], name: 'A confirmed' });
+        await pendingA;
+        expect(c.getRecord(1)?.name).toBe('B');
+
+        // B then fails: its rollback must land on A's OWN optimistic value (what the record held
+        // right before B applied its change), never on the pre-A 'Alice' both calls started from
+        b.control.reject(new Error('fail'));
+        await expect(pendingB).rejects.toThrow();
+        expect(c.getRecord(1)?.name).toBe('A');
+
+        // neither call's guess is server-confirmed any more: the next read must reconcile
+        expect(c.checkTarget(1)).toBe(false);
     });
 });
