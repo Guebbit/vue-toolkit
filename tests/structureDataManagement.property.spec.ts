@@ -1,6 +1,9 @@
 /**
  * PROPERTY — useStructureDataManagement: the dictionary, identifiers, client-side pagination and
  * belongsTo relations, checked across generated inputs rather than hand-picked examples.
+ *
+ * `createIdentifier`'s "different tuples never collide" property is the regression test for the
+ * composite-id collision fix (`src/internal/identifierJoin.ts`): it fails on a plain `.join()`.
  */
 import fc from 'fast-check';
 import { useStructureDataManagement } from '../src/composables/structureDataManagement';
@@ -47,6 +50,22 @@ describe('PROPERTY · createIdentifier — composite identifiers', () => {
                 const c = useStructureDataManagement<{ a: string; b: string }>(['a', 'b']);
                 const record = { a, b };
                 expect(c.createIdentifier(record)).toBe(c.createIdentifier(record));
+            })
+        );
+    });
+
+    it('different tuples never collide, even when a value contains the delimiter', () => {
+        // Independently-random strings essentially never coincidentally collide (the join needs
+        // a1+'|'+b1 === a2+'|'+b2 character-for-character) — so instead of hoping to stumble on
+        // one, this BUILDS the collision a naive join always has: for any p/m/s, ('${p}|${m}', s)
+        // and (p, '${m}|${s}') both naively join to 'p|m|s'. The escaping fix
+        // (src/internal/identifierJoin.ts) is exactly what tells these two tuples apart.
+        fc.assert(
+            fc.property(fc.string(), fc.string(), fc.string(), (p, m, s) => {
+                const c = useStructureDataManagement<{ a: string; b: string }>(['a', 'b']);
+                const idOne = c.createIdentifier({ a: `${p}|${m}`, b: s });
+                const idTwo = c.createIdentifier({ a: p, b: `${m}|${s}` });
+                expect(idOne).not.toBe(idTwo);
             })
         );
     });

@@ -12,6 +12,7 @@
 import { computed, customRef, ref, toRaw, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
 import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
+import { joinIdentifiers } from '../internal/identifierJoin.js';
 
 /**
  * The write surface `useStructureDataManagement` stores its records through: a local reactive
@@ -123,9 +124,12 @@ export const useStructureDataManagement = <
             const missingKeys = _identifiers.filter((_key, index) => values[index] == undefined);
             if (missingKeys.length > 0) {
                 fillMissingIdentifiers(itemData, missingKeys);
-                return _identifiers.map((key) => itemData[key as keyof C]).join(delimiter) as K;
+                return joinIdentifiers(
+                    _identifiers.map((key) => itemData[key as keyof C]),
+                    delimiter
+                ) as K;
             }
-            return values.join(delimiter) as K;
+            return joinIdentifiers(values, delimiter) as K;
         }
         // A single identifier field: the custom one when given.
         const key = _identifiers as string;
@@ -170,7 +174,7 @@ export const useStructureDataManagement = <
      * @returns the record, if stored
      */
     const getRecord = (..._arguments: (K | undefined)[]): T | undefined =>
-        itemDictionary.value[_arguments.join(delimiter) as K];
+        itemDictionary.value[joinIdentifiers(_arguments, delimiter) as K];
 
     /**
      * Several records by id; ids not stored are skipped.
@@ -247,7 +251,7 @@ export const useStructureDataManagement = <
                     ? createIdentifier(data)
                     : undefined
                 : Array.isArray(id)
-                  ? (id.join(delimiter) as K)
+                  ? (joinIdentifiers(id, delimiter) as K)
                   : id;
         const isNew =
             _id === undefined || !Object.prototype.hasOwnProperty.call(itemDictionary.value, _id);

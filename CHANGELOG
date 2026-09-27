@@ -233,6 +233,12 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureDataManagement`/`useStructureRestApi`'s composite identifiers (`identifiers: ['a',
+  'b']`) collided whenever a value contained the delimiter: `{ a: 'x|y', b: 'z' }` and
+  `{ a: 'x', b: 'y|z' }` both joined to `'x|y|z'`, so adding the second silently overwrote the
+  first. `createIdentifier`, `getRecord`'s multi-argument form and `editRecord`'s array `id` now
+  escape the delimiter (and a literal backslash) inside each value before joining, so different
+  tuples never produce the same id. An id whose values contain neither character is unchanged.
 - `createTarget` left the `dummyData` placeholder on screen when the API resolved empty; it is now
   removed whatever the call resolved, and the lists are marked stale on any success.
 - A failed `fetchOne` cleared the selection even when a newer `fetchOne` had selected another id
