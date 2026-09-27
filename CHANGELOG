@@ -292,6 +292,10 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureSearchApi`'s `knownTotal` used `Array.prototype.toSorted`, which needs Safari 16
+  (September 2022) — unusably recent for a library with no stated browser floor. Replaced with a
+  single-pass max over `dataUpdatedAt`, with no behaviour change: both picked the single most
+  recently cached page's total.
 - `useStructureDataManagement` always built its own local `parentHasMany` state (a plain ref and
   its editors) even under `useStructureRestApi`, where that state was immediately shadowed by a
   second, TanStack-backed implementation of the same `hasMany`/`belongsTo` surface built

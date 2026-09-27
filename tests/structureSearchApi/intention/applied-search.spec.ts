@@ -10,6 +10,7 @@
 
 import { makeSearchComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { deferred } from '../../structureRestApi/_helpers/fakeApi';
+import { useFakeClock, advance, restoreClock } from '../../structureRestApi/_helpers/time';
 import type { ISearchResult } from '../../../src/composables/structureSearchApi';
 
 afterEach(clearAllInstances);
@@ -86,6 +87,32 @@ describe('INTENTION · the applied search', () => {
         expect(pages).toHaveLength(2); // page 2 is still loading
         expect(searchApi.totalItems.value).toBe(30);
         expect(searchApi.pageTotal.value).toBe(3);
+    });
+
+    it('the total on an uncached page comes from the MOST RECENTLY cached page, not any cached one', async () => {
+        useFakeClock();
+        const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
+
+        await searchApi.fetchSearch(
+            () => Promise.resolve({ items: [{ id: 1, name: 'a' }], totalItems: 10 }),
+            {},
+            1,
+            10
+        );
+        await advance(1000);
+        await searchApi.fetchSearch(
+            () => Promise.resolve({ items: [{ id: 2, name: 'a' }], totalItems: 20 }),
+            {},
+            2,
+            10
+        );
+
+        // Page 3 has no cache entry of its own: totalItems falls back to knownTotal, which must
+        // pick page 2 (fetched later) over page 1, not merely "some" cached page.
+        searchApi.pageCurrent.value = 3;
+        expect(searchApi.totalItems.value).toBe(20);
+
+        restoreClock();
     });
 
     it('a search with a key shows its own entry', async () => {

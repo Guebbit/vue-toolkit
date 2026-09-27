@@ -261,10 +261,13 @@ export const useStructureSearchApi = <
     const knownTotal = computed<number | undefined>(() => {
         void searchVersion.value;
         if (!applied.value) return;
-        const [latest] = queryClient
+        // Single-pass max, not .toSorted(...)[0]: toSorted needs Safari 16+ (2022), and every
+        // caller here only wants the single freshest page anyway.
+        let latest: Query | undefined;
+        for (const query of queryClient
             .getQueryCache()
-            .findAll({ predicate: isPageOf(applied.value) })
-            .toSorted((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
+            .findAll({ predicate: isPageOf(applied.value) }))
+            if (!latest || query.state.dataUpdatedAt > latest.state.dataUpdatedAt) latest = query;
         return (latest?.state.data as ISearchCacheEntry<K> | undefined)?.totalItems;
     });
 
