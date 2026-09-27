@@ -245,19 +245,20 @@ flowchart TD
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `form`                                   | Ref holding the reactive form data. Initialized as a detached copy of `initialData` (nested fields included), sharing no object with it. |
 | `formErrors`                             | Ref — `Partial<Record<keyof T, string[]>>`, per-field error messages.                          |
+| `formLevelErrors`                        | Ref — `string[]`, errors that belong to no single field: a root-level Zod issue (an empty `path` — a cross-field `.refine()` with no `path` option, say), or an `applyServerErrors` message naming no field the form has, when no `onUnmapped` catches it. |
 | `showFormErrors`                         | Ref — whether errors should be rendered. Owned by `handleSubmit` / `revealErrors` / `applyServerErrors`. |
 | `isSubmitting`                           | Ref — `true` while `handleSubmit`'s handler is running.                                         |
-| `isValid`                                | Computed — `true` when `formErrors` has no keys.                                                |
+| `isValid`                                | Computed — `true` when `formErrors` has no keys **and** `formLevelErrors` is empty.             |
 | `isDirty`                                | Computed — `true` when `form` differs from the baseline (compared via `JSON.stringify`). The baseline starts as `initialData`; `setInitialData`/`activateAutoHydrate` can replace it. |
 | `setForm(data)`                          | Shallow-merges partial data into `form` (top-level keys only); the result is detached, sharing no nested object with `data`. |
 | `resetForm()`                            | Restores `form` to the current baseline and clears `formErrors`. See [The baseline](#the-baseline-reset-dirty-and-hydration). |
 | `setInitialData(data)`                   | Replaces the baseline `resetForm()`/`isDirty` use. Leaves the live `form` alone — call `resetForm()` (or use `activateAutoHydrate`) to apply it. |
 | `activateAutoHydrate(source)`            | Watches `source` (e.g. `selectedRecord`); on every defined value, `setInitialData` + `resetForm`. Runs immediately if `source` already holds a value. Returns the `watch` handle. |
-| `clearErrors()`                          | Clears all `formErrors`.                                                                         |
+| `clearErrors()`                          | Clears all `formErrors` and `formLevelErrors`.                                                   |
 | `setFieldError(field, errors)`           | Sets error message(s) for one field — accepts a string or a string array.                       |
 | `clearFieldError(field)`                 | Removes errors for one field.                                                                    |
-| `applyServerErrors(error, options?)`     | Attaches a rejection's errors to the fields they belong to and reveals them. Returns `false` when it found nothing to show. See above. |
-| `validate()`                             | Runs `schema.safeParse(form.value)`, populates `formErrors` on failure, returns a boolean.       |
+| `applyServerErrors(error, options?)`     | Attaches a rejection's errors to the fields they belong to (and unmapped ones to `formLevelErrors`, unless `onUnmapped` is given) and reveals them. Returns `false` when it found nothing to show. See above. |
+| `validate()`                             | Runs `schema.safeParse(form.value)`, populates `formErrors` (and `formLevelErrors`, for root-level issues) on failure, returns a boolean. |
 | `revealErrors()`                         | Turns `showFormErrors` on, waits for the render, focuses the first invalid field, calls `onInvalid`. |
 | `handleSubmit(onSubmit, withValidation?)`| Validates (unless `withValidation` is `false`), then awaits `onSubmit(form.value)` with `isSubmitting` set around it. Owns `showFormErrors` throughout. Returns `true` on success, `false` on validation failure. |
 
@@ -275,12 +276,15 @@ flowchart TD
   rejects too. Wrap the call in your own `try`/`catch` if you need to handle submit failures.
   That is the seam `applyServerErrors` is meant to sit in.
 - **`applyServerErrors` only fills fields the form actually has.** A message naming a field absent
-  from `form` cannot be highlighted, so it goes to `onUnmapped` instead. If server errors seem to
-  vanish, check that the field exists on the object you passed as `initialData` — a key that is
+  from `form` cannot be highlighted, so it goes to `onUnmapped` when given, `formLevelErrors`
+  otherwise — never dropped. If a message you expected under a field shows up in `formLevelErrors`
+  instead, check that the field exists on the object you passed as `initialData` — a key that is
   only ever assigned later is not there yet when the rejection arrives.
 - **Zod error grouping is top-level only.** Each issue is filed under `issue.path[0]` — a nested
   field like `address.city` collapses to the `address` key in `formErrors`, not
   `formErrors.address.city`. Fine for flat forms; for nested schemas you'll need to read
-  `issue.path` yourself if you want per-nested-field messages.
+  `issue.path` yourself if you want per-nested-field messages. A root-level issue (an empty
+  `path` — a cross-field `.refine()` with no `path` option, say) has no field to collapse to at
+  all, so it goes to `formLevelErrors` instead.
 - **`isDirty` is a `JSON.stringify` comparison** — it won't handle key-order-insensitive equality
   or non-serializable values (functions, `Date` instances, etc.) specially.

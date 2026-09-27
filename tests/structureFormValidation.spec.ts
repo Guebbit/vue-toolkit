@@ -271,6 +271,20 @@ describe('useStructureFormValidation', () => {
             composable.clearErrors();
             expect(composable.isValid.value).toBe(true);
         });
+
+        // V3.2: formLevelErrors counts too — a form-level-only failure must not read as valid.
+        it('is false when only formLevelErrors is non-empty', () => {
+            composable.applyServerErrors({ errors: ['Payment declined'] });
+            expect(composable.formErrors.value).toEqual({});
+            expect(composable.isValid.value).toBe(false);
+        });
+
+        it('clearErrors clears formLevelErrors too', () => {
+            composable.applyServerErrors({ errors: ['Payment declined'] });
+            composable.clearErrors();
+            expect(composable.formLevelErrors.value).toEqual([]);
+            expect(composable.isValid.value).toBe(true);
+        });
     });
 
     // ─── setFieldError / clearFieldError ─────────────────────────────────────
@@ -341,6 +355,38 @@ describe('useStructureFormValidation', () => {
             composable.setForm({ email: 'valid@test.com', password: 'goodPassword' });
             composable.validate();
             expect(composable.formErrors.value).toEqual({});
+        });
+    });
+
+    // ─── validate (root-level Zod issues, V3.2) ──────────────────────────────
+
+    describe('validate (root-level issues)', () => {
+        // No `path` given, so Zod attaches this issue at the root (empty path) — a cross-field
+        // rule with nowhere to be filed under a single input.
+        const crossFieldSchema = z
+            .object({ email: z.string(), password: z.string() })
+            .refine((data) => data.email !== data.password, {
+                message: 'Email and password must differ'
+            });
+
+        it('routes a root-level issue to formLevelErrors instead of dropping it', () => {
+            const c = make({ email: 'same', password: 'same' }, crossFieldSchema);
+            const ok = c.validate();
+
+            expect(ok).toBe(false);
+            expect(c.formLevelErrors.value).toEqual(['Email and password must differ']);
+            expect(c.isValid.value).toBe(false); // formErrors alone would say true — that's the bug
+        });
+
+        it('clears formLevelErrors once the form becomes valid', () => {
+            const c = make({ email: 'same', password: 'same' }, crossFieldSchema);
+            c.validate();
+
+            c.setForm({ email: 'a', password: 'b' });
+            c.validate();
+
+            expect(c.formLevelErrors.value).toEqual([]);
+            expect(c.isValid.value).toBe(true);
         });
     });
 
@@ -750,6 +796,22 @@ describe('useStructureFormValidation', () => {
             expect(applied).toBe(true);
             expect(composable.formErrors.value.email).toEqual(['Already taken']);
             expect(onUnmapped).toHaveBeenCalledWith(['Payment declined']);
+        });
+
+        // V3.2: without onUnmapped, a form-level message is displayed instead of dropped.
+        it('routes form-level messages to formLevelErrors when no onUnmapped is given', () => {
+            const applied = composable.applyServerErrors({ errors: ['Payment declined'] });
+
+            expect(applied).toBe(true);
+            expect(composable.formLevelErrors.value).toEqual(['Payment declined']);
+            expect(composable.isValid.value).toBe(false);
+        });
+
+        it('routes errors about fields this form does not have to formLevelErrors too', () => {
+            const applied = composable.applyServerErrors({ errors: { captcha: 'Expired' } });
+
+            expect(applied).toBe(true);
+            expect(composable.formLevelErrors.value).toEqual(['Expired']);
         });
 
         it('reveals what it applied', () => {

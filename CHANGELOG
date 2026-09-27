@@ -292,6 +292,12 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureFormValidation`'s root-level Zod issues (an empty `path` — a cross-field
+  `.refine()` with no `path` option, say) were silently dropped: `validate()` could return `false`
+  while `isValid` stayed `true` and nothing showed on screen. A new `formLevelErrors: Ref<string[]>`
+  now holds them, and `isValid` includes it. `applyServerErrors` routes its own unmapped messages
+  there too, when no `onUnmapped` catches them — previously dropped the same way. `clearErrors`/
+  `resetForm` clear `formLevelErrors` along with `formErrors`.
 - `useStructureFormValidation`'s baseline (`initialFormData`) and `form` were shallow copies:
   `setInitialData`, `resetForm`, `setForm` and the initial state all spread one level deep only, so
   a nested field stayed the SAME object across `initialData`, the baseline and `form`. A hydrated

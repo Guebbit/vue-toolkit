@@ -246,6 +246,14 @@ export const useStructureFormValidation = <
     const formErrors = ref<Partial<Record<keyof T, string[]>>>({});
 
     /**
+     * Errors that belong to no single field: a root-level Zod issue (empty `path`), or a server
+     * error `applyServerErrors` could not map to a field and no `onUnmapped` was given to catch.
+     * Without this, either would be silently dropped — `isValid` true and nothing shown, even
+     * though the submit actually failed.
+     */
+    const formLevelErrors = ref<string[]>([]);
+
+    /**
      * Whether errors should be displayed.
      * Separate from `formErrors` so validation can run silently; handleSubmit and revealErrors
      * turn it on, an accepted submit turns it off.
@@ -258,9 +266,11 @@ export const useStructureFormValidation = <
     const isSubmitting = ref(false);
 
     /**
-     * True when there are no validation errors.
+     * True when there are no validation errors, field-level or form-level.
      */
-    const isValid = computed(() => Object.keys(formErrors.value).length === 0);
+    const isValid = computed(
+        () => Object.keys(formErrors.value).length === 0 && formLevelErrors.value.length === 0
+    );
 
     /**
      * True when the form data differs from the baseline (JSON comparison, key order included).
@@ -284,6 +294,7 @@ export const useStructureFormValidation = <
     const resetForm = () => {
         form.value = detachedCopy(initialFormData.value);
         formErrors.value = {};
+        formLevelErrors.value = [];
     };
 
     /**
@@ -297,10 +308,11 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Clears all validation errors.
+     * Clears all validation errors, field-level and form-level.
      */
     const clearErrors = () => {
         formErrors.value = {};
+        formLevelErrors.value = [];
     };
 
     /**
@@ -328,7 +340,7 @@ export const useStructureFormValidation = <
 
     /**
      * Validates the current form value against the schema (if provided).
-     * Replaces {@link formErrors} with the outcome.
+     * Replaces {@link formErrors} and {@link formLevelErrors} with the outcome.
      *
      * @returns true when validation passes (or no schema is set), false otherwise
      */
@@ -336,6 +348,7 @@ export const useStructureFormValidation = <
         const resolvedSchema = toValue(schema);
         if (!resolvedSchema) {
             formErrors.value = {};
+            formLevelErrors.value = [];
             return true;
         }
 
@@ -343,19 +356,26 @@ export const useStructureFormValidation = <
 
         if (result.success) {
             formErrors.value = {};
+            formLevelErrors.value = [];
             return true;
         }
 
         const errors: Partial<Record<keyof T, string[]>> = {};
+        const levelErrors: string[] = [];
         for (const issue of result.error.issues) {
             // Zod: `path` is the key trail to the failing value; keep only the top-level field.
-            // An empty path is a root-level issue, which has no field to attach to.
+            // An empty path is a root-level issue, which has no field to attach to — it goes to
+            // formLevelErrors instead of being dropped.
             const field = issue.path[0] as keyof T;
-            if (field === undefined) continue;
+            if (field === undefined) {
+                levelErrors.push(issue.message);
+                continue;
+            }
             if (!errors[field]) errors[field] = [];
             errors[field]!.push(issue.message);
         }
         formErrors.value = errors;
+        formLevelErrors.value = levelErrors;
 
         return false;
     };
@@ -400,15 +420,17 @@ export const useStructureFormValidation = <
 
     /**
      * Attaches the errors an API rejected a submit with to the fields they belong to, and reveals
-     * them: server-only rules (uniqueness, cross-record) become red text under the right input.
+     * them: server-only rules (uniqueness, cross-record) become red text under the right input. A
+     * message that names no field the form has goes to {@link formLevelErrors} instead, unless
+     * `onUnmapped` is given, which then owns displaying it.
      *
      * Merges onto what is already displayed rather than replacing it: an API that answered about
      * one field said nothing about the others, and clearing them invents an all-clear.
      *
      * @param error   - the rejected value, exactly as caught
      * @param options - see {@link IApplyServerErrorsOptions}
-     * @returns true when at least one field error was attached. false means the rejection carried
-     *          nothing displayable, i.e. the caller still owes the user a message
+     * @returns true when at least one field or form-level error was attached. false means the
+     *          rejection carried nothing displayable, i.e. the caller still owes the user a message
      */
     const applyServerErrors = (
         error: unknown,
@@ -428,12 +450,16 @@ export const useStructureFormValidation = <
             applied[target] = [...(applied[target] ?? []), ...messages];
         }
 
-        if (unmapped.length > 0) onUnmapped?.(unmapped);
+        // onUnmapped, when given, owns displaying these; without it they go to formLevelErrors
+        // instead of being silently dropped.
+        const displayedUnmapped = unmapped.length > 0 && !onUnmapped;
+        if (unmapped.length > 0 && onUnmapped) onUnmapped(unmapped);
 
         const fields = Object.keys(applied) as (keyof T)[];
-        if (fields.length === 0) return false;
+        if (fields.length === 0 && !displayedUnmapped) return false;
 
-        formErrors.value = { ...formErrors.value, ...applied };
+        if (fields.length > 0) formErrors.value = { ...formErrors.value, ...applied };
+        if (displayedUnmapped) formLevelErrors.value = [...formLevelErrors.value, ...unmapped];
         showFormErrors.value = true;
         return true;
     };
@@ -499,6 +525,7 @@ export const useStructureFormValidation = <
     return {
         form,
         formErrors,
+        formLevelErrors,
         showFormErrors,
         isSubmitting,
         isValid,
