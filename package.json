@@ -1,7 +1,31 @@
 {
     "name": "@guebbit/vue-toolkit",
     "version": "5.0.0",
+    "description": "Vue 3 composables and Pinia stores for CRUD screens: a normalized record store, a REST layer built on TanStack Query, Zod-backed form validation, and toast/loading stores.",
+    "keywords": [
+        "vue",
+        "vue3",
+        "composables",
+        "pinia",
+        "tanstack-query",
+        "vue-query",
+        "crud",
+        "rest",
+        "forms",
+        "validation",
+        "zod",
+        "typescript"
+    ],
+    "homepage": "https://guebbit.github.io/vue-toolkit/",
+    "bugs": {
+        "url": "https://github.com/Guebbit/vue-toolkit/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Guebbit/vue-toolkit.git"
+    },
     "license": "AGPLv3.0",
+    "author": "Guebbit",
     "type": "module",
     "main": "dist/index.js",
     "module": "dist/index.js",
@@ -19,6 +43,9 @@
         "CHANGELOG"
     ],
     "sideEffects": false,
+    "engines": {
+        "node": ">=20"
+    },
     "scripts": {
         "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
         "build": "tsc",
