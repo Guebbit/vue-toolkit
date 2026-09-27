@@ -63,6 +63,16 @@ export interface IRecordStore<
      * in a row, since each write invalidates the computed for the next read.
      */
     read?(id: K): T | undefined;
+
+    /**
+     * Whether the write about to happen is a server answer rather than something the caller
+     * created (see the REST store's `asFetched`). Absent on a store with no such distinction (the
+     * default one), which `addRecord`/`editRecord` read as "not fetched" — every write there is a
+     * caller-driven create. Lets `lastInsertedIdentifier` track actual creates only: a record the
+     * REST layer stores because the server reported it (a list fetch, a `GET` by id) is not a
+     * "just created" record, even though `addRecord`/`editRecord` are the same write path.
+     */
+    isFetching?(): boolean;
 }
 
 /**
@@ -145,7 +155,10 @@ export interface IStructureDataManagementApi<
     /** The record of `selectedIdentifier`. */
     selectedRecord: Ref<T | undefined>;
 
-    /** Id of the most recently inserted (created, not merely updated) record. */
+    /**
+     * Id of the most recently inserted (created, not merely updated) record. A record the REST
+     * layer stores because the server reported it (a fetch, not a create) never moves this.
+     */
     lastInsertedIdentifier: Ref<K | undefined>;
 
     /** Ids inserted by the most recent batch call (`addRecords`/`editRecords`). */
@@ -170,16 +183,16 @@ export interface IStructureDataManagementApi<
     pageItemList: Ref<T[]>;
 
     /** Child ids by parent id: the local "parent hasMany" relation. */
-    parentHasMany: Ref<Record<P, string[]>>;
+    parentHasMany: Ref<Record<P, K[]>>;
 
     /** Links a child to a parent. */
-    addToParent: (parentId: P, childId: string) => void;
+    addToParent: (parentId: P, childId: K) => void;
 
     /** Unlinks a child from a parent. */
-    removeFromParent: (parentId: P, childId: string) => string[];
+    removeFromParent: (parentId: P, childId: K) => K[];
 
     /** Drops repeated child ids of a parent. */
-    removeDuplicateChildren: (parentId: P) => string[];
+    removeDuplicateChildren: (parentId: P) => K[];
 
     /** A parent's children, by id. Ids whose record is not stored are skipped. */
     getRecordsByParent: (parentId?: P) => Record<K, T>;
@@ -316,6 +329,8 @@ export const useStructureDataManagement = <
      * Id of the most recently inserted (newly created, not merely updated) record.
      * Mirrors e.g. Laravel's lastInsertId() — read this right after an add/create
      * call when the id isn't available any other way (auto-generated fallback ids, deep call chains, ...).
+     * A record the REST layer stores because the server reported it (a fetch, not a create) never
+     * moves this — see IRecordStore.isFetching.
      */
     const lastInsertedIdentifier = ref<K>();
 
@@ -338,7 +353,9 @@ export const useStructureDataManagement = <
      */
     const addRecord = (itemData: T) => {
         const id = createIdentifier(itemData);
-        lastInsertedIdentifier.value = id;
+        // A server answer (see IRecordStore.isFetching) is not a "just created" record, even
+        // though it goes through this same write.
+        if (!recordStore.isFetching?.()) lastInsertedIdentifier.value = id;
         recordStore.write(id, itemData);
         return itemData;
     };
@@ -398,7 +415,9 @@ export const useStructureDataManagement = <
         }
         recordStore.write(_id!, { ...existing, ...data } as T);
         if (!isNew) return;
-        lastInsertedIdentifier.value = _id;
+        // A server answer (see IRecordStore.isFetching) is not a "just created" record, even
+        // though it goes through this same write.
+        if (!recordStore.isFetching?.()) lastInsertedIdentifier.value = _id;
         return _id;
     };
 
@@ -478,12 +497,10 @@ export const useStructureDataManagement = <
 
     /** Child ids by parent id: the local "parent hasMany" relation. Cast past UnwrapRef, same
      * reason as `dictionary`. */
-    const parentHasMany = ref({} as Record<P, (typeof identifier)[]>) as Ref<
-        Record<P, (typeof identifier)[]>
-    >;
+    const parentHasMany = ref({} as Record<P, K[]>) as Ref<Record<P, K[]>>;
 
     /** parentHasMany's dictionary, typed for writing. */
-    const relations = () => parentHasMany.value as Record<P, (typeof identifier)[]>;
+    const relations = () => parentHasMany.value as Record<P, K[]>;
 
     /**
      * Links a child to a parent.
@@ -491,7 +508,7 @@ export const useStructureDataManagement = <
      * @param parentId - the parent id
      * @param childId - the child record id
      */
-    const addToParent = (parentId: P, childId: typeof identifier) => {
+    const addToParent = (parentId: P, childId: K) => {
         (relations()[parentId] ??= []).push(childId);
     };
 
@@ -502,7 +519,7 @@ export const useStructureDataManagement = <
      * @param childId - the child record id
      * @returns the parent's remaining child ids
      */
-    const removeFromParent = (parentId: P, childId: typeof identifier) =>
+    const removeFromParent = (parentId: P, childId: K) =>
         (relations()[parentId] = (relations()[parentId] ?? []).filter((id) => id !== childId));
 
     /**
@@ -523,7 +540,7 @@ export const useStructureDataManagement = <
     const getRecordsByParent = (parentId?: P): Record<K, T> =>
         parentId === undefined
             ? ({} as Record<K, T>)
-            : recordsByIds((relations()[parentId] ?? []) as K[], (id) => getRecord(id));
+            : recordsByIds(relations()[parentId] ?? [], (id) => getRecord(id));
 
     /**
      * A parent's children, as a list in the relation's order. Ids whose record is not stored are
@@ -535,7 +552,7 @@ export const useStructureDataManagement = <
     const getListByParent = (parentId?: P): T[] =>
         parentId === undefined
             ? []
-            : recordListByIds((relations()[parentId] ?? []) as K[], (id) => getRecord(id));
+            : recordListByIds(relations()[parentId] ?? [], (id) => getRecord(id));
 
     return {
         createIdentifier,

@@ -42,6 +42,16 @@ export interface IRecordOperations<T, K> {
 
     /** Removes a record. */
     deleteRecord: (id: K) => boolean | undefined;
+
+    /**
+     * Marks `id` as the most recently INSERTED record (`lastInsertedIdentifier`). `addRecord`/
+     * `editRecord` skip that side effect for a write made through `store.asFetched` (see the
+     * `IRecordStore.isFetching` docs), because that flag also covers a routine background fetch
+     * storing what it read — not a real create. `createTarget` is a real create wrapped in
+     * `asFetched` for its OWN reason (the response is fresh, server-confirmed data), so it calls
+     * this directly instead of relying on that side effect.
+     */
+    markInserted: (id: K) => void;
 }
 
 /** What the mutations need from the resource that owns them. */
@@ -100,7 +110,8 @@ export const createResourceMutations = <
     writeGuard
 }: IResourceMutationsContext<T, K>) => {
     /** The record operations, by name. */
-    const { createIdentifier, getRecord, addRecord, editRecord, deleteRecord } = records;
+    const { createIdentifier, getRecord, addRecord, editRecord, deleteRecord, markInserted } =
+        records;
 
     /**
      * Runs apiCall as a one-shot TanStack mutation, so `isLoading` sees it.
@@ -291,6 +302,9 @@ export const createResourceMutations = <
                 invalidateLists(scopeAtStart);
                 if (isNil(item)) return item;
                 store.asFetched(() => addRecord(item));
+                // A real create: addRecord's own tracking is suppressed inside asFetched (see
+                // markInserted's docs), so mark it explicitly.
+                markInserted(createIdentifier(item));
                 return getRecord(createIdentifier(item));
             },
             (error: unknown) => {

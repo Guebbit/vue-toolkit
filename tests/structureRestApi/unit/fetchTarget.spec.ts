@@ -44,4 +44,10 @@ describe('UNIT · fetchTarget', () => {
         const c = make();
         await expect(c.fetchTarget(apiReject(), 1)).rejects.toThrow('network error');
     });
+
+    it('does not mark a fetched record as lastInsertedIdentifier', async () => {
+        const c = make();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        expect(c.lastInsertedIdentifier.value).toBeUndefined();
+    });
 });

@@ -312,7 +312,16 @@ export const createRestResource = <
         resourceKey,
         keys,
         dependsOn,
-        records: { createIdentifier, getRecord, addRecord, editRecord, deleteRecord },
+        records: {
+            createIdentifier,
+            getRecord,
+            addRecord,
+            editRecord,
+            deleteRecord,
+            markInserted: (id: K) => {
+                lastInsertedIdentifier.value = id;
+            }
+        },
         store,
         storeItem,
         writeGuard

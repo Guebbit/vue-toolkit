@@ -114,16 +114,16 @@ describe('useStructureDataManagement', () => {
     describe('parent-child relationships', () => {
         it('adds a child to a parent and retrieves it', () => {
             composable.addRecord({ id: 1, name: 'Child' });
-            composable.addToParent('parent-1' as never, 1 as never);
-            const list = composable.getListByParent('parent-1' as never);
+            composable.addToParent('parent-1', 1);
+            const list = composable.getListByParent('parent-1');
             expect(list).toHaveLength(1);
         });
 
         it('removes a child from a parent', () => {
             composable.addRecord({ id: 1, name: 'Child' });
-            composable.addToParent('parent-1' as never, 1 as never);
-            composable.removeFromParent('parent-1' as never, 1 as never);
-            const list = composable.getListByParent('parent-1' as never);
+            composable.addToParent('parent-1', 1);
+            composable.removeFromParent('parent-1', 1);
+            const list = composable.getListByParent('parent-1');
             expect(list).toHaveLength(0);
         });
     });

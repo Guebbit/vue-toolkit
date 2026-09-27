@@ -52,6 +52,9 @@ export interface IQueryRecordStore<
     /** Runs `write` calls made inside `run` as server answers: they count as fresh. */
     asFetched: <R>(run: () => R) => R;
 
+    /** True while `asFetched` runs (see IRecordStore.isFetching). */
+    isFetching: () => boolean;
+
     /** A record as it stands now, for putting it back later. */
     snapshot: (id: K) => IRecordSnapshot<T> | undefined;
 
@@ -234,6 +237,9 @@ export const createQueryRecordStore = <
         return (entry?.aliasOf as K | undefined) ?? id;
     };
 
+    /** True while `asFetched` runs. */
+    const isFetching = (): boolean => fetched;
+
     return {
         dictionary,
         write,
@@ -241,6 +247,7 @@ export const createQueryRecordStore = <
         writeAll,
         clear,
         asFetched,
+        isFetching,
         snapshot,
         restore,
         resolve,

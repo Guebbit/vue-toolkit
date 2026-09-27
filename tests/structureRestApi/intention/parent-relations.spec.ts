@@ -33,7 +33,7 @@ describe('INTENTION · parent relations', () => {
     it('removeFromParent unlinks a child but keeps the record', async () => {
         const c = make();
         await c.fetchByParent(apiResolve(buildUsers(3, 1)), 'team-1');
-        c.removeFromParent('team-1', 1 as never);
+        c.removeFromParent('team-1', 1);
         expect(c.getListByParent('team-1')).toHaveLength(2);
         expect(c.getRecord(1)).toBeDefined();
     });
@@ -47,8 +47,8 @@ describe('INTENTION · parent relations', () => {
     it('moves a child from one parent to another', async () => {
         const c = make();
         await c.fetchByParent(apiResolve(buildUsers(2, 1)), 'team-1');
-        c.removeFromParent('team-1', 1 as never);
-        c.addToParent('team-2', 1 as never);
+        c.removeFromParent('team-1', 1);
+        c.addToParent('team-2', 1);
         expect(c.getListByParent('team-1').map((u) => u.id)).not.toContain(1);
         expect(c.getListByParent('team-2').map((u) => u.id)).toContain(1);
     });
@@ -56,7 +56,7 @@ describe('INTENTION · parent relations', () => {
     it('addToParent does not duplicate a child already linked to that parent', async () => {
         const c = make();
         await c.fetchByParent(apiResolve(buildUsers(2, 1)), 'team-1');
-        c.addToParent('team-1', 1 as never); // already there
+        c.addToParent('team-1', 1); // already there
         expect(c.parentHasMany.value['team-1']).toHaveLength(2);
         expect(c.getListByParent('team-1').map((u) => u.id)).toEqual([1, 2]);
     });

@@ -40,6 +40,14 @@ describe('MODIFIER · merge', () => {
             await c.fetchTarget(apiResolve(FULL_USER), 1, { merge: true, forced: true });
             expect(c.getRecord(1)).toEqual(FULL_USER);
         });
+
+        it('a merged record not seen before does not mark lastInsertedIdentifier', async () => {
+            const c = make();
+            // Nothing cached yet: the merge write below is editRecord's isNew=true branch — the
+            // exact path that used to mistake a fetch for a create.
+            await c.fetchTarget(apiResolve(FULL_USER), 1, { merge: true });
+            expect(c.lastInsertedIdentifier.value).toBeUndefined();
+        });
     });
 
     describe('fetchByParent', () => {

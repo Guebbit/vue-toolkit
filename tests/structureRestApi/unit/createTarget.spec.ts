@@ -42,4 +42,11 @@ describe('UNIT · createTarget', () => {
         await expect(c.createTarget(apiReject(), dummy)).rejects.toThrow();
         expect(c.itemList.value).toHaveLength(0);
     });
+
+    it('marks the created record as lastInsertedIdentifier', async () => {
+        const c = make();
+        await c.createTarget(apiResolve(DAVE));
+        expect(c.lastInsertedIdentifier.value).toBe(4);
+        expect(c.lastInsertedRecord.value).toEqual(DAVE);
+    });
 });

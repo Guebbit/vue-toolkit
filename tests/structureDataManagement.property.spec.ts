@@ -187,13 +187,13 @@ describe('PROPERTY · addToParent / removeFromParent / removeDuplicateChildren',
                     // it would strip every occurrence, not just the one just added.
                     fc.pre(!existingChildren.includes(addedChild));
                     const c = useStructureDataManagement<Record<string, unknown>>('id');
-                    for (const id of existingChildren) c.addToParent('p' as never, id as never);
-                    const before = [...(c.parentHasMany.value['p' as never] ?? [])];
+                    for (const id of existingChildren) c.addToParent('p', id);
+                    const before = [...(c.parentHasMany.value.p ?? [])];
 
-                    c.addToParent('p' as never, addedChild as never);
-                    c.removeFromParent('p' as never, addedChild as never);
+                    c.addToParent('p', addedChild);
+                    c.removeFromParent('p', addedChild);
 
-                    expect(c.parentHasMany.value['p' as never] ?? []).toEqual(before);
+                    expect(c.parentHasMany.value.p ?? []).toEqual(before);
                 }
             )
         );
@@ -203,11 +203,11 @@ describe('PROPERTY · addToParent / removeFromParent / removeDuplicateChildren',
         fc.assert(
             fc.property(fc.array(fc.integer({ min: 0, max: 5 }), { maxLength: 15 }), (childIds) => {
                 const c = useStructureDataManagement<Record<string, unknown>>('id');
-                for (const id of childIds) c.addToParent('p' as never, id as never);
+                for (const id of childIds) c.addToParent('p', id);
 
-                c.removeDuplicateChildren('p' as never);
+                c.removeDuplicateChildren('p');
 
-                const children = c.parentHasMany.value['p' as never] ?? [];
+                const children = c.parentHasMany.value.p ?? [];
                 expect(new Set(children).size).toBe(children.length);
             })
         );

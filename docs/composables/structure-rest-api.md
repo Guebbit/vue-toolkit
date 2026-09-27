@@ -330,7 +330,7 @@ too, backed by the cache (its `identifier` under the name `identifierKey`, liste
 | `deleteRecord(id)`                                             | Removes one record.                                                                              |
 | `resetRecords()`                                               | Removes every record of the current scope, and marks its lists stale: active list watchers refetch (and bring their records back). |
 | `selectedIdentifier`, `selectedRecord`                         | Selection. `watchTarget` sets it; `fetchTarget` does not.                                        |
-| `lastInsertedIdentifier(s)`, `lastInsertedRecord`              | Last-inserted tracking.                                                                          |
+| `lastInsertedIdentifier(s)`, `lastInsertedRecord`              | Last-inserted tracking. Moves on `createTarget`'s success and on a local `addRecord`/`editRecord` create. A background write that stores what the server reported (`fetchTarget`, `fetchAll`, `watch*`, an `updateTarget` response) never moves it, even when the record was not cached before — it is new to the cache, not newly created. |
 | `pageCurrent`, `pageSize`, `pageTotal`, `pageOffset`, `pageItemList` | Client-side pagination over `itemList`. The search layer redefines `pageItemList`/`pageTotal`. |
 | `parentHasMany`                                                | `ComputedRef<Record<P, K[]>>`: each parent's child ids, the union of all its `parent` buckets (see below), keyed by the parent id as a string. |
 | `addToParent(parentId, childId)`                               | Adds the child to the parent's keyless entry, unless the parent already lists it.                |

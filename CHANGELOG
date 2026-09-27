@@ -292,6 +292,19 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureDataManagement`'s `parentHasMany`/`addToParent`/`removeFromParent`/
+  `removeDuplicateChildren` typed a child id as `typeof identifier` — the identifier FIELD NAME
+  (always `string`) — instead of `K`, the id's actual value type. Passing a numeric id needed an
+  `as never` cast, papered over in the test suite rather than fixed. Child ids are now typed `K`,
+  and the casts are removed.
+- `useStructureDataManagement`'s `lastInsertedIdentifier`/`lastInsertedIdentifiers` are documented
+  as tracking newly CREATED records, but `addRecord`/`editRecord` moved them on every write,
+  including one storing a record the server merely reported (a list fetch, a `GET` by id) —
+  `useStructureRestApi`'s `fetchTarget`/`fetchAll`/`watch*` overwrote them on every call, with
+  nothing about an actual create. `IRecordStore` gains an optional `isFetching()`; `addRecord`/
+  `editRecord` skip the tracking side effect when it reports true. `useStructureRestApi`'s
+  `createTarget` (a real create, also stored through the same `asFetched`-wrapped write for its own
+  freshness reasons) marks it explicitly instead of relying on that side effect.
 - `useUploadProgress`'s `track` shared its `progress` ref across overlapping calls with no
   ordering guard: whichever call settled first reset the bar to idle even while a second call was
   still in flight, and a stale call's late progress event could overwrite the newer call's
