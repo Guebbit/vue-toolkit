@@ -219,6 +219,11 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **`useStructureSearchApi`'s `pageItemList`** keeps showing the most recently cached page's
+  items while a page/size/filters change is in flight, instead of dropping to `[]` until the new
+  page lands (`totalItems` already did this). A new `isPlaceholder: ComputedRef<boolean>` is
+  `true` exactly while `pageItemList` is showing that fallback, `false` once the real current page
+  is cached (including an empty one) or on a genuinely empty first load.
 - **`package.json` metadata**: `description`, `keywords`, `homepage`, `bugs`, `repository`
   (needed for npm provenance), `author` and `engines.node` (`>=20`). Previously all unset.
   `license` is intentionally left as-is here (`"AGPLv3.0"` is not a valid SPDX id) pending a

@@ -4,6 +4,8 @@
  *   - editing the live filters in place (a form's v-model) changes nothing until search();
  *   - the total belongs to the search, not to one page: it survives a page change while the
  *     next page loads, so the pager does not vanish;
+ *   - pageItemList keeps the previous page's items while the next one loads too, flagged by
+ *     isPlaceholder, instead of dropping to [] and back;
  *   - a search's bucket `key` is part of what is applied;
  *   - search() on the page already shown, cached and fresh, still settles through onSuccess.
  */
@@ -89,6 +91,45 @@ describe('INTENTION · the applied search', () => {
         expect(searchApi.pageTotal.value).toBe(3);
     });
 
+    it('pageItemList keeps the previous page while the next one loads, flagged by isPlaceholder', async () => {
+        const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
+        const pages: ReturnType<typeof deferred<ISearchResult<IItem>>>[] = [];
+        searchApi.watchSearch(() => {
+            pages.push(deferred<ISearchResult<IItem>>());
+            return pages.at(-1)!.promise;
+        });
+        await flush();
+        pages[0].resolve({ items: [{ id: 1, name: 'a' }], totalItems: 30 });
+        await flush();
+
+        expect(searchApi.pageItemList.value).toEqual([{ id: 1, name: 'a' }]);
+        expect(searchApi.isPlaceholder.value).toBe(false);
+
+        searchApi.pageCurrent.value = 2;
+        await flush();
+
+        // Page 2 is still in flight: page 1's items stay on screen instead of dropping to [].
+        expect(pages).toHaveLength(2);
+        expect(searchApi.pageItemList.value).toEqual([{ id: 1, name: 'a' }]);
+        expect(searchApi.isPlaceholder.value).toBe(true);
+
+        pages[1].resolve({ items: [{ id: 2, name: 'a' }], totalItems: 30 });
+        await flush();
+
+        expect(searchApi.pageItemList.value).toEqual([{ id: 2, name: 'a' }]);
+        expect(searchApi.isPlaceholder.value).toBe(false);
+    });
+
+    it('isPlaceholder is false on a genuinely empty first load (nothing to show as a placeholder)', async () => {
+        const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
+        const first = deferred<ISearchResult<IItem>>();
+        searchApi.watchSearch(() => first.promise);
+        await flush();
+
+        expect(searchApi.pageItemList.value).toEqual([]);
+        expect(searchApi.isPlaceholder.value).toBe(false);
+    });
+
     it('the total on an uncached page comes from the MOST RECENTLY cached page, not any cached one', async () => {
         useFakeClock();
         const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
@@ -107,8 +148,8 @@ describe('INTENTION · the applied search', () => {
             10
         );
 
-        // Page 3 has no cache entry of its own: totalItems falls back to knownTotal, which must
-        // pick page 2 (fetched later) over page 1, not merely "some" cached page.
+        // Page 3 has no cache entry of its own: totalItems falls back to the most recently cached
+        // page, which must be page 2 (fetched later) over page 1, not merely "some" cached page.
         searchApi.pageCurrent.value = 3;
         expect(searchApi.totalItems.value).toBe(20);
 

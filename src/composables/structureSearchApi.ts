@@ -104,8 +104,19 @@ export interface IStructureSearchApi<
     /** Page count of the applied search. */
     pageTotal: ComputedRef<number>;
 
-    /** Items of the applied search's current page. */
+    /**
+     * Items of the applied search's current page. Keeps the most recently cached page's items
+     * while the current page/size/filters combination has not landed yet, instead of dropping to
+     * `[]` — see `isPlaceholder` to tell a placeholder apart from the real current page.
+     */
     pageItemList: ComputedRef<T[]>;
+
+    /**
+     * True while `pageItemList` is showing a placeholder (a previously cached page, kept on
+     * screen because the current page has not landed yet), so a caller can dim the list or skip
+     * an empty-state message instead of treating it as the real current page.
+     */
+    isPlaceholder: ComputedRef<boolean>;
 
     /** The applied search's server-reported total, across every page. */
     totalItems: ComputedRef<number>;
@@ -255,10 +266,11 @@ export const useStructureSearchApi = <
     };
 
     /**
-     * The applied search's most recent total from any of its cached pages: the total does not
-     * depend on the page, so the pager survives while the next page loads.
+     * The applied search's most recently updated cached page, of ANY page/size — not necessarily
+     * the current one. Backs both `totalItems`'s fallback (the total does not depend on the page)
+     * and `pageItemList`'s placeholder fallback (keep showing something while the next page loads).
      */
-    const knownTotal = computed<number | undefined>(() => {
+    const latestKnownEntry = computed<ISearchCacheEntry<K> | undefined>(() => {
         void searchVersion.value;
         if (!applied.value) return;
         // Single-pass max, not .toSorted(...)[0]: toSorted needs Safari 16+ (2022), and every
@@ -268,19 +280,35 @@ export const useStructureSearchApi = <
             .getQueryCache()
             .findAll({ predicate: isPageOf(applied.value) }))
             if (!latest || query.state.dataUpdatedAt > latest.state.dataUpdatedAt) latest = query;
-        return (latest?.state.data as ISearchCacheEntry<K> | undefined)?.totalItems;
+        return latest?.state.data as ISearchCacheEntry<K> | undefined;
     });
 
     /** "124 orders": the applied search's server-reported total. */
     const totalItems = computed<number>(
-        () => currentSearchEntry.value?.totalItems ?? knownTotal.value ?? 0
+        () => currentSearchEntry.value?.totalItems ?? latestKnownEntry.value?.totalItems ?? 0
     );
 
     /** Page count of the applied search. */
     const pageTotal = computed<number>(() => Math.ceil(totalItems.value / pageSize.value));
 
-    /** Items of the applied search's current page. */
-    const pageItemList = computed<T[]>(() => getRecords(currentSearchEntry.value?.ids ?? []));
+    /**
+     * Items of the applied search's current page. While the current page has not landed yet (a
+     * page/size/filters change, mid-fetch), keeps showing the most recently cached page's items
+     * instead of dropping to `[]` — see `isPlaceholder` to tell the two apart.
+     */
+    const pageItemList = computed<T[]>(() =>
+        getRecords(currentSearchEntry.value?.ids ?? latestKnownEntry.value?.ids ?? [])
+    );
+
+    /**
+     * True while `pageItemList` is showing a placeholder — a previously cached page, kept on
+     * screen because the current page/size/filters combination has not landed yet. `false` once
+     * the current page is cached (including an empty one), and `false` on a genuinely empty first
+     * load (nothing cached at all to show as a placeholder).
+     */
+    const isPlaceholder = computed<boolean>(
+        () => currentSearchEntry.value === undefined && latestKnownEntry.value !== undefined
+    );
 
     /** The applied search's current page, as a search result. */
     const currentResult = (): ISearchResult<T> => ({
@@ -536,6 +564,7 @@ export const useStructureSearchApi = <
 
         pageTotal,
         pageItemList,
+        isPlaceholder,
         totalItems,
 
         searchGet,

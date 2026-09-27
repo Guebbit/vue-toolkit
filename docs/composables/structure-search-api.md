@@ -77,7 +77,10 @@ flowchart LR
   the `key` it ran with. Plain objects and arrays are rebuilt and Vue proxies unwrapped, so later
   edits to the live filters never reach it.
 - `pageItemList`, `totalItems` and `pageTotal` read the applied search's entry for the current
-  `pageCurrent` and `pageSize`. Before anything is applied they are `[]`, `0` and `0`.
+  `pageCurrent` and `pageSize`. Before anything is applied they are `[]`, `0` and `0`. While a
+  page/size/filters change is in flight and the current combination has not landed yet,
+  `pageItemList` keeps showing the most recently cached page instead of dropping to `[]` — see
+  [`isPlaceholder`](#totalitems-pagetotal-and-isplaceholder) below.
 - Editing the live filters never changes what is shown and never fetches. A page change does not
   apply them either: it fetches another page of the **applied** search.
 - Only these apply the live filters: `search()` on the `watchSearch` handle, `fetchSearch(...)`
@@ -142,7 +145,7 @@ The handle:
 Neither `search()` nor `refetch()` rejects: a failure shows in `error` and `onError`, and only
 `search()` resolves `undefined` for it.
 
-## totalItems and pageTotal
+## totalItems, pageTotal and isPlaceholder
 
 `apiCall` resolves `{ items, totalItems }`. The total is stored next to the page's ids, so a page
 served from cache still has it.
@@ -152,6 +155,17 @@ served from cache still has it.
   vanish on a page change.
 - `pageTotal` is `Math.ceil(totalItems / pageSize)`.
 - An API that reports no total can resolve `totalItems: 0` (or the item count).
+- `isPlaceholder` is `true` exactly while `pageItemList` is showing that same fallback — a
+  previously cached page, kept on screen because the current page/size/filters combination has
+  not landed yet — and `false` once the real current page is cached, including an empty one.
+  `false` also on a genuinely empty first load: there is no previous page to fall back to, so
+  `pageItemList` is `[]` for a different reason than a placeholder. Dim the list or hold off an
+  empty-state message while it is `true`:
+  ```vue
+  <div :class="{ 'opacity-50': isPlaceholder }">
+      <ProductRow v-for="item in pageItemList" :key="item.id" :item="item" />
+  </div>
+  ```
 
 ## fetchSearch
 
@@ -210,7 +224,8 @@ Returns everything `useStructureRestApi` returns, with these redefined or added:
 
 | Member                                                           | Meaning                                                              |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `pageItemList`                                                   | `ComputedRef<T[]>`: items of the applied search's current page.      |
+| `pageItemList`                                                   | `ComputedRef<T[]>`: items of the applied search's current page, or the most recently cached page's items while the current one has not landed yet. |
+| `isPlaceholder`                                                  | `ComputedRef<boolean>`: `true` exactly while `pageItemList` is showing that fallback. |
 | `pageTotal`                                                      | `ComputedRef<number>`: `Math.ceil(totalItems / pageSize)`.           |
 | `totalItems`                                                     | `ComputedRef<number>`: the applied search's server-reported total.   |
 | `watchSearch`, `fetchSearch`                                     | See above.                                                           |
