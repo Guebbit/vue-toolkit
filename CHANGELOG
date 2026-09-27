@@ -178,6 +178,10 @@ is an active TanStack observer that reacts to invalidation on its own.
 - **BREAKING** — `watchTarget(apiCall, idSource, settings?)`: `apiCall` first, `idSource` second —
   the same order `fetchTarget` and `watchByParent` already use. Swap the first two arguments at
   every call site: `watchTarget(userId, get)` → `watchTarget(get, userId)`.
+- **BREAKING** — `useCoreStore`'s `setLoading(key, value)` makes both parameters required, and
+  `getLoading(key)` requires its key too. `setLoading('x')` used to quietly store `false` — a
+  caller meaning to mark work as started, with the value typo'd away or refactored out, silently
+  marked it finished instead. Pass the value (and the key) explicitly everywhere now.
 - **BREAKING** — `updateTarget`/`deleteTarget`'s mutation key now carries the id as `String(id)`,
   the same form a record's query key already uses, instead of the raw `K` value. Only visible to a
   hand-written `isMutating`/`isLoading` filter matching on the mutation key's id segment directly —

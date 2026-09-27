@@ -27,3 +27,14 @@ expectTypeOf(notifications.messages).toEqualTypeOf<IToastMessage[]>();
 
 // @ts-expect-error -- isLoading takes key prefixes, not a plain boolean
 core.isLoading(true);
+
+// setLoading/getLoading both require their key; setLoading also requires its value (V2.11) —
+// setLoading('x') used to quietly store false.
+core.setLoading('fetch', true);
+core.getLoading('fetch');
+// @ts-expect-error -- key is required
+core.setLoading(undefined, true);
+// @ts-expect-error -- value is required
+core.setLoading('fetch');
+// @ts-expect-error -- key is required
+core.getLoading();
