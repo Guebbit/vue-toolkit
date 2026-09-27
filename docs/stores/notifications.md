@@ -5,12 +5,12 @@ A Pinia store (id `'notifications'`) for toast-style messages.
 ## Quickstart
 
 ```ts
-import { useNotificationsStore, IToastType } from '@guebbit/vue-toolkit'
+import { useNotificationsStore, EToastType } from '@guebbit/vue-toolkit'
 
 const notifications = useNotificationsStore()
 
 // Show a toast that auto-hides after 4s
-notifications.addMessage('Saved successfully', IToastType.SUCCESS, 4000)
+notifications.addMessage('Saved successfully', EToastType.SUCCESS, 4000)
 
 // Render only the visible ones
 notifications.messages // IToastMessage[]
@@ -21,7 +21,7 @@ notifications.messages // IToastMessage[]
 ### Types
 
 ```ts
-enum IToastType {
+enum EToastType {
     PRIMARY = 'primary',
     SECONDARY = 'secondary',
     DANGER = 'error',
@@ -32,7 +32,7 @@ enum IToastType {
 interface IToastMessage {
     id: string
     message: string
-    type: IToastType
+    type: EToastType
     visible: boolean
 }
 ```

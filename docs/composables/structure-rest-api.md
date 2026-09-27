@@ -170,7 +170,10 @@ Every watcher returns the same handle, `IWatchHandle<R>`:
 | `error`     | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                                |
 
 A watcher never rejects, so a failure shows only in `error`, and in `onError` on the watchers
-that take callbacks (`watchTarget`, and `watchSearch` on the search layer).
+that take callbacks (`watchTarget`, and `watchSearch` on the search layer). Those three callbacks
+are `IWatchCallbacks<R, C>` — `onSuccess(result, context)`, `onError(error, context)`,
+`onSettled(result, error, context)` — where `R` is what the watcher resolves and `C` is what it
+was watching (an id for `watchTarget`, the filters for `watchSearch`).
 
 ```ts
 const userId = ref<number | null>(null)

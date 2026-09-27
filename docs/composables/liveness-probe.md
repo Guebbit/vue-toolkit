@@ -41,6 +41,17 @@ Teardown is automatic: created inside an effect scope — a component `setup`, a
 a bare `effectScope` — it stops with that scope. Created outside one, `stop()` is yours to call.
 `stop()` is idempotent, and a probe that outlives teardown cannot write to `down`.
 
+```mermaid
+stateDiagram-v2
+    [*] --> Up: immediate probe succeeds
+    [*] --> Down: immediate probe fails
+    Up --> Down: online event, probe fails
+    Down --> Down: retryDelay elapses, probe fails
+    Down --> Up: online event or retry, probe succeeds
+    Down --> [*]: stop()
+    Up --> [*]: stop()
+```
+
 ## Options
 
 | Option       | Default      | What it does                                                          |
@@ -81,3 +92,10 @@ const { down } = useLivenessProbe(probe, { target })
 
 target.dispatchEvent(new Event('online')) // re-probes
 ```
+
+## Types
+
+| Type                     | Shape                                              | What it's for                                    |
+| ------------------------ | --------------------------------------------------- | ------------------------------------------------- |
+| `ILivenessProbeSettings` | `{ retryDelay?, immediate?, target? }`             | The options object `useLivenessProbe` takes.       |
+| `ILivenessProbe`         | `ReturnType<typeof useLivenessProbe>`              | The whole return value, for a store or component prop that needs to name it. |

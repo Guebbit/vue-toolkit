@@ -118,7 +118,8 @@ flowchart LR
 | `remove`          | `(id: K, options?: O) => Promise<unknown>`                                 | `deleteOne`                                           |
 | `optimisticPatch` | `(data: U) => Partial<T>`                                                  | the patch `updateOne` applies locally (default: `data` itself) |
 
-`ISearchResult<T>` is `{ items: (T | undefined)[], totalItems: number }`.
+`ISearchResult<T>` is `{ items: (T | undefined)[], totalItems: number }`; the table above is
+`IStructureCrudOperations<T, K, F, C, U, O>`, `useStructureCrudApi`'s first argument.
 
 **Every operation is optional**, but the `operations` object is required. A read-only resource
 supplies `list` and `get` and nothing else. A method whose operation is missing returns a rejected

@@ -15,7 +15,7 @@ import { getUuid } from '@guebbit/js-toolkit';
 /**
  * Visual variant of a toast; the value is what the UI layer maps to its own styling.
  */
-export enum IToastType {
+export enum EToastType {
     PRIMARY = 'primary',
     SECONDARY = 'secondary',
     DANGER = 'error',
@@ -32,7 +32,7 @@ export interface IToastMessage {
     /** Text to display, already translated by the caller. */
     message: string;
     /** Visual variant. */
-    type: IToastType;
+    type: EToastType;
     /** Whether it is currently shown; hidden messages stay in `history`. */
     visible: boolean;
 }
@@ -65,7 +65,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
      * @param type    - visual variant, default PRIMARY
      * @param timeout - milliseconds before auto-hiding; 0 or negative (default -1) = stays shown
      */
-    const addMessage = (message: string, type = IToastType.PRIMARY, timeout = -1) => {
+    const addMessage = (message: string, type = EToastType.PRIMARY, timeout = -1) => {
         const id = getUuid();
         history.value.push({
             id,

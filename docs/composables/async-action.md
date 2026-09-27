@@ -116,3 +116,26 @@ const fast = run() // resolves first
 
 `reset()` participates in the same rule, so a run started before it cannot write to the state it
 just cleared.
+
+```mermaid
+sequenceDiagram
+    participant View
+    participant Async as useAsyncAction
+    participant Api as action()
+    View->>Async: run() [#1]
+    Async->>Api: call #1
+    View->>Async: run() [#2]
+    Async->>Api: call #2
+    Api-->>Async: #2 resolves
+    Async->>Async: #2 is latest: write data, loading = false
+    Api-->>Async: #1 resolves (late)
+    Async->>Async: #1 is overtaken: dropped
+```
+
+## Types
+
+| Type                        | Shape                                                | What it's for                                 |
+| --------------------------- | ----------------------------------------------------- | ---------------------------------------------- |
+| `IAsyncActionSettings<T>`   | `{ initialData?, fallbackErrorMessage?, resolveError? }` | The options object `useAsyncAction` takes. |
+| `TErrorResolver`            | `(error: unknown, fallback?: string) => string`       | Shape of `resolveError`; see [Error messages](#error-messages). |
+| `IAsyncAction<T, TArguments>` | `ReturnType<typeof useAsyncAction<T, TArguments>>`  | The whole return value, for a store or component prop that needs to name it. |

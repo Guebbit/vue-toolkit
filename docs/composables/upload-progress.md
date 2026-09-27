@@ -51,6 +51,26 @@ const submit = () =>
 `track` forwards whatever `send` produced, untouched — a rejection stays a rejection with its
 original reason, so your existing `.catch` keeps working.
 
+```mermaid
+sequenceDiagram
+    participant View
+    participant Upload as useUploadProgress
+    participant Send as send()
+    View->>Upload: track(send, { enabled })
+    alt enabled
+        Upload->>Upload: progress = 0
+        Upload->>Send: send(buildOptions(report))
+        Send-->>Upload: report(fraction) [0..N times]
+        Upload->>Upload: progress = fraction * 100 (clamped)
+        Send-->>Upload: settles (resolve or reject)
+        Upload->>Upload: progress = undefined
+        Upload-->>View: forwards the outcome, untouched
+    else disabled
+        Upload->>Send: send() [no options]
+        Send-->>View: forwards the outcome, untouched
+    end
+```
+
 ## `undefined` is not `0`
 
 `progress` is `undefined` while idle and `0–100` during a request. Those are different states and
@@ -92,6 +112,15 @@ rather than merely looking wrong.
 When the total size is unknown — a chunked or compressed request — axios omits `progress`
 entirely. Report `0` in that case (as the adapter above does) so the bar stays still rather than
 jumping around on a number that means nothing.
+
+## Types
+
+| Type                          | Shape                                              | What it's for                                       |
+| ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| `TUploadProgressReporter`     | `(fraction: number) => void`                       | Shape of `onProgress`, the sink `buildOptions` receives. |
+| `TUploadOptionsBuilder<TOptions>` | `(onProgress: TUploadProgressReporter) => TOptions` | Shape of `buildOptions`; see [Quickstart](#quickstart). |
+| `ITrackUploadSettings`        | `{ enabled? }`                                     | The settings object `track`'s second argument takes. |
+| `IUploadProgress<TOptions>`   | `ReturnType<typeof useUploadProgress<TOptions>>`   | The whole return value, for a store or component prop that needs to name it. |
 
 ## API
 

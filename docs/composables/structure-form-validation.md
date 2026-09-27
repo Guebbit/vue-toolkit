@@ -166,6 +166,67 @@ It merges onto what is already showing rather than replacing it. An API that ans
 field has said nothing about the others, and clearing them would be inventing an all-clear it
 never gave.
 
+## The baseline: reset, dirty, and hydration
+
+`initialData` is only the *starting* baseline. `resetForm()` restores `form` to whatever the
+current baseline is, and `isDirty` compares `form` against it — so a record fetched after the form
+was created can replace what the form opened with, rather than dragging it along forever:
+
+```ts
+const edit = useStructureFormValidation<IUser>({ name: '', email: '' })
+
+fetchOne(userId).then((user) => {
+    edit.setInitialData(user) // new baseline; the live form is untouched
+    edit.resetForm() // apply it: form now shows the fetched record, isDirty back to false
+})
+```
+
+`activateAutoHydrate` does both steps for you, watching a reactive source and re-hydrating every
+time it changes to a defined value. Built for `selectedRecord` from
+[`useStructureRestApi`](./structure-rest-api), so an edit form always starts from whatever the
+resource has cached — including a record that arrives after the form was created, or a switch to
+editing a different one:
+
+```ts
+const edit = useStructureFormValidation<IUser>()
+edit.activateAutoHydrate(users.selectedRecord) // hydrates now if already cached, and on every change
+```
+
+```mermaid
+sequenceDiagram
+    participant Rest as useStructureRestApi
+    participant Form as useStructureFormValidation
+    Rest->>Form: activateAutoHydrate(selectedRecord)
+    Note over Form: immediate: true — hydrates now if a record is already selected
+    Rest-->>Form: selectedRecord changes to a record
+    Form->>Form: setInitialData(record)
+    Form->>Form: resetForm() — form and baseline now match the record
+```
+
+`activateAutoHydrate` returns the underlying `watch` handle, so calling it stops the hydration:
+
+```ts
+const stopHydrating = edit.activateAutoHydrate(users.selectedRecord)
+stopHydrating() // the form keeps whatever it last hydrated to
+```
+
+## The submit flow
+
+```mermaid
+flowchart TD
+    A["handleSubmit(onSubmit, withValidation)"] --> B{"withValidation?"}
+    B -- "false" --> D
+    B -- "true (default)" --> C{"validate() passes?"}
+    C -- "no" --> RE["revealErrors(): showFormErrors = true, focus first invalid field, onInvalid"]
+    RE --> R1["resolve false"]
+    C -- "yes" --> D["showFormErrors = false, isSubmitting = true"]
+    D --> E["onSubmit(form.value)"]
+    E -- "resolves" --> F["isSubmitting = false"]
+    F --> R2["resolve true"]
+    E -- "throws / rejects" --> G["isSubmitting = false"]
+    G --> R3["reject — showFormErrors stays false: an API failure says nothing about any field"]
+```
+
 ## API
 
 `useStructureFormValidation<T>(initialData: T = {}, schema?: MaybeRefOrGetter<ZodType<T>>, options?)`
@@ -187,9 +248,11 @@ never gave.
 | `showFormErrors`                         | Ref — whether errors should be rendered. Owned by `handleSubmit` / `revealErrors` / `applyServerErrors`. |
 | `isSubmitting`                           | Ref — `true` while `handleSubmit`'s handler is running.                                         |
 | `isValid`                                | Computed — `true` when `formErrors` has no keys.                                                |
-| `isDirty`                                | Computed — `true` when `form` differs from `initialData` (compared via `JSON.stringify`).       |
+| `isDirty`                                | Computed — `true` when `form` differs from the baseline (compared via `JSON.stringify`). The baseline starts as `initialData`; `setInitialData`/`activateAutoHydrate` can replace it. |
 | `setForm(data)`                          | Shallow-merges partial data into `form`.                                                        |
-| `resetForm()`                            | Restores `form` to `initialData` and clears `formErrors`.                                       |
+| `resetForm()`                            | Restores `form` to the current baseline and clears `formErrors`. See [The baseline](#the-baseline-reset-dirty-and-hydration). |
+| `setInitialData(data)`                   | Replaces the baseline `resetForm()`/`isDirty` use. Leaves the live `form` alone — call `resetForm()` (or use `activateAutoHydrate`) to apply it. |
+| `activateAutoHydrate(source)`            | Watches `source` (e.g. `selectedRecord`); on every defined value, `setInitialData` + `resetForm`. Runs immediately if `source` already holds a value. Returns the `watch` handle. |
 | `clearErrors()`                          | Clears all `formErrors`.                                                                         |
 | `setFieldError(field, errors)`           | Sets error message(s) for one field — accepts a string or a string array.                       |
 | `clearFieldError(field)`                 | Removes errors for one field.                                                                    |
@@ -197,6 +260,13 @@ never gave.
 | `validate()`                             | Runs `schema.safeParse(form.value)`, populates `formErrors` on failure, returns a boolean.       |
 | `revealErrors()`                         | Turns `showFormErrors` on, waits for the render, focuses the first invalid field, calls `onInvalid`. |
 | `handleSubmit(onSubmit, withValidation?)`| Validates (unless `withValidation` is `false`), then awaits `onSubmit(form.value)` with `isSubmitting` set around it. Owns `showFormErrors` throughout. Returns `true` on success, `false` on validation failure. |
+
+## Types
+
+| Type                             | Shape                                             | What it's for                                       |
+| -------------------------------- | ----------------------------------------------------| ----------------------------------------------------- |
+| `IApplyServerErrorsOptions<T>`  | `{ map?, onUnmapped? }`                           | The options object `applyServerErrors`'s second argument takes. |
+| `IStructureFormValidation<T>`   | `ReturnType<typeof useStructureFormValidation<T>>` | The whole return value, for a store or component prop that needs to name it. |
 
 ## Gotchas
 

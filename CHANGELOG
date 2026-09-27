@@ -86,6 +86,9 @@ is an active TanStack observer that reacts to invalidation on its own.
   into `getRecord(x)` or `itemDictionary` is ignored with a Vue warning, and `parentHasMany` is
   rebuilt from the cache on every change, so an in-place edit of it is lost. Migration: write
   through `addRecord`/`editRecord`/`updateTarget`, and link children with `addToParent`.
+- **BREAKING** — `IToastType` → **`EToastType`** (`useNotificationsStore`). The `I` prefix names an
+  interface; an enum gets no such prefix. Bundled into this unreleased major rather than left for
+  the next one. Update the import and every reference.
 - **BREAKING** — `fetchMultiple` resolves the requested ids: one slot per id, the fetched ones
   first, then the cached ones, `undefined` for an id the server left out. 4.x resolved every item
   the server returned (whatever its id), then the cached ones.
@@ -245,6 +248,9 @@ is an active TanStack observer that reacts to invalidation on its own.
 - `docs/guide/getting-started.md` claimed `@tanstack/query-core`/`vue-query` were regular
   dependencies landing in your bundle automatically; neither was ever true (the former was a peer,
   the latter wasn't referenced at all). Corrected alongside the peer-dependency change above.
+- `dist`'s `.js.map`/`.d.ts.map` files pointed at `src/`, which the package never ships; a
+  debugger stepping into the library, or a bundler resolving a source map, hit a 404. `sourceMap`
+  and `declarationMap` are off; `dist`'s `.d.ts` files still carry full types, just no map.
 
 # 4.0.0
 
