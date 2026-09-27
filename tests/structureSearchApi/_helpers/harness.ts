@@ -10,7 +10,7 @@
 import { effectScope, ref, type Ref } from 'vue';
 import { useStructureSearchApi } from '../../../src/composables/structureSearchApi';
 import { DEFAULT_STALE_TIME, newTestClient, track } from '../../structureRestApi/_helpers/harness';
-import type { IStructureRestApi } from '../../../src/composables/structureRestApi';
+import type { IStructureRestApiOptions } from '../../../src/composables/structureRestApi';
 
 export {
     clearAllInstances,
@@ -35,7 +35,7 @@ export function makeSearchComposable<
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>,
     F = object
->(restApiOptions: Partial<IStructureRestApi> = {}, initialFilters: F = {} as F) {
+>(restApiOptions: Partial<IStructureRestApiOptions> = {}, initialFilters: F = {} as F) {
     const filters = ref(initialFilters) as Ref<F>;
     const scope = effectScope();
     const searchApi = track(

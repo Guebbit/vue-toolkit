@@ -98,7 +98,9 @@ flowchart LR
 
 ## Setup options
 
-`useStructureRestApi<T, K, P>(options)`, `options: IStructureRestApi`:
+`useStructureRestApi<T, K, P>(options)`, `options: IStructureRestApiOptions`, returns
+`IStructureRestApi<T, K, P>` — both exported, explicit interfaces (not inferred), so nothing this
+package keeps internal ever has to appear in your own `.d.ts` output to describe them.
 
 | Option        | Default                   | Purpose                                                                                                   |
 | ------------- | ------------------------- | --------------------------------------------------------------------------------------------------------- |

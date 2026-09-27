@@ -9,7 +9,7 @@
  * @module composables/structureRestApi
  * @see docs/composables/structure-rest-api.md
  */
-import type { MaybeRefOrGetter, Ref, WatchStopHandle } from 'vue';
+import type { ComputedRef, MaybeRefOrGetter, Ref, WatchSource, WatchStopHandle } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 import type { TIdOf } from './structureDataManagement.js';
@@ -24,6 +24,12 @@ export interface IFetchContext {
     /** Aborted once nothing needs this fetch any more. Reading it opts into that. */
     readonly signal: AbortSignal;
 }
+
+/** `fetchAll`/`fetchByParent`/`fetchPaginate`/`watchAll`'s apiCall: resolves a list's items. */
+export type TListCall<T> = (context: IFetchContext) => Promise<(T | undefined)[]>;
+
+/** `fetchMultiple`'s apiCall: resolves the ids it was asked to fetch, missing or stale ones only. */
+export type TMultipleCall<T, K> = (ids: K[], context: IFetchContext) => Promise<(T | undefined)[]>;
 
 /**
  * Per-call settings of a fetch. Unset fields fall back to the resource's defaults. Each method
@@ -76,7 +82,7 @@ export interface IUpdateTargetSettings extends Pick<IFetchSettings, 'merge' | 'k
 }
 
 /** Options of a resource. */
-export interface IStructureRestApi {
+export interface IStructureRestApiOptions {
     /**
      * The record field (or fields, joined by `delimiter`) that identifies a record. Order
      * matters when there are several. Default `'id'`.
@@ -187,10 +193,243 @@ export interface IWatchAnySettings extends Pick<IFetchSettings, 'forced' | 'stal
 }
 
 /**
+ * What {@link useStructureRestApi} returns, as an explicit interface (not inferred) so the public
+ * `.d.ts` never has to reference this package's own internals to describe it.
+ */
+export interface IStructureRestApi<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    T extends Record<string | number, any> = Record<string, any>,
+    K extends string | number = TIdOf<T>,
+    P extends string | number = string | number
+> {
+    /** The id of a record: its identifier field(s), joined by `delimiter` when several. */
+    createIdentifier: <C = T>(itemData: C, customIdentifiers?: string | string[]) => K;
+
+    /** The identifier field name(s), joined by `delimiter` when several. */
+    identifierKey: string;
+
+    /** First segment of every query and mutation key this resource makes. */
+    resourceKey: string;
+
+    /** Upper bound on the records cached under the current `dependsOn`. */
+    maxRecords: number;
+
+    /** The `QueryClient` this resource lives on. */
+    queryClient: QueryClient;
+
+    /** Every record cached under the current `dependsOn`, by id. */
+    itemDictionary: Ref<Record<K, T>>;
+
+    /** Every record cached under the current `dependsOn`, as a list. */
+    itemList: Ref<T[]>;
+
+    /** Replaces every record of the current scope; none of them counts as fetched. */
+    setRecords: (items: Record<K, T>) => Record<K, T>;
+
+    /** Removes every record of the current scope, and marks its lists stale. */
+    resetRecords: () => void;
+
+    /** Drops every query of this resource under the current `dependsOn`. */
+    resetAll: () => void;
+
+    /** One record by id. Several arguments are joined by `delimiter` (multiple identifiers). */
+    getRecord: (..._arguments: (K | undefined)[]) => T | undefined;
+
+    /** Several records by id; ids not stored are skipped. */
+    getRecords: (idsArray?: (K | (K | undefined)[])[]) => T[];
+
+    /** Stores a record, replacing any record with the same id. Its freshness does not move. */
+    addRecord: (itemData: T) => T;
+
+    /** Stores several records (see `addRecord`); empty slots are skipped. */
+    addRecords: (itemsArray: (T | undefined)[]) => void;
+
+    /** Merges `data` into a record (creating it when `create` is on). Freshness does not move. */
+    editRecord: (data?: Partial<T>, id?: K | K[], create?: boolean) => K | undefined;
+
+    /** Merges several records (see `editRecord`); empty slots are skipped. */
+    editRecords: (itemsArray: (T | undefined)[]) => void;
+
+    /** Removes a record. */
+    deleteRecord: (id: K) => boolean | undefined;
+
+    /** Id of the selected record. */
+    selectedIdentifier: Ref<K | undefined>;
+
+    /** The record of `selectedIdentifier`. */
+    selectedRecord: Ref<T | undefined>;
+
+    /** Id of the most recently inserted (created, not merely updated) record. */
+    lastInsertedIdentifier: Ref<K | undefined>;
+
+    /** Ids inserted by the most recent batch call. */
+    lastInsertedIdentifiers: Ref<K[]>;
+
+    /** The record of `lastInsertedIdentifier`. */
+    lastInsertedRecord: Ref<T | undefined>;
+
+    /** Current page, from 1 (client-side pagination over `itemList`). */
+    pageCurrent: Ref<number>;
+
+    /** Records per page. Clamped to a minimum of 1 on write. */
+    pageSize: Ref<number>;
+
+    /** Page count. */
+    pageTotal: Ref<number>;
+
+    /** Index of the current page's first record. */
+    pageOffset: Ref<number>;
+
+    /** The current page's records. */
+    pageItemList: Ref<T[]>;
+
+    /** Every parent's child ids under the current scope: the union of its `fetchByParent` buckets. */
+    parentHasMany: Ref<Record<P, K[]>>;
+
+    /** Links a child to a parent, once, into the parent's plain (keyless) entry. */
+    addToParent: (parentId: P, childId: K) => void;
+
+    /** Unlinks a child from a parent, in every bucket. */
+    removeFromParent: (parentId: P, childId: K) => void;
+
+    /** Drops repeated child ids of a parent, in every bucket. */
+    removeDuplicateChildren: (parentId: P) => void;
+
+    /** A parent's children, by id. Ids whose record is not cached are skipped. */
+    getRecordsByParent: (parentId?: P) => Record<K, T>;
+
+    /** A parent's children, as a list in the relation's order. Ids not cached are skipped. */
+    getListByParent: (parentId?: P) => T[];
+
+    /** True while anything of this resource is in flight. Same as `isLoading()`. */
+    loading: ComputedRef<boolean>;
+
+    /** True while a query or mutation of this resource runs whose `key` starts with `key`. */
+    isLoading: (key?: string[]) => boolean;
+
+    /** Generic read for anything that is not a record. */
+    fetchAny: <F = unknown>(
+        apiCall: (context: IFetchContext) => Promise<F>,
+        settings?: Pick<IFetchSettings, 'forced' | 'staleTime' | 'key'>
+    ) => Promise<F | undefined>;
+
+    /** Get every item from the server. */
+    fetchAll: (apiCall: TListCall<T>, settings?: IFetchSettings) => Promise<(T | undefined)[]>;
+
+    /** Same as `fetchAll`, for the children of one parent. */
+    fetchByParent: (
+        apiCall: TListCall<T>,
+        parentId: P,
+        settings?: IFetchSettings
+    ) => Promise<(T | undefined)[]>;
+
+    /** Get one record from the server. */
+    fetchTarget: (
+        apiCall: (context: IFetchContext) => Promise<T | undefined>,
+        id?: K,
+        settings?: Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'>
+    ) => Promise<T | undefined>;
+
+    /** Fetch several records by id, asking the server only for the missing or stale ones. */
+    fetchMultiple: (
+        apiCall: TMultipleCall<T, K>,
+        ids?: K[],
+        settings?: Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'>
+    ) => Promise<(T | undefined)[]>;
+
+    /** One server-paginated page, unfiltered. */
+    fetchPaginate: (
+        apiCall: TListCall<T>,
+        page?: number,
+        pageSize?: number,
+        settings?: IFetchSettings
+    ) => Promise<(T | undefined)[]>;
+
+    /** fetchTarget's active counterpart: selects the id and keeps its record fetched. */
+    watchTarget: (
+        apiCall: (id: K, context: IFetchContext) => Promise<T | undefined>,
+        idSource: WatchSource<K | undefined | null>,
+        settings?: IWatchTargetSettings<T, K>
+    ) => IWatchHandle<T | undefined>;
+
+    /** fetchAll's active counterpart. */
+    watchAll: (
+        apiCall: TListCall<T>,
+        settings?: IWatchListSettings
+    ) => IWatchHandle<(T | undefined)[]>;
+
+    /** fetchByParent's active counterpart: also re-runs when the parent id changes. */
+    watchByParent: (
+        apiCall: (parentId: P, context: IFetchContext) => Promise<(T | undefined)[]>,
+        parentId: MaybeRefOrGetter<P | undefined | null>,
+        settings?: IWatchListSettings
+    ) => IWatchHandle<(T | undefined)[]>;
+
+    /** fetchAny's active counterpart. Also returns `data`, since the answer is not a record. */
+    watchAny: <F = unknown>(
+        apiCall: (context: IFetchContext) => Promise<F>,
+        settings: IWatchAnySettings
+    ) => IWatchHandle<F | undefined> & { data: ComputedRef<F | undefined> };
+
+    /** A command that fits no record shape, run as a one-shot mutation. */
+    mutateAny: <F = unknown>(
+        apiCall: () => Promise<F>,
+        settings?: Pick<IFetchSettings, 'key'>
+    ) => Promise<F>;
+
+    /** Create a record and store it. */
+    createTarget: (
+        apiCall: () => Promise<T | undefined>,
+        dummyData?: T,
+        settings?: Pick<IFetchSettings, 'key'>
+    ) => Promise<T | undefined>;
+
+    /** Update a record: applied locally first, rolled back on failure. */
+    updateTarget: <F = T>(
+        apiCall: () => Promise<F>,
+        itemData: Partial<T>,
+        id?: K,
+        settings?: IUpdateTargetSettings
+    ) => Promise<F>;
+
+    /** Delete a record: removed locally first, restored on failure. */
+    deleteTarget: <F = unknown>(
+        apiCall: () => Promise<F>,
+        id: K,
+        settings?: Pick<IFetchSettings, 'key'>
+    ) => Promise<F>;
+
+    /** Would `fetchTarget(apiCall, id)` be served from cache? */
+    checkTarget: (id: K, settings?: Pick<IFetchSettings, 'staleTime'>) => boolean;
+
+    /** Would `fetchAll` be served from cache? */
+    checkAll: (settings?: Pick<IFetchSettings, 'key' | 'staleTime'>) => boolean;
+
+    /** Would `fetchByParent` be served from cache? */
+    checkByParent: (parentId: P, settings?: Pick<IFetchSettings, 'key' | 'staleTime'>) => boolean;
+
+    /** Would `fetchPaginate` be served from cache? */
+    checkPaginate: (
+        page?: number,
+        pageSize?: number,
+        settings?: Pick<IFetchSettings, 'key' | 'staleTime'>
+    ) => boolean;
+
+    /** Would `fetchAny` be served from cache? Always false without a key. */
+    checkAny: (key?: string[], settings?: Pick<IFetchSettings, 'staleTime'>) => boolean;
+
+    /** Which ids would `fetchMultiple` serve from cache, and which would it fetch? */
+    checkMultiple: (
+        ids?: K[],
+        settings?: Pick<IFetchSettings, 'staleTime'>
+    ) => { cachedIds: K[]; expiredIds: K[] };
+}
+
+/**
  * A REST resource: records, lists and paginated reads cached in one TanStack `QueryClient`,
  * optimistic mutations with rollback, and reactive views over all of it.
  *
- * @param options - see IStructureRestApi
+ * @param options - see IStructureRestApiOptions
  * @returns the resource
  */
 export const useStructureRestApi = <
@@ -199,5 +438,5 @@ export const useStructureRestApi = <
     K extends string | number = TIdOf<T>,
     P extends string | number = string | number
 >(
-    options: IStructureRestApi
-) => createRestResource<T, K, P>(options).api;
+    options: IStructureRestApiOptions
+): IStructureRestApi<T, K, P> => createRestResource<T, K, P>(options).api;

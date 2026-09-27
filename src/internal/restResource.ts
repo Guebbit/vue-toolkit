@@ -40,11 +40,13 @@ import { useStructureDataManagement, type TIdOf } from '../composables/structure
 import type {
     IFetchContext,
     IFetchSettings,
-    IStructureRestApi,
+    IStructureRestApiOptions,
     IWatchAnySettings,
     IWatchHandle,
     IWatchListSettings,
-    IWatchTargetSettings
+    IWatchTargetSettings,
+    TListCall,
+    TMultipleCall
 } from '../composables/structureRestApi.js';
 import { isNil, stableKey } from './plainData.js';
 import { createResourceKeys, type IListCacheEntry, type ITargetEntry } from './resourceKeys.js';
@@ -57,12 +59,6 @@ import { createResourceMutations } from './resourceMutations.js';
 import { dropQueries, dropQuery } from './queryRemoval.js';
 import { createWriteGuard } from './writeGuard.js';
 import { scopeRegistryFor } from './scopeRegistry.js';
-
-/** A list call: resolves the list's items. */
-export type TListCall<T> = (context: IFetchContext) => Promise<(T | undefined)[]>;
-
-/** fetchMultiple's apiCall: resolves the ids it was asked to fetch, missing or stale ones only. */
-export type TMultipleCall<T, K> = (ids: K[], context: IFetchContext) => Promise<(T | undefined)[]>;
 
 /** Extra data a list entry stores next to its ids, computed once the ids are known. */
 export type TListExtra<K> = (ids: K[]) => Record<string, unknown>;
@@ -159,7 +155,7 @@ export interface IWatchQueryOptions<E> {
 /**
  * Builds a resource: its public API and the engine the search layer shares.
  *
- * @param options - see IStructureRestApi
+ * @param options - see IStructureRestApiOptions
  * @returns `api` (public) and `engine` (internal)
  */
 export const createRestResource = <
@@ -175,7 +171,7 @@ export const createRestResource = <
     maxRecords = 10_000,
     delimiter = '|',
     queryClient: queryClientOption
-}: IStructureRestApi) => {
+}: IStructureRestApiOptions) => {
     // Every cache subscription this resource makes (resourceActivity, the scope registry claim
     // below) is torn down through onScopeDispose — with no effect scope active, there is nothing
     // to call it, and no other way to stop them: they leak for the QueryClient's whole lifetime,

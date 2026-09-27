@@ -5,9 +5,13 @@
 import { ref } from 'vue';
 import { expectTypeOf } from 'expect-type';
 import { useStructureRestApi } from '../../src/index.js';
+import type { IStructureRestApi } from '../../src/composables/structureRestApi.js';
 import type { IUser } from './_fixtures.js';
 
 const resource = useStructureRestApi<IUser, number>({ resourceKey: 'users' });
+
+// IStructureRestApi (V2.8) now names the RETURN type, as an explicit, exported interface.
+expectTypeOf(resource).toEqualTypeOf<IStructureRestApi<IUser, number>>();
 
 // getRecord/itemDictionary/itemList infer from T, keyed by the explicit K.
 expectTypeOf(resource.getRecord(1)).toEqualTypeOf<IUser | undefined>();

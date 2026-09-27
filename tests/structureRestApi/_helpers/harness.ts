@@ -10,7 +10,7 @@ import { createApp, effectScope, type EffectScope } from 'vue';
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import {
     useStructureRestApi,
-    type IStructureRestApi
+    type IStructureRestApiOptions
 } from '../../../src/composables/structureRestApi';
 
 type AnyInstance = { queryClient: QueryClient };
@@ -96,7 +96,7 @@ export function makeComposable<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record-type constraint
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>
->(options: Partial<IStructureRestApi> = {}) {
+>(options: Partial<IStructureRestApiOptions> = {}) {
     const scope = effectScope();
     const instance = scope.run(() =>
         useStructureRestApi<T, K>({
@@ -144,7 +144,7 @@ export function makeInjected<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record-type constraint
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = Extract<keyof T, string | number>
->(queryClient: QueryClient, options: Partial<IStructureRestApi> = {}) {
+>(queryClient: QueryClient, options: Partial<IStructureRestApiOptions> = {}) {
     return runInjected(queryClient, () =>
         useStructureRestApi<T, K>({
             resourceKey: 'resource',

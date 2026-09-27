@@ -6,6 +6,7 @@
 import { expectTypeOf } from 'expect-type';
 import { useStructureCrudApi } from '../../src/index.js';
 import type { IFetchContext } from '../../src/composables/structureRestApi.js';
+import type { IStructureCrudApi } from '../../src/composables/structureCrudApi.js';
 import type { IUser } from './_fixtures.js';
 
 const crud = useStructureCrudApi<IUser, number>(
@@ -31,6 +32,9 @@ const crud = useStructureCrudApi<IUser, number>(
 );
 
 expectTypeOf(crud.fetchOne).parameter(0).toEqualTypeOf<number>();
+
+// IStructureCrudApi is (still) an explicit, exported return interface, not inferred (V2.8).
+expectTypeOf(crud).toEqualTypeOf<IStructureCrudApi<IUser, number>>();
 
 // An operation ignoring the context it doesn't need still compiles.
 useStructureCrudApi<IUser, number>(

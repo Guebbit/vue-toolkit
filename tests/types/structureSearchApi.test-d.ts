@@ -5,6 +5,7 @@
 import { ref } from 'vue';
 import { expectTypeOf } from 'expect-type';
 import { useStructureSearchApi } from '../../src/index.js';
+import type { IStructureSearchApi } from '../../src/composables/structureSearchApi.js';
 import type { IUser } from './_fixtures.js';
 
 interface IUserFilters {
@@ -15,6 +16,11 @@ const filters = ref<IUserFilters>({});
 const search = useStructureSearchApi<IUser, number, string | number, IUserFilters>(filters, {
     resourceKey: 'users'
 });
+
+// IStructureSearchApi (V2.8): an explicit, exported return interface, not inferred.
+expectTypeOf(search).toEqualTypeOf<
+    IStructureSearchApi<IUser, number, string | number, IUserFilters>
+>();
 
 // fetchSearch/searchGet resolve/return records of T, and totalItems is a plain number.
 expectTypeOf(

@@ -198,12 +198,13 @@ build that string by hand.
 
 ## API
 
-`useStructureSearchApi<T, K, P, F>(filtersSource, settings)`
+`useStructureSearchApi<T, K, P, F>(filtersSource, settings)` returns `IStructureSearchApi<T, K, P,
+F>` — an exported, explicit interface (not inferred).
 
 | Parameter       | Type                | Purpose                                                                                |
 | --------------- | ------------------- | -------------------------------------------------------------------------------------- |
 | `filtersSource` | `WatchSource<F>`    | Ref, computed or getter producing the live filters. Read when a search is applied (and by `isPageCached`), never watched. |
-| `settings`      | `IStructureRestApi` | The resource's options, as on [`useStructureRestApi`](./structure-rest-api#setup-options). `resourceKey` is required. |
+| `settings`      | `IStructureRestApiOptions` | The resource's options, as on [`useStructureRestApi`](./structure-rest-api#setup-options). `resourceKey` is required. |
 
 Returns everything `useStructureRestApi` returns, with these redefined or added:
 

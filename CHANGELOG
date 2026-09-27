@@ -187,6 +187,16 @@ is an active TanStack observer that reacts to invalidation on its own.
   hand-written `isMutating`/`isLoading` filter matching on the mutation key's id segment directly —
   match `String(id)` instead of `id`. This is what a future per-record `isSaving(id)` needs to
   filter reliably regardless of whether `id` was passed as a number or a string.
+- **BREAKING** — Type naming, per the options-vs-return split (VD4): `IStructureRestApi` (used to
+  name the *options*) is now `IStructureRestApiOptions`; `IStructureCrudSettings` is now
+  `IStructureCrudApiOptions`. `IStructureRestApi`, `IStructureSearchApi` and the new
+  `IStructureDataManagementApi` now name each composable's *return* type instead (previously
+  unnamed/inferred), matching `IStructureCrudApi`, which already did. All four return types are
+  now hand-written, explicit interfaces rather than `ReturnType<typeof ...>` inference — this also
+  means their `.d.ts` output never references this package's own `internal/` modules or
+  `@vue/reactivity`/`@vue/shared` directly (V4.2), which failed to resolve under a strict pnpm
+  layout. Rename `IStructureRestApi`/`IStructureCrudSettings` imports to the new options names;
+  code naming the old (absent) return types starts naming the new ones instead.
 - **BREAKING** — `K`'s default type, on every structure composable, is now `TIdOf<T>` — the type of
   `T['id']` when `T` has one, `string | number` otherwise — instead of `keyof T` (the union of
   field names). The default `identifiers` is `'id'`, so this is the type its value naturally has;
@@ -250,7 +260,8 @@ is an active TanStack observer that reacts to invalidation on its own.
 - Exported types: `IWatchHandle`, `IWatchCallbacks`, `IWatchTargetSettings`, `IWatchSearchHandle`,
   `ISearchResult`, `IUpdateTargetSettings`, `IRecordStore`, `IFetchContext`, `TIdOf`,
   `ICreateOneSettings`, `IUpdateOneSettings`, `IDeleteOneSettings`, `IWatchListSettings`,
-  `IWatchAnySettings`.
+  `IWatchAnySettings`, `TListCall`, `TMultipleCall`, `IStructureRestApi` (now the return type),
+  `IStructureSearchApi`, `IStructureDataManagementApi`.
 - `useStructureDataManagement` gains an optional, advanced third parameter, `recordStore`: the
   write surface its CRUD methods go through instead of owning a plain `ref` directly. Defaults to a
   local, in-memory store (so the composable is unaffected on its own) — `useStructureRestApi`

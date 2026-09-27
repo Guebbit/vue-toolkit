@@ -15,13 +15,16 @@ import type { TIdOf } from './structureDataManagement.js';
 import {
     useStructureSearchApi,
     type ISearchResult,
+    type IStructureSearchApi,
+    type IWatchSearchHandle,
     type IWatchSearchSettings
 } from './structureSearchApi.js';
 import type {
     IFetchContext,
     IFetchSettings,
-    IStructureRestApi,
+    IStructureRestApiOptions,
     IUpdateTargetSettings,
+    IWatchHandle,
     IWatchTargetSettings
 } from './structureRestApi.js';
 
@@ -77,7 +80,7 @@ export interface IStructureCrudOperations<
 }
 
 /** Options of a CRUD resource: everything useStructureRestApi accepts, plus the filters. */
-export interface IStructureCrudSettings<F = object> extends IStructureRestApi {
+export interface IStructureCrudApiOptions<F = object> extends IStructureRestApiOptions {
     /** Starting value of `filters`, and what resetFilters() returns to. */
     initialFilters?: F;
 }
@@ -116,7 +119,7 @@ export interface IDeleteOneSettings<O> {
  * A whole resource from the API calls that reach it.
  *
  * @param operations - see IStructureCrudOperations
- * @param settings - see IStructureCrudSettings
+ * @param settings - see IStructureCrudApiOptions
  * @returns the resource
  */
 export const useStructureCrudApi = <
@@ -130,8 +133,8 @@ export const useStructureCrudApi = <
     P extends string | number = string | number
 >(
     operations: IStructureCrudOperations<T, K, F, C, U, O>,
-    { initialFilters, ...settings }: IStructureCrudSettings<F>
-) => {
+    { initialFilters, ...settings }: IStructureCrudApiOptions<F>
+): IStructureCrudApi<T, K, F, C, U, O, P> => {
     /**
      * A fresh copy of the initial filters: `filters` is edited in place by forms, so it must
      * never share objects with `initialFilters`.
@@ -355,8 +358,11 @@ export const useStructureCrudApi = <
     };
 };
 
-/** Everything {@link useStructureCrudApi} returns. */
-export type IStructureCrudApi<
+/**
+ * Everything {@link useStructureCrudApi} returns, as an explicit interface (not inferred).
+ * Everything `useStructureSearchApi` returns is passed through.
+ */
+export interface IStructureCrudApi<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
@@ -365,4 +371,47 @@ export type IStructureCrudApi<
     U = Partial<T>,
     O = unknown,
     P extends string | number = string | number
-> = ReturnType<typeof useStructureCrudApi<T, K, F, C, U, O, P>>;
+> extends IStructureSearchApi<T, K, P, F> {
+    /** The live search filters, everything except pagination. */
+    filters: Ref<F>;
+
+    /** Fetch every record. */
+    fetchList: (fetchSettings?: IFetchSettings) => Promise<(T | undefined)[]>;
+
+    /** Fetch one unfiltered page without touching the applied search. */
+    fetchPage: (
+        page?: number,
+        pageSize?: number,
+        fetchSettings?: IFetchSettings
+    ) => Promise<(T | undefined)[]>;
+
+    /** The active search: now (unless `immediate: false`), then on every page/filters change. */
+    watchList: (watchSettings?: IWatchSearchSettings<T, F>) => IWatchSearchHandle<T>;
+
+    /** Apply the current filters from page one: the "Search" button. */
+    searchNow: (fetchSettings?: IFetchSettings) => Promise<ISearchResult<T>>;
+
+    /** Clear every filter and search again from page one. */
+    resetFilters: (fetchSettings?: IFetchSettings) => Promise<ISearchResult<T>>;
+
+    /** Fetch one record and select it, so `selectedRecord` is what the screen shows. */
+    fetchOne: (
+        id: K,
+        fetchSettings?: Pick<IFetchSettings, 'forced' | 'merge' | 'staleTime'>
+    ) => Promise<T | undefined>;
+
+    /** `fetchOne`'s active counterpart: selects and keeps fetched whatever id `idSource` produces. */
+    watchOne: (
+        idSource: WatchSource<K | undefined | null>,
+        watchSettings?: IWatchTargetSettings<T, K>
+    ) => IWatchHandle<T | undefined>;
+
+    /** Create a record and store it. */
+    createOne: (data: C, settings?: ICreateOneSettings<T, O>) => Promise<T | undefined>;
+
+    /** Update a record: applied locally first, rolled back on failure. */
+    updateOne: (id: K, data: U, settings?: IUpdateOneSettings<O>) => Promise<T | undefined>;
+
+    /** Delete a record: removed locally first, restored on failure. */
+    deleteOne: (id: K, settings?: IDeleteOneSettings<O>) => Promise<unknown>;
+}

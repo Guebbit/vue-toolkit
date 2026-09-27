@@ -190,7 +190,7 @@ Type parameters: `T` the record, `K` its id, `F` the filters, `C` the create pay
 `Partial<T>`), `U` the update payload (default `Partial<T>`), `O` the per-call options of
 `create`/`update`/`remove`, `P` a parent's id.
 
-`settings: IStructureCrudSettings<F>` is everything [`useStructureRestApi`](./structure-rest-api#setup-options)
+`settings: IStructureCrudApiOptions<F>` is everything [`useStructureRestApi`](./structure-rest-api#setup-options)
 accepts (`resourceKey` required, `identifiers`, `staleTime`, `dependsOn`, `maxRecords`,
 `queryClient`, ...) plus:
 
@@ -198,7 +198,8 @@ accepts (`resourceKey` required, `identifiers`, `staleTime`, `dependsOn`, `maxRe
 | ---------------- | ---- | ------- | -------------------------------------------------------- |
 | `initialFilters` | `F`  | `{}`    | Starting value of `filters`, and what `resetFilters()` returns to. |
 
-Returns everything `useStructureSearchApi` returns (type `IStructureCrudApi<...>`), plus:
+Returns everything `useStructureSearchApi` returns (type `IStructureCrudApi<...>`, an exported,
+explicit interface — not inferred), plus:
 
 | Member                                  | Settings                                        | Behaviour                                                                          |
 | --------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- |

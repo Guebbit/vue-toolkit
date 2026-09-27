@@ -90,6 +90,105 @@ const createLocalRecordStore = <
 };
 
 /**
+ * What {@link useStructureDataManagement} returns: the dictionary and its operations, as an
+ * explicit interface (not inferred) so the public `.d.ts` never has to reference this module's
+ * own internals to describe it.
+ */
+export interface IStructureDataManagementApi<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    T extends Record<string | number | symbol, any> = Record<string, any>,
+    K extends string | number | symbol = TIdOf<T>,
+    P extends string | number | symbol = string | number | symbol
+> {
+    /** The id of a record: its identifier field(s), joined by `delimiter` when several. */
+    createIdentifier: <C = T>(itemData: C, customIdentifiers?: string | string[]) => K;
+
+    /** The identifier field name(s), joined by `delimiter` when several. */
+    identifier: string;
+
+    /** Every record, by id, as the record store holds it. */
+    itemDictionary: Ref<Record<K, T>>;
+
+    /** Every record, as a list. */
+    itemList: Ref<T[]>;
+
+    /** Replaces the whole dictionary. */
+    setRecords: (items: Record<K, T>) => Record<K, T>;
+
+    /** Empties the dictionary. */
+    resetRecords: () => void;
+
+    /** One record by id. Several arguments are joined by `delimiter` (multiple identifiers). */
+    getRecord: (..._arguments: (K | undefined)[]) => T | undefined;
+
+    /** Several records by id; ids not stored are skipped. */
+    getRecords: (idsArray?: (K | (K | undefined)[])[]) => T[];
+
+    /** Stores a record, replacing any record with the same id. */
+    addRecord: (itemData: T) => T;
+
+    /** Stores several records (see `addRecord`); empty slots are skipped. */
+    addRecords: (itemsArray: (T | undefined)[]) => void;
+
+    /** Merges `data` into a record; see the composable's own `editRecord` for `create`'s effect. */
+    editRecord: (data?: Partial<T>, id?: K | K[], create?: boolean) => K | undefined;
+
+    /** Merges several records (see `editRecord`); empty slots are skipped. */
+    editRecords: (itemsArray: (T | undefined)[]) => void;
+
+    /** Removes a record. */
+    deleteRecord: (id: K) => boolean | undefined;
+
+    /** Id of the selected record. */
+    selectedIdentifier: Ref<K | undefined>;
+
+    /** The record of `selectedIdentifier`. */
+    selectedRecord: Ref<T | undefined>;
+
+    /** Id of the most recently inserted (created, not merely updated) record. */
+    lastInsertedIdentifier: Ref<K | undefined>;
+
+    /** Ids inserted by the most recent batch call (`addRecords`/`editRecords`). */
+    lastInsertedIdentifiers: Ref<K[]>;
+
+    /** The record of `lastInsertedIdentifier`. */
+    lastInsertedRecord: Ref<T | undefined>;
+
+    /** Current page, from 1. */
+    pageCurrent: Ref<number>;
+
+    /** Records per page. Clamped to a minimum of 1 on write. */
+    pageSize: Ref<number>;
+
+    /** Page count. */
+    pageTotal: Ref<number>;
+
+    /** Index of the current page's first record. */
+    pageOffset: Ref<number>;
+
+    /** The current page's records. */
+    pageItemList: Ref<T[]>;
+
+    /** Child ids by parent id: the local "parent hasMany" relation. */
+    parentHasMany: Ref<Record<P, string[]>>;
+
+    /** Links a child to a parent. */
+    addToParent: (parentId: P, childId: string) => void;
+
+    /** Unlinks a child from a parent. */
+    removeFromParent: (parentId: P, childId: string) => string[];
+
+    /** Drops repeated child ids of a parent. */
+    removeDuplicateChildren: (parentId: P) => string[];
+
+    /** A parent's children, by id. Ids whose record is not stored are skipped. */
+    getRecordsByParent: (parentId?: P) => Record<K, T>;
+
+    /** A parent's children, as a list in the relation's order. Ids not stored are skipped. */
+    getListByParent: (parentId?: P) => T[];
+}
+
+/**
  * Records in a reactive dictionary, with selection, client-side pagination and belongsTo
  * relations.
  *
@@ -110,7 +209,7 @@ export const useStructureDataManagement = <
     identifiers: string | string[] = 'id',
     delimiter = '|',
     recordStore: IRecordStore<T, K> = createLocalRecordStore<T, K>()
-) => {
+): IStructureDataManagementApi<T, K, P> => {
     /**
      * Fills the given (missing) identifier field(s) directly on itemData with a random fallback
      * value, so the generated id is:
@@ -222,9 +321,9 @@ export const useStructureDataManagement = <
 
     /**
      * Ids inserted by the most recent batch call (addRecords/editRecords).
-     * Reset at the start of each batch call.
+     * Reset at the start of each batch call. Cast past UnwrapRef, same reason as `dictionary`.
      */
-    const lastInsertedIdentifiers = ref<K[]>([]);
+    const lastInsertedIdentifiers = ref<K[]>([]) as Ref<K[]>;
 
     /** The record of `lastInsertedIdentifier`. */
     const lastInsertedRecord = computed<T | undefined>(() =>
@@ -377,8 +476,11 @@ export const useStructureDataManagement = <
 
     // ----------------------------- hasMany & belongsTo relationships -----------------------------
 
-    /** Child ids by parent id: the local "parent hasMany" relation. */
-    const parentHasMany = ref({} as Record<P, (typeof identifier)[]>);
+    /** Child ids by parent id: the local "parent hasMany" relation. Cast past UnwrapRef, same
+     * reason as `dictionary`. */
+    const parentHasMany = ref({} as Record<P, (typeof identifier)[]>) as Ref<
+        Record<P, (typeof identifier)[]>
+    >;
 
     /** parentHasMany's dictionary, typed for writing. */
     const relations = () => parentHasMany.value as Record<P, (typeof identifier)[]>;

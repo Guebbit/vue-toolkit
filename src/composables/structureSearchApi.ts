@@ -10,7 +10,16 @@
  * @module composables/structureSearchApi
  * @see docs/composables/structure-search-api.md
  */
-import { computed, nextTick, ref, shallowRef, toValue, watch, type WatchSource } from 'vue';
+import {
+    computed,
+    nextTick,
+    ref,
+    shallowRef,
+    toValue,
+    watch,
+    type ComputedRef,
+    type WatchSource
+} from 'vue';
 import type { Query } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 import { detachedCopy, stableKey } from '../internal/plainData.js';
@@ -21,6 +30,7 @@ import type {
     IFetchContext,
     IFetchSettings,
     IStructureRestApi,
+    IStructureRestApiOptions,
     IWatchCallbacks,
     IWatchHandle
 } from './structureRestApi.js';
@@ -80,12 +90,76 @@ const settledResult = <R>(failed: boolean, current: () => R): R | undefined =>
     failed ? undefined : current();
 
 /**
+ * What {@link useStructureSearchApi} returns, as an explicit interface (not inferred). Everything
+ * `useStructureRestApi` returns is passed through; `pageItemList` and `pageTotal` are redefined to
+ * follow the applied search instead of client-side pagination over the whole dictionary.
+ */
+export interface IStructureSearchApi<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    T extends Record<string | number, any> = Record<string, any>,
+    K extends string | number = TIdOf<T>,
+    P extends string | number = string | number,
+    F = object
+> extends Omit<IStructureRestApi<T, K, P>, 'pageTotal' | 'pageItemList'> {
+    /** Page count of the applied search. */
+    pageTotal: ComputedRef<number>;
+
+    /** Items of the applied search's current page. */
+    pageItemList: ComputedRef<T[]>;
+
+    /** The applied search's server-reported total, across every page. */
+    totalItems: ComputedRef<number>;
+
+    /** A cached search page, by filters, without fetching. */
+    searchGet: (
+        filters: string | object,
+        page?: number,
+        size?: number,
+        settings?: Pick<IFetchSettings, 'key'>
+    ) => T[];
+
+    /** Fetches one page of a filtered search and makes it the applied search. */
+    fetchSearch: <FF = F>(
+        apiCall: (context: IFetchContext) => Promise<ISearchResult<T>>,
+        filters?: FF,
+        page?: number,
+        size?: number,
+        settings?: IFetchSettings
+    ) => Promise<ISearchResult<T>>;
+
+    /** Would `fetchSearch` be served from cache? */
+    checkSearch: <FF = F>(
+        filters?: FF,
+        page?: number,
+        size?: number,
+        settings?: Pick<IFetchSettings, 'key' | 'staleTime'>
+    ) => boolean;
+
+    /** `checkSearch` for the live filters and the current page/pageSize. */
+    isPageCached: (settings?: Pick<IFetchSettings, 'key' | 'staleTime'>) => boolean;
+
+    /** Same as `isPageCached`, for `fetchPaginate` (no filters). */
+    isPaginateCached: (settings?: Pick<IFetchSettings, 'key' | 'staleTime'>) => boolean;
+
+    /** The active search: keeps the applied search's current page fetched. */
+    watchSearch: (
+        apiCall: (
+            filters: F,
+            page: number,
+            pageSize: number,
+            context: IFetchContext
+        ) => Promise<ISearchResult<T>>,
+        settings?: IWatchSearchSettings<T, F>
+    ) => IWatchSearchHandle<T>;
+}
+
+/**
  * A REST resource plus filtered, server-paginated search. Everything `useStructureRestApi`
  * returns is passed through; `pageItemList`, `pageTotal` and `totalItems` follow the applied
  * search.
  *
  * @param filtersSource - Ref, ComputedRef or getter producing the live filters
- * @param settings - the resource's options (see IStructureRestApi)
+ * @param settings - the resource's options (see IStructureRestApiOptions)
  * @returns the resource, with search
  */
 export const useStructureSearchApi = <
@@ -96,8 +170,8 @@ export const useStructureSearchApi = <
     F = object
 >(
     filtersSource: WatchSource<F>,
-    settings: IStructureRestApi
-) => {
+    settings: IStructureRestApiOptions
+): IStructureSearchApi<T, K, P, F> => {
     /** The resource, and the machinery its lists run on. */
     const { api, engine } = createRestResource<T, K, P>(settings);
 

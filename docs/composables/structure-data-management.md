@@ -31,7 +31,8 @@ users.itemList.value // IUser[] — computed view of the whole store
 
 ### Setup
 
-`useStructureDataManagement<T, K, P>(identifiers = 'id', delimiter = '|', recordStore?)`
+`useStructureDataManagement<T, K, P>(identifiers = 'id', delimiter = '|', recordStore?)` returns
+`IStructureDataManagementApi<T, K, P>` — an exported, explicit interface (not inferred).
 
 - `T` is the record type, `K` its id type, `P` a parent's id type. `K` defaults to the type of
   `T['id']` when `T` has one (`string | number` otherwise) — the natural default, since the
