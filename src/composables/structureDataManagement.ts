@@ -9,7 +9,7 @@
  * @module composables/structureDataManagement
  * @see docs/composables/structure-data-management.md
  */
-import { computed, ref, toRaw, type Ref } from 'vue';
+import { computed, customRef, ref, toRaw, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
 import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
 
@@ -305,8 +305,25 @@ export const useStructureDataManagement = <
     /** Current page, from 1. */
     const pageCurrent = ref(1);
 
-    /** Records per page. */
-    const pageSize = ref(10);
+    /**
+     * Records per page. Clamped to a minimum of 1 on write: a `pageSize` under 1 would turn
+     * `pageTotal` into `Infinity`, which is never what a pager showing it wants.
+     */
+    const pageSize = customRef<number>((track, trigger) => {
+        let stored = 10;
+        return {
+            get: () => {
+                track();
+                return stored;
+            },
+            set: (value: number) => {
+                const clamped = Math.max(1, value);
+                if (clamped === stored) return;
+                stored = clamped;
+                trigger();
+            }
+        };
+    });
 
     /** Page count. */
     const pageTotal = computed(() => Math.ceil(itemList.value.length / pageSize.value));

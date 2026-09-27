@@ -4,6 +4,8 @@ module.exports = {
     testEnvironment: 'node',
     testMatch: ['**/tests/**/*.spec.ts', '**/__tests__/**/*.spec.ts'],
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+    // Configures fast-check (numRuns, seed) before any *.property.spec.ts imports it.
+    setupFiles: ['<rootDir>/tests/_setup/fastCheck.ts'],
     moduleNameMapper: {
         // @tanstack/vue-query's CJS build eagerly requires its devtools module, which require()s
         // @tanstack/match-sorter-utils — an ESM-only package. Node itself loads it (require of
@@ -18,8 +20,8 @@ module.exports = {
         '^.+\\.tsx?$': [
             'ts-jest',
             {
-                // Override the project-level ESM settings (module: ESNext, moduleResolution: bundler)
-                // with CommonJS here so Jest can load modules without requiring experimental VM modules.
+                // Override the project-level ESM settings (module/moduleResolution: NodeNext) with
+                // CommonJS here so Jest can load modules without requiring experimental VM modules.
                 tsconfig: {
                     module: 'CommonJS',
                     moduleResolution: 'node',
