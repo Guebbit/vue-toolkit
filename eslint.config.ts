@@ -4,8 +4,6 @@ import pluginUnicorn from 'eslint-plugin-unicorn';
 import { globalIgnores } from 'eslint/config';
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript';
 import pluginVue from 'eslint-plugin-vue';
-import pluginVitest from '@vitest/eslint-plugin';
-import pluginCypress from 'eslint-plugin-cypress';
 import pluginOxlint from 'eslint-plugin-oxlint';
 import pluginJsdoc from 'eslint-plugin-jsdoc';
 
@@ -281,30 +279,15 @@ export default defineConfigWithVueTs(
     },
 
     /**
-     * Tests specific eslint config
-     * - Unit Tests (Vitest)
-     *  - E2E Tests (Cypress)
+     * Jest test files: a dedicated tsconfig (type-aware linting needs one, and the test files
+     * aren't part of `tsconfig.json`'s own `src/` build).
      */
     {
-        ...pluginVitest.configs.recommended,
         files: ['src/**/__tests__/*', 'tests/**/*', '**/*.{spec,test}.{ts,tsx}'],
         languageOptions: {
             parserOptions: {
                 projectService: false,
                 project: ['./tsconfig.vitest.json']
-            }
-        }
-    },
-    {
-        ...pluginCypress.configs.recommended,
-        files: [
-            'cypress/e2e/**/*.{cy,spec}.{js,ts,jsx,tsx}',
-            'cypress/support/**/*.{js,ts,jsx,tsx}'
-        ],
-        languageOptions: {
-            parserOptions: {
-                projectService: false,
-                project: ['./tsconfig.cypress.json']
             }
         }
     }
