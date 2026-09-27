@@ -40,6 +40,12 @@ export interface IRecordStore<
 
     /** Empties the whole dictionary. */
     clear(): void;
+
+    /**
+     * Follows an id to the one it actually holds a record under, one hop. Absent on a store with
+     * no such indirection (the default one): `getRecord` then reads `id` as given.
+     */
+    resolve?(id: K): K;
 }
 
 /**
@@ -173,8 +179,10 @@ export const useStructureDataManagement = <
      * @param _arguments - the id, or the values of multiple identifiers
      * @returns the record, if stored
      */
-    const getRecord = (..._arguments: (K | undefined)[]): T | undefined =>
-        itemDictionary.value[joinIdentifiers(_arguments, delimiter) as K];
+    const getRecord = (..._arguments: (K | undefined)[]): T | undefined => {
+        const id = joinIdentifiers(_arguments, delimiter) as K;
+        return itemDictionary.value[recordStore.resolve?.(id) ?? id];
+    };
 
     /**
      * Several records by id; ids not stored are skipped.

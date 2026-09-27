@@ -233,6 +233,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `fetchTarget`/`watchTarget` by an alternate key stored the record twice: `fetchTarget(apiCall,
+  'my-slug')` resolving `{ id: 7 }` wrote the record under `7` (its own id) and, separately, under
+  `'my-slug'` (whatever TanStack writes the query function's return value back under) — two
+  independent copies that would silently diverge the moment either one changed. The requested key
+  now holds an alias entry instead (pointing at `7`, never a copy of the record); `getRecord`,
+  `selectedRecord` and everything that reads through `getRecord` follow it one hop, and
+  `itemDictionary`/`itemList` only ever see the record once.
 - `watchTarget` cleared `selectedIdentifier` on any failed fetch, including a background refetch of
   a record already on screen: a transient network error blanked the detail view even though the
   previously fetched record was still sitting right there in the cache. The selection is now

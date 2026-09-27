@@ -19,11 +19,16 @@ export const LIST_KINDS: readonly TResourceKind[] = ['all', 'parent', 'page', 's
 
 /**
  * A record's cache entry. Wrapped, so a record that is legitimately `undefined` still reads as
- * "cached" rather than "never fetched".
+ * "cached" rather than "never fetched". An entry fetched by an id other than the record's own
+ * (an alternate key, e.g. a slug) holds no `data` of its own: it is an alias, `aliasOf` the id the
+ * record actually lives under, so the record is never duplicated across two cache entries.
  */
 export interface ITargetEntry<T> {
-    /** The record, as last stored. */
-    data: T | undefined;
+    /** The record, as last stored. Absent when this entry is an alias — see `aliasOf`. */
+    data?: T | undefined;
+
+    /** The id this entry's record actually lives under, when this entry is only an alias. */
+    aliasOf?: string | number;
 }
 
 /** A list-shaped cache entry: the ids a list call returned, plus whatever travels with them. */

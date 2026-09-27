@@ -143,6 +143,11 @@ Per method:
   look up, so it always asks the server, and stores the answer under the record's own id. An
   `undefined` or `null` answer is no record: nothing is stored, and with an id the entry is cached
   as "nothing" until it goes stale. `itemList` never holds `null`.
+  - **Fetching by an alternate key** (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`)
+    stores the record once, under `7` — its own id — never twice. The `'my-slug'` entry becomes an
+    alias: `getRecord('my-slug')`, `selectedRecord` and everything else that reads through
+    `getRecord` follow it to `7`'s record, one hop, so it never goes stale as a separate copy.
+    `itemDictionary`/`itemList` only ever see the record once, under `7`.
 - **`fetchMultiple`** asks the server only when some of `ids` are missing or stale, with one call
   of `apiCall` (it receives no arguments; build it from `checkMultiple(ids).expiredIds` to request
   just those). Resolves one slot per requested id, `[...expired, ...cached]` in that order, with

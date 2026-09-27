@@ -57,6 +57,9 @@ export interface IQueryRecordStore<
 
     /** Puts a record back exactly as snapshotted, freshness included. */
     restore: (id: K, snapshot: IRecordSnapshot<T>) => void;
+
+    /** Follows `id` to the one its record actually lives under, one hop (see IRecordStore). */
+    resolve: (id: K) => K;
 }
 
 /**
@@ -206,5 +209,15 @@ export const createQueryRecordStore = <
         if (saved.isInvalidated) invalidate(id);
     };
 
-    return { dictionary, write, remove, writeAll, clear, asFetched, snapshot, restore };
+    /**
+     * Follows `id` to the one its record actually lives under (see IQueryRecordStore.resolve): an
+     * alias entry (fetched by an alternate key — `targetQueryFunction` in restResource.ts) holds
+     * `aliasOf` instead of `data`. Any other id, including one with no entry at all, is its own.
+     */
+    const resolve = (id: K): K => {
+        const entry = queryClient.getQueryData<ITargetEntry<T>>(keys.target(id));
+        return (entry?.aliasOf as K | undefined) ?? id;
+    };
+
+    return { dictionary, write, remove, writeAll, clear, asFetched, snapshot, restore, resolve };
 };

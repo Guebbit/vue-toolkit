@@ -297,7 +297,13 @@ export const createRestResource = <
         const cached = queryClient
             .getQueryCache()
             .findAll({ predicate: inCurrent })
-            .filter((query) => query.queryKey[1] === 'target' && query.state.data !== undefined);
+            .filter(
+                (query) =>
+                    query.queryKey[1] === 'target' &&
+                    // An alias entry (see targetQueryFunction) holds no record of its own: it
+                    // never counts as one of the bound's cached records.
+                    (query.state.data as ITargetEntry<T> | undefined)?.data !== undefined
+            );
         if (cached.length + incoming <= maxRecords) return;
         const kept = queryClient.getQueryCache().find({ queryKey: keep, exact: true });
         // No refetch of watched queries: that would write records again and cross the bound anew.
@@ -457,8 +463,16 @@ export const createRestResource = <
             // Cancelled (an update or delete of this record started) or late: store nothing.
             if (isNil(item) || running.isCancelled() || !keys.isCurrent(scopeAtStart))
                 return { data: item };
-            storeItem(item, id, { merge }, readAt);
-            return queryClient.getQueryData<ITargetEntry<T>>(keys.target(id)) ?? { data: item };
+            // The record always lives under its own id, whatever id this query was fetched by
+            // (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`): storing it a second time
+            // under the requested id would leave two independent, divergent copies in the cache.
+            const realId = createIdentifier(item);
+            storeItem(item, realId, { merge }, readAt);
+            if (realId === id)
+                return queryClient.getQueryData<ITargetEntry<T>>(keys.target(id)) ?? { data: item };
+            // Fetched by an alternate key: this entry is an alias, not a second copy. getRecord and
+            // selectedRecord follow it one hop (see queryRecordStore.ts's `resolve`).
+            return { aliasOf: realId };
         });
     };
 
