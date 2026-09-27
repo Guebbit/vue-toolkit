@@ -139,11 +139,12 @@ The handle:
 | ---------------- | ---------------------------------------------------------------------------------------------------- |
 | `search(forced?)` | Applies the live filters and fetches the current page. If that page is cached and fresh (and not `forced`) it settles without a fetch, `onSuccess` included. Resolves `{ items, totalItems }`, or `undefined` on failure. Leaves `pageCurrent` alone. |
 | `refetch()`      | Fetches the current page of the applied search now, joining a fetch already running. Resolves `{ items, totalItems }` as cached after the fetch: a failure leaves the previous page in place (and shows in `error`). Before any search is applied (`immediate: false`), resolves the empty result without calling `apiCall`. |
+| `suspense()`     | For SSR: resolves once the current page is cached — cached and fresh already, or after the fetch that gets it there. Call it in `onServerPrefetch` (see [`useStructureRestApi`'s SSR section](./structure-rest-api#ssr)). Before any search is applied (`immediate: false`), resolves the empty result without fetching. |
 | `error`          | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                          |
 | `stop()`         | Ends the watcher. Its pages stay cached.                                                             |
 
-Neither `search()` nor `refetch()` rejects: a failure shows in `error` and `onError`, and only
-`search()` resolves `undefined` for it.
+Neither `search()`, `refetch()` nor `suspense()` rejects: a failure shows in `error` and
+`onError`, and only `search()` resolves `undefined` for it.
 
 ## totalItems, pageTotal and isPlaceholder
 

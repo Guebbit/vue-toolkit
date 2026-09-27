@@ -478,7 +478,7 @@ export const useStructureSearchApi = <
                 current().key
             );
 
-        const { query, scope, refetch } = engine.watchQuery<ISearchCacheEntry<K>>({
+        const { query, scope, refetch, suspense } = engine.watchQuery<ISearchCacheEntry<K>>({
             queryKey,
             meta: () => ({
                 filters: current().filters,
@@ -549,6 +549,8 @@ export const useStructureSearchApi = <
             // Before any search there is nothing shown, so nothing to fetch again.
             refetch: () =>
                 applied.value ? refetch().then(currentResult) : Promise.resolve(currentResult()),
+            suspense: () =>
+                applied.value ? suspense().then(currentResult) : Promise.resolve(currentResult()),
             error: query.error,
             search
         };

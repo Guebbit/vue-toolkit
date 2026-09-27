@@ -595,7 +595,7 @@ export const createRestResource = <
      * `dependsOn`) and when invalidated. Run further watchers in `scope` so `stop` ends them too.
      *
      * @param options - see IWatchQueryOptions
-     * @returns the `useQuery` result, its scope, and `refetch`
+     * @returns the `useQuery` result, its scope, `refetch` and `suspense`
      */
     const watchQuery = <E>({
         queryKey,
@@ -623,7 +623,14 @@ export const createRestResource = <
         )!;
         /** Fetches now; cancelRefetch: false joins a fetch already running instead of restarting it. */
         const refetch = () => query.refetch({ cancelRefetch: false });
-        return { query, scope, refetch };
+        /**
+         * TanStack: `suspense()` on a query whose `enabled` is currently false never resolves — it
+         * only starts once `enabled` later turns true, which for a disabled watcher (no id yet,
+         * `enabled: false`) may be never. Resolve with whatever is cached instead of hanging.
+         */
+        const suspense = (): Promise<{ data: E | undefined }> =>
+            toValue(enabled) ? query.suspense() : Promise.resolve({ data: query.data.value });
+        return { query, scope, refetch, suspense };
     };
 
     /**
@@ -740,7 +747,7 @@ export const createRestResource = <
             return id === undefined ? keys.entry('any', dependsOn(), ['idle']) : keys.target(id);
         };
 
-        const { query, scope, refetch } = watchQuery<ITargetEntry<T>>({
+        const { query, scope, refetch, suspense } = watchQuery<ITargetEntry<T>>({
             queryKey,
             meta: () => ({ id: currentId() }),
             fetch: (running) => {
@@ -799,6 +806,11 @@ export const createRestResource = <
                 if (id === undefined) return Promise.resolve(id);
                 return refetch().then(() => getRecord(id));
             },
+            suspense: () => {
+                const id = currentId();
+                if (id === undefined) return Promise.resolve(id);
+                return suspense().then(() => getRecord(id));
+            },
             error: query.error
         };
     };
@@ -818,7 +830,7 @@ export const createRestResource = <
         apiCall: (running: IRunningQuery) => Promise<(T | undefined)[]>,
         settings: IWatchListSettings = {}
     ): IWatchHandle<(T | undefined)[]> => {
-        const { query, scope, refetch } = watchQuery<IListCacheEntry<K>>({
+        const { query, scope, refetch, suspense } = watchQuery<IListCacheEntry<K>>({
             queryKey,
             meta,
             fetch: (running) => listQueryFunction(() => apiCall(running), settings, running),
@@ -830,6 +842,7 @@ export const createRestResource = <
         return {
             stop: () => scope.stop(),
             refetch: () => refetch().then((result) => itemsOf(result.data)),
+            suspense: () => suspense().then((result) => itemsOf(result.data)),
             error: query.error
         };
     };
@@ -931,7 +944,7 @@ export const createRestResource = <
         apiCall: (context: IFetchContext) => Promise<F>,
         settings: IWatchAnySettings
     ) => {
-        const { query, scope, refetch } = watchQuery<{ data: F }>({
+        const { query, scope, refetch, suspense } = watchQuery<{ data: F }>({
             queryKey: () => keys.entry('any', dependsOn(), [], toValue(settings.key)),
             // Wrapped: TanStack refuses a query function that resolves undefined.
             fetch: (running) => apiCall(readContextOf(running)).then((data) => ({ data })),
@@ -943,6 +956,7 @@ export const createRestResource = <
         const handle: IWatchHandle<F | undefined> = {
             stop: () => scope.stop(),
             refetch: () => refetch().then((result) => result.data?.data),
+            suspense: () => suspense().then((result) => result.data?.data),
             error: query.error
         };
         return { ...handle, data: computed(() => query.data.value?.data) };

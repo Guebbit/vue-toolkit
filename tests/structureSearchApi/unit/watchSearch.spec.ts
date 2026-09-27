@@ -324,4 +324,20 @@ describe('UNIT · watchSearch refetch', () => {
         expect(result?.items).toEqual(TECH);
         expect((handle.error.value as Error).message).toBe('boom');
     });
+
+    it('suspense() resolves with the current page, for SSR prefetch', async () => {
+        const { searchApi } = make();
+        const handle = searchApi.watchSearch(fakeApiCall());
+
+        await expect(handle.suspense()).resolves.toEqual({ items: TECH, totalItems: 5 });
+    });
+
+    it('suspense() before any search is applied (immediate: false) resolves without fetching', async () => {
+        const { searchApi } = make();
+        const apiCall = fakeApiCall();
+        const handle = searchApi.watchSearch(apiCall, { immediate: false });
+
+        await expect(handle.suspense()).resolves.toEqual({ items: [], totalItems: 0 });
+        expect(apiCall).not.toHaveBeenCalled();
+    });
 });

@@ -155,6 +155,16 @@ export interface IWatchHandle<R> {
      */
     refetch: () => Promise<R>;
 
+    /**
+     * Resolves once the watched data is available — cached and fresh already, or after the fetch
+     * that gets it there. For SSR: call it in `onServerPrefetch`, before the component renders, so
+     * the client hydrates with data already in the cache instead of fetching again on mount.
+     * Resolves right away, with whatever is currently cached (possibly `undefined`), for a
+     * watcher that is not currently enabled (no id yet, `enabled: false`) — the underlying query
+     * would otherwise wait for `enabled` to turn true, which may be never.
+     */
+    suspense: () => Promise<R>;
+
     /** The last fetch's failure; null after a success. */
     error: Readonly<Ref<unknown>>;
 }

@@ -219,6 +219,14 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Added
 
+- **`suspense()` on every `watch*` handle** (`watchTarget`, `watchAll`, `watchByParent`,
+  `watchAny`, `watchSearch`): wraps TanStack's own `suspense()`, resolving once the watched data
+  is cached — fetching first if needed. For SSR: call it in `onServerPrefetch`, so the fetch
+  happens during server rendering and the client hydrates from an already-populated cache instead
+  of fetching again on mount. Like `refetch()`, never rejects — a failure shows in `error`. A
+  watcher that is not currently enabled (no id yet, `enabled: false`) resolves right away with
+  whatever is cached, instead of waiting for `enabled` to turn true — TanStack's own `suspense()`
+  on a disabled query never resolves at all.
 - **`useStructureSearchApi`'s `pageItemList`** keeps showing the most recently cached page's
   items while a page/size/filters change is in flight, instead of dropping to `[]` until the new
   page lands (`totalItems` already did this). A new `isPlaceholder: ComputedRef<boolean>` is

@@ -191,11 +191,12 @@ moved on since.
 
 Every watcher returns the same handle, `IWatchHandle<R>`:
 
-| Field       | Meaning                                                                                                    |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| `stop()`    | Ends the watcher. Its entry stays cached (see [cache lifetime](#cache-lifetime)).                          |
-| `refetch()` | Fetches now. Joins a fetch already running instead of restarting it. Resolves with the watched data as cached after the fetch: a failure leaves the previous data in place (and shows in `error`). **Never rejects.** |
-| `error`     | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                                |
+| Field         | Meaning                                                                                                    |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| `stop()`      | Ends the watcher. Its entry stays cached (see [cache lifetime](#cache-lifetime)).                          |
+| `refetch()`   | Fetches now. Joins a fetch already running instead of restarting it. Resolves with the watched data as cached after the fetch: a failure leaves the previous data in place (and shows in `error`). **Never rejects.** |
+| `suspense()`  | For SSR: resolves once the watched data is available — cached and fresh already, or after the fetch that gets it there. Call it in `onServerPrefetch`, before the component renders, so the client hydrates with data already in the cache instead of fetching again on mount. A watcher that is not currently enabled (no id yet, `enabled: false`) resolves right away with whatever is cached, instead of waiting for `enabled` to turn true. **Never rejects.** |
+| `error`       | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                                |
 
 A watcher never rejects, so a failure shows only in `error`, and in `onError` on the watchers
 that take callbacks (`watchTarget`, and `watchSearch` on the search layer). Those three callbacks
@@ -233,6 +234,45 @@ const { error, refetch } = users.watchTarget(
   twice.
 
 `forced: true` on a watcher means every mount and every key switch asks the server.
+
+### SSR
+
+Every watcher's `suspense()` wraps [vue-query's own `suspense()`](https://tanstack.com/query/latest/docs/framework/vue/guides/suspense), resolving once the watched data is cached — fetching first if it is not there yet or is stale. Call it from `onServerPrefetch`, so the fetch happens during server rendering instead of again on the client after hydration:
+
+```ts
+import { onServerPrefetch } from 'vue'
+
+const userId = ref<number | null>(1)
+const { suspense, error } = users.watchTarget(
+    (id) => axios.get<IUser>(`/api/users/${id}`).then((r) => r.data),
+    userId
+)
+
+// Awaited by the server render; the client then hydrates from the already-populated cache.
+onServerPrefetch(() => suspense())
+```
+
+```mermaid
+sequenceDiagram
+    participant Server
+    participant Watcher as watchTarget/watchAll/...
+    participant Cache as QueryClient cache
+    participant Client
+    Server->>Watcher: onServerPrefetch(() => suspense())
+    Watcher->>Cache: fetch (if not already cached and fresh)
+    Cache-->>Watcher: data
+    Watcher-->>Server: resolves — render proceeds with data on screen
+    Server->>Client: HTML + dehydrated cache (hydrate()/persistQueryClient)
+    Client->>Cache: hydrate(queryClient, dehydratedState)
+    Note over Client: watchTarget mounts against an already-populated cache — no re-fetch
+```
+
+`suspense()` never rejects, matching `refetch()` — a failed prefetch still resolves (with
+whatever is cached, `undefined` on a genuinely empty miss), and shows in `error` for the server
+render to check if it needs to handle that case explicitly. A watcher that is not currently
+enabled (`watchTarget` with a nullish id, `watchByParent` with a nullish parent, `enabled: false`)
+resolves right away with whatever is cached instead of fetching — vue-query's own `suspense()` on
+a disabled query never resolves at all, since it only starts once `enabled` later turns true.
 
 ### Pre-flight checks
 

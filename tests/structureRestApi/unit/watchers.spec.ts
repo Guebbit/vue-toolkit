@@ -1,7 +1,13 @@
 /**
  * UNIT — the shared contract of the active watchers (watchTarget, watchAll, watchByParent,
- * watchAny): a handle `{ stop, refetch, error }`, failures in `error` rather than a rejection,
- * settle callbacks on a cache hit as well as after a fetch, and no fetch without an id.
+ * watchAny): a handle `{ stop, refetch, suspense, error }`, failures in `error` rather than a
+ * rejection, settle callbacks on a cache hit as well as after a fetch, and no fetch without an id.
+ *
+ * `suspense()` (SSR: await it in `onServerPrefetch`) resolves once the watched data is available,
+ * same as `refetch()` but without forcing a fresh fetch of an already-fresh cache hit. A watcher
+ * that is not currently enabled (no id yet, `enabled: false`) resolves it right away with
+ * whatever is cached instead of fetching — TanStack's own `suspense()` on a disabled query never
+ * resolves at all, it only starts once `enabled` later turns true.
  */
 
 import { ref } from 'vue';
@@ -120,5 +126,61 @@ describe('UNIT · watchAny', () => {
 
         expect(stats.data.value).toBe('stats');
         expect(health.data.value).toBe('health');
+    });
+});
+
+describe('UNIT · suspense()', () => {
+    it('watchTarget: resolves with the fetched record', async () => {
+        const c = makeComposable<IUser, number>();
+        const handle = c.watchTarget(
+            (id: number) => Promise.resolve(USERS.find((u) => u.id === id)),
+            ref<number | undefined>(1)
+        );
+
+        await expect(handle.suspense()).resolves.toEqual(USERS[0]);
+    });
+
+    it('watchTarget: without an id, resolves undefined without fetching (would otherwise hang)', async () => {
+        const c = makeComposable<IUser, number>();
+        const apiCall = jest.fn((id: number) => Promise.resolve({ ...USERS[0], id }));
+        // eslint-disable-next-line unicorn/no-null -- a null id is the case under test
+        const handle = c.watchTarget(apiCall, ref<number | null>(null));
+
+        await expect(handle.suspense()).resolves.toBeUndefined();
+        expect(apiCall).not.toHaveBeenCalled();
+    });
+
+    it('watchAll: resolves with the fetched items', async () => {
+        const c = makeComposable<IUser, number>();
+        const handle = c.watchAll(() => Promise.resolve([...USERS]));
+
+        await expect(handle.suspense()).resolves.toEqual(USERS);
+    });
+
+    it('watchAny: resolves with the fetched data', async () => {
+        const c = makeComposable<IUser, number>();
+        const handle = c.watchAny(() => Promise.resolve('stats'), { key: ['stats'] });
+
+        await expect(handle.suspense()).resolves.toBe('stats');
+    });
+
+    it('watchAny: disabled, resolves right away with whatever is cached (would otherwise hang)', async () => {
+        const c = makeComposable<IUser, number>();
+        const apiCall = jest.fn(() => Promise.resolve('stats'));
+        const handle = c.watchAny(apiCall, { key: ['stats'], enabled: false });
+
+        await expect(handle.suspense()).resolves.toBeUndefined();
+        expect(apiCall).not.toHaveBeenCalled();
+    });
+
+    it('a cache hit settles suspense() without re-fetching', async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(() => Promise.resolve(USERS[0]), 1);
+        const apiCall = jest.fn((id: number) => Promise.resolve(USERS.find((u) => u.id === id)));
+
+        const handle = c.watchTarget(apiCall, ref<number | undefined>(1));
+        await expect(handle.suspense()).resolves.toEqual(USERS[0]);
+
+        expect(apiCall).not.toHaveBeenCalled();
     });
 });
