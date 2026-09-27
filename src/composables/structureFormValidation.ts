@@ -18,6 +18,7 @@ import {
     type WatchSource
 } from 'vue';
 import { type ZodType } from 'zod';
+import { detachedCopy } from '../internal/plainData.js';
 
 /**
  * In practice the form element, declared structurally so this composable never names a DOM type.
@@ -226,15 +227,17 @@ export const useStructureFormValidation = <
 ) => {
     /**
      * Baseline values resetForm() restores and isDirty compares against.
-     * Starts as a copy of initialData; setInitialData / activateAutoHydrate replace it, so a
-     * record fetched later can become the new baseline.
+     * Starts as a detached copy of initialData (nested fields included — a shallow copy would
+     * leave a hydrated `readonly` record's nested objects read-only here too); setInitialData /
+     * activateAutoHydrate replace it, so a record fetched later can become the new baseline.
      */
-    const initialFormData = ref<T>({ ...initialData } as T);
+    const initialFormData = ref<T>(detachedCopy(initialData));
 
     /**
-     * Live form values, bound to the inputs.
+     * Live form values, bound to the inputs. A detached copy: never shares nested objects with
+     * the baseline.
      */
-    const form = ref<T>({ ...initialFormData.value } as T);
+    const form = ref<T>(detachedCopy(initialFormData.value));
 
     /**
      * Per-field validation errors: top-level field name -> its messages.
@@ -272,14 +275,14 @@ export const useStructureFormValidation = <
      * @param data - fields to overwrite; the rest keep their current value
      */
     const setForm = (data: Partial<T>) => {
-        form.value = { ...form.value, ...data } as T;
+        form.value = detachedCopy({ ...form.value, ...data }) as T;
     };
 
     /**
      * Resets the form to the baseline and clears all errors.
      */
     const resetForm = () => {
-        form.value = { ...initialFormData.value } as T;
+        form.value = detachedCopy(initialFormData.value);
         formErrors.value = {};
     };
 
@@ -287,10 +290,10 @@ export const useStructureFormValidation = <
      * Replaces the baseline that resetForm() restores and isDirty compares against.
      * Leaves the live form alone — call resetForm() (or use activateAutoHydrate) to apply it.
      *
-     * @param data - the new baseline, shallow-copied
+     * @param data - the new baseline, detached-copied
      */
     const setInitialData = (data: T) => {
-        initialFormData.value = { ...data } as T;
+        initialFormData.value = detachedCopy(data);
     };
 
     /**

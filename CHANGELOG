@@ -292,6 +292,13 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `useStructureFormValidation`'s baseline (`initialFormData`) and `form` were shallow copies:
+  `setInitialData`, `resetForm`, `setForm` and the initial state all spread one level deep only, so
+  a nested field stayed the SAME object across `initialData`, the baseline and `form`. A hydrated
+  `readonly()` record (`selectedRecord`, say) then left that nested object genuinely read-only
+  inside `form` too — writing to it failed silently (Vue's own dev warning) instead of editing the
+  form. `resetForm` also handed the live form and the baseline the same nested object, so editing
+  one edited the other. All four now use a detached (deep) copy, sharing no object with the source.
 - `fetchSearch(apiCall, filters, page, pageSize)` fetched and cached the requested page, but never
   applied `page`/`pageSize` to the live `pageCurrent`/`pageSize` refs — `pageItemList`/`totalItems`
   kept showing whatever page was current *before* the call, not the one it just fetched, until

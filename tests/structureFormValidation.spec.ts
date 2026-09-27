@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { effectScope, nextTick, ref, type EffectScope } from 'vue';
+import { effectScope, nextTick, readonly, ref, type EffectScope } from 'vue';
 import { useStructureFormValidation } from '../src/composables/structureFormValidation';
 
 interface ILoginForm {
@@ -123,6 +123,71 @@ describe('useStructureFormValidation', () => {
             composable.setForm({ email: 'same@test.com', password: 'samePass' });
             composable.setInitialData({ email: 'same@test.com', password: 'samePass' });
             expect(composable.isDirty.value).toBe(false);
+        });
+    });
+
+    // ─── nested-field detachment (V3.3, repro F) ─────────────────────────────
+
+    describe('nested fields are never shared with the source (detached copy)', () => {
+        interface IProfileForm {
+            name: string;
+            address: { city: string };
+        }
+
+        it('setInitialData detaches: editing the source afterwards does not change the baseline', () => {
+            const source: IProfileForm = { name: 'Ada', address: { city: 'London' } };
+            const c = inScope(() => useStructureFormValidation<IProfileForm>(source));
+
+            c.setInitialData(source);
+            source.address.city = 'Paris'; // mutated AFTER handing it over
+            c.resetForm();
+
+            expect(c.form.value.address.city).toBe('London');
+        });
+
+        it('resetForm shares no nested object with the baseline', () => {
+            const c = inScope(() =>
+                useStructureFormValidation<IProfileForm>({
+                    name: 'Ada',
+                    address: { city: 'London' }
+                })
+            );
+
+            c.resetForm();
+            c.form.value.address.city = 'Paris'; // mutate the live form's nested object
+
+            expect(c.form.value.address.city).toBe('Paris');
+            // the baseline's own copy must be untouched by that mutation
+            c.resetForm();
+            expect(c.form.value.address.city).toBe('London');
+        });
+
+        it('a hydrated readonly record does not leave nested fields read-only', () => {
+            const hydrated = readonly({ name: 'Ada', address: { city: 'London' } });
+            const c = inScope(() =>
+                useStructureFormValidation<IProfileForm>({ name: '', address: { city: '' } })
+            );
+
+            c.setInitialData(hydrated as IProfileForm);
+            c.resetForm();
+            c.form.value.address.city = 'Paris'; // must actually apply, not be silently blocked
+
+            expect(c.form.value.address.city).toBe('Paris');
+        });
+
+        it('setForm detaches the merged-in data too', () => {
+            const patch = { address: { city: 'Paris' } };
+            const c = inScope(() =>
+                useStructureFormValidation<IProfileForm>({
+                    name: 'Ada',
+                    address: { city: 'London' }
+                })
+            );
+
+            c.setForm(patch);
+            patch.address.city = 'Berlin'; // mutated AFTER handing it over
+
+            expect(c.form.value.address.city).toBe('Paris');
         });
     });
 

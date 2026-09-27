@@ -243,13 +243,13 @@ flowchart TD
 
 | Property / method                      | Purpose                                                                                        |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `form`                                   | Ref holding the reactive form data. Initialized as a shallow copy of `initialData`.             |
+| `form`                                   | Ref holding the reactive form data. Initialized as a detached copy of `initialData` (nested fields included), sharing no object with it. |
 | `formErrors`                             | Ref — `Partial<Record<keyof T, string[]>>`, per-field error messages.                          |
 | `showFormErrors`                         | Ref — whether errors should be rendered. Owned by `handleSubmit` / `revealErrors` / `applyServerErrors`. |
 | `isSubmitting`                           | Ref — `true` while `handleSubmit`'s handler is running.                                         |
 | `isValid`                                | Computed — `true` when `formErrors` has no keys.                                                |
 | `isDirty`                                | Computed — `true` when `form` differs from the baseline (compared via `JSON.stringify`). The baseline starts as `initialData`; `setInitialData`/`activateAutoHydrate` can replace it. |
-| `setForm(data)`                          | Shallow-merges partial data into `form`.                                                        |
+| `setForm(data)`                          | Shallow-merges partial data into `form` (top-level keys only); the result is detached, sharing no nested object with `data`. |
 | `resetForm()`                            | Restores `form` to the current baseline and clears `formErrors`. See [The baseline](#the-baseline-reset-dirty-and-hydration). |
 | `setInitialData(data)`                   | Replaces the baseline `resetForm()`/`isDirty` use. Leaves the live `form` alone — call `resetForm()` (or use `activateAutoHydrate`) to apply it. |
 | `activateAutoHydrate(source)`            | Watches `source` (e.g. `selectedRecord`); on every defined value, `setInitialData` + `resetForm`. Runs immediately if `source` already holds a value. Returns the `watch` handle. |
