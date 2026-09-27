@@ -65,7 +65,7 @@ describe('LIFECYCLE · dependsOn', () => {
         const c = makeComposable<IUser, number>({ dependsOn: () => [userId.value] });
         const apiCall = jest.fn(() => Promise.resolve(USERS[0]));
 
-        const { stop } = c.watchTarget(() => 1, apiCall);
+        const { stop } = c.watchTarget(apiCall, () => 1);
         await flush();
         expect(apiCall).toHaveBeenCalledTimes(1);
 
@@ -105,7 +105,7 @@ describe('LIFECYCLE · dependsOn', () => {
             calls++ === 0 ? aliceAnswer.promise : Promise.resolve(bobsAnswer)
         );
 
-        const { stop } = c.watchTarget(() => 1, apiCall);
+        const { stop } = c.watchTarget(apiCall, () => 1);
         await flush(); // alice's fetch starts and hangs
 
         userId.value = 'bob';

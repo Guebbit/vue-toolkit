@@ -165,15 +165,19 @@ is an active TanStack observer that reacts to invalidation on its own.
 - Crossing `maxRecords` now drops every other entry of the current scope — lists and searches too,
   not only records — while the list fetch that crossed it keeps its own entry, resolving its items
   and caching its list. Only records not cached yet count towards the bound (4.x counted the whole
-  incoming batch), so refetching a list that is already cached never triggers the wipe.
-  Queries still fetching are spared, since their answers are on the way. `fetchMultiple` enforces
-  the bound as well; `fetchTarget`/`watchTarget` no longer trigger it (in 4.x they did), so no
-  single-record write does: the mutations never did.
+  incoming batch), so refetching a list, or a record, that is already cached never triggers the
+  wipe. Queries still fetching, or something is actively watching, are spared too (see Fixed,
+  below, for the latter). `fetchMultiple` enforces the bound as well as every list-shaped fetch;
+  the mutations and `addRecord`/`editRecord` never do, since they write one record you already
+  hold data for, not a batch of possibly-new ones.
 - `parentHasMany`/`getRecordsByParent`/`getListByParent` on `useStructureRestApi` read the cache: a
   parent's children are the union of its keyless entry and every `fetchByParent(..., { key })`
   bucket for it, in first-seen order, without duplicates. `addToParent` writes the keyless entry;
   `removeFromParent`/`removeDuplicateChildren` edit every bucket of the parent. Edited entries are
   marked stale, so the next `fetchByParent` asks the server.
+- **BREAKING** — `watchTarget(apiCall, idSource, settings?)`: `apiCall` first, `idSource` second —
+  the same order `fetchTarget` and `watchByParent` already use. Swap the first two arguments at
+  every call site: `watchTarget(userId, get)` → `watchTarget(get, userId)`.
 
 ## Added
 

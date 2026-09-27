@@ -258,8 +258,8 @@ export const useStructureCrudApi = <
         watchSettings: IWatchTargetSettings<T, K> = {}
     ) =>
         api.watchTarget(
-            idSource,
             (id, context) => withOperation('get', (get) => get(id, context)),
+            idSource,
             watchSettings
         );
 

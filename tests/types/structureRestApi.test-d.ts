@@ -67,12 +67,13 @@ resource.watchByParent(
 resource.watchAny(() => Promise.resolve('x'), { key: ref(['stats']), enabled: ref(true) });
 // @ts-expect-error -- watchAny's key is required
 resource.watchAny(() => Promise.resolve('x'), {});
+// watchTarget takes apiCall first, idSource second — same order as fetchTarget/watchByParent (V2.4).
 resource.watchTarget(
-    () => 1,
     (id, context) => {
         expectTypeOf(id).toEqualTypeOf<number>();
         expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
         // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
         return Promise.resolve<IUser | undefined>(undefined);
-    }
+    },
+    () => 1
 );

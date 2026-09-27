@@ -30,7 +30,7 @@ describe('LIFECYCLE · dropping watched queries', () => {
     it('after resetRecords(), invalidation still reaches an active watchTarget', async () => {
         const c = makeComposable<IUser, number>();
         const apiCall = jest.fn(() => Promise.resolve(USERS[0]));
-        c.watchTarget(ref(1), apiCall);
+        c.watchTarget(apiCall, ref(1));
         await flush();
 
         c.resetRecords();
@@ -45,7 +45,7 @@ describe('LIFECYCLE · dropping watched queries', () => {
     it('a failed deleteTarget of a watched record leaves its watcher attached, and reconciles it', async () => {
         const c = makeComposable<IUser, number>();
         const apiCall = jest.fn(() => Promise.resolve(USERS[0]));
-        c.watchTarget(ref(1), apiCall);
+        c.watchTarget(apiCall, ref(1));
         await flush();
 
         await expect(c.deleteTarget(() => Promise.reject(new Error('409')), 1)).rejects.toThrow();

@@ -706,14 +706,14 @@ export const createRestResource = <
      * when the id or `dependsOn` changes and when invalidated. A nullish id leaves the selection
      * as it is and fetches nothing.
      *
-     * @param idSource - Ref, ComputedRef or getter producing the id
      * @param apiCall - resolves the record for an id
+     * @param idSource - Ref, ComputedRef or getter producing the id
      * @param settings - forced / merge / staleTime, and the settle callbacks
      * @returns the watcher handle
      */
     const watchTarget = (
-        idSource: WatchSource<K | undefined | null>,
         apiCall: (id: K, context: IFetchContext) => Promise<T | undefined>,
+        idSource: WatchSource<K | undefined | null>,
         { onSuccess, onError, onSettled, ...settings }: IWatchTargetSettings<T, K> = {}
     ): IWatchHandle<T | undefined> => {
         /** The watched id; nullish reads as undefined. */

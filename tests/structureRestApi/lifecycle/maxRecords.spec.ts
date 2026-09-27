@@ -59,8 +59,9 @@ describe('LIFECYCLE · maxRecords', () => {
 
     it('never empties a record something is actively watching, even past the cap', async () => {
         const c = make(3);
-        const watched = c.watchTarget(ref(1), () =>
-            Promise.resolve(buildArticles(1, 'tech', 1)[0])
+        const watched = c.watchTarget(
+            () => Promise.resolve(buildArticles(1, 'tech', 1)[0]),
+            ref(1)
         );
         await flush();
         expect(c.getRecord(1)).toBeDefined();

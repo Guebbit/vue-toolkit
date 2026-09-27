@@ -176,7 +176,7 @@ component or store that created it, or with `stop()`.
 
 | Method                                         | Arguments                                                                                   | Returns                                     |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `watchTarget(idSource, apiCall, settings?)`    | `idSource`: Ref or getter of `K \| undefined \| null`. `apiCall: (id, context) => Promise<T \| undefined>`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
+| `watchTarget(apiCall, idSource, settings?)`    | `apiCall: (id, context) => Promise<T \| undefined>`. `idSource`: Ref or getter of `K \| undefined \| null`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
 | `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
 | `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles). `settings: IWatchListSettings` | `IWatchHandle<(T \| undefined)[]>`          |
 | `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
@@ -206,8 +206,8 @@ it was reporting on.
 const userId = ref<number | null>(null)
 
 const { error, refetch } = users.watchTarget(
-    userId,
     (id) => axios.get<IUser>(`/api/users/${id}`).then((r) => r.data),
+    userId,
     { onError: (failure) => console.error(failure) }
 )
 // users.selectedRecord follows userId

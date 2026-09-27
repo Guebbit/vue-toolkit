@@ -34,7 +34,7 @@ describe('INTENTION · deep-scan regressions', () => {
     it('an id switch plus a same-tick invalidation never stores one record under another', async () => {
         const c = makeComposable<IUser, number>({ staleTime: 0 });
         const id = ref(1);
-        c.watchTarget(id, (i) => Promise.resolve({ ...USERS[0], id: i, name: `rec${i}` }));
+        c.watchTarget((i) => Promise.resolve({ ...USERS[0], id: i, name: `rec${i}` }), id);
         await flush();
 
         id.value = 2;
@@ -50,7 +50,7 @@ describe('INTENTION · deep-scan regressions', () => {
         await c.fetchTarget(apiResolve(USERS[0]), 1);
         const read = deferred<IUser>();
         const onSuccess = jest.fn();
-        c.watchTarget(ref(1), () => read.promise, { onSuccess });
+        c.watchTarget(() => read.promise, ref(1), { onSuccess });
         await flush();
 
         await c.updateTarget(apiResolve({ ...USERS[0], name: 'Saved' }), { name: 'Saved' }, 1);

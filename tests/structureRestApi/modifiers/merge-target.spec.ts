@@ -34,7 +34,7 @@ describe('MODIFIER · merge on a record query', () => {
         const c = makeComposable<IUser, number>();
         c.addRecord(FULL_USER);
 
-        c.watchTarget(ref(1), () => Promise.resolve(PARTIAL_RESPONSE), { merge: true });
+        c.watchTarget(() => Promise.resolve(PARTIAL_RESPONSE), ref(1), { merge: true });
         await flush();
 
         expect(c.getRecord(1)).toEqual({ ...FULL_USER, name: 'Alice M' });

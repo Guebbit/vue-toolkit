@@ -17,7 +17,7 @@ describe('UNIT · watchTarget', () => {
         const apiCall = jest.fn((id: number) => Promise.resolve({ ...USERS[0], id }));
 
         // eslint-disable-next-line unicorn/no-null -- a null id is the case under test
-        const handle = c.watchTarget(ref<number | null>(null), apiCall);
+        const handle = c.watchTarget(apiCall, ref<number | null>(null));
         await flush();
 
         await expect(handle.refetch()).resolves.toBeUndefined();
@@ -32,7 +32,7 @@ describe('UNIT · watchTarget', () => {
         const onSuccess = jest.fn();
         const id = ref(1);
 
-        c.watchTarget(id, apiCall, { onSuccess });
+        c.watchTarget(apiCall, id, { onSuccess });
         await flush();
         id.value = 2;
         await flush();
@@ -45,7 +45,7 @@ describe('UNIT · watchTarget', () => {
         const c = makeComposable<IUser, number>();
         const onError = jest.fn();
 
-        const handle = c.watchTarget(ref(1), () => Promise.reject(new Error('boom')), {
+        const handle = c.watchTarget(() => Promise.reject(new Error('boom')), ref(1), {
             onError
         });
         await flush();
@@ -63,7 +63,7 @@ describe('UNIT · watchTarget', () => {
         const c = makeComposable<IUser, number>();
         const order: string[] = [];
 
-        c.watchTarget(ref(1), () => Promise.resolve(USERS[0]), {
+        c.watchTarget(() => Promise.resolve(USERS[0]), ref(1), {
             onSuccess: () => order.push('onSuccess')
         });
         // Registered after watchTarget's own subscription: within one synchronous dispatch, every

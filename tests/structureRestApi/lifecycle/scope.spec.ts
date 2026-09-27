@@ -90,7 +90,7 @@ describe('LIFECYCLE · effect-scope teardown', () => {
                 }),
                 scope
             );
-            c.watchTarget(id, apiCall);
+            c.watchTarget(apiCall, id);
         });
 
         await nextTick();

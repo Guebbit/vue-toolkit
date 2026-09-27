@@ -28,7 +28,7 @@ describe('UNIT · watchTarget', () => {
         const c = make();
         const id = ref<number | undefined>(1);
         const apiCall = fakeApiCall();
-        const { stop } = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(apiCall, id);
 
         expect(apiCall).toHaveBeenCalledTimes(1);
         expect(c.selectedIdentifier.value).toBe(1);
@@ -40,7 +40,7 @@ describe('UNIT · watchTarget', () => {
     it('selects the id eagerly, before the fetch promise resolves', () => {
         const c = make();
         const id = ref<number | undefined>(1);
-        const { stop } = c.watchTarget(id, fakeApiCall());
+        const { stop } = c.watchTarget(fakeApiCall(), id);
 
         // Synchronous, before any microtask runs — proves selection isn't gated on the fetch
         expect(c.selectedIdentifier.value).toBe(1);
@@ -51,7 +51,7 @@ describe('UNIT · watchTarget', () => {
         const c = make();
         const id = ref<number | undefined>(1);
         const apiCall = fakeApiCall();
-        const { stop } = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(apiCall, id);
         await flush();
 
         id.value = 2;
@@ -68,7 +68,7 @@ describe('UNIT · watchTarget', () => {
         const c = make();
         const id = ref<number | undefined>(1);
         const apiCall = fakeApiCall();
-        const { stop } = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(apiCall, id);
         await flush();
 
         id.value = undefined;
@@ -85,7 +85,7 @@ describe('UNIT · watchTarget', () => {
         const onSuccess = jest.fn();
         const onSettled = jest.fn();
         const onError = jest.fn();
-        const { stop } = c.watchTarget(id, fakeApiCall(), { onSuccess, onError, onSettled });
+        const { stop } = c.watchTarget(fakeApiCall(), id, { onSuccess, onError, onSettled });
         await flush();
 
         expect(onSuccess).toHaveBeenCalledWith(USERS[0], 1);
@@ -99,7 +99,7 @@ describe('UNIT · watchTarget', () => {
         const id = ref<number | undefined>(1);
         const apiCall = jest.fn(() => Promise.reject(new Error('network error')));
         // no onError/onSettled passed: the optional-chained calls must not blow up
-        const { stop } = c.watchTarget(id, apiCall);
+        const { stop } = c.watchTarget(apiCall, id);
         await flush();
 
         expect(c.selectedIdentifier.value).toBeUndefined();
@@ -113,7 +113,7 @@ describe('UNIT · watchTarget', () => {
         const apiCall = jest.fn(() =>
             succeed ? Promise.resolve(USERS[0]) : Promise.reject(new Error('network error'))
         );
-        const handle = c.watchTarget(id, apiCall);
+        const handle = c.watchTarget(apiCall, id);
         await flush();
         expect(c.selectedRecord.value).toEqual(USERS[0]);
 
@@ -135,7 +135,7 @@ describe('UNIT · watchTarget', () => {
         const onSuccess = jest.fn();
         const onError = jest.fn();
         const onSettled = jest.fn();
-        const { stop } = c.watchTarget(id, apiCall, {
+        const { stop } = c.watchTarget(apiCall, id, {
             onSuccess,
             onError,
             onSettled
