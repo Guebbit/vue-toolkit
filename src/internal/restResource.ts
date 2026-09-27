@@ -50,6 +50,7 @@ import { watchSettled } from './settleCallbacks.js';
 import { createFreshnessChecks } from './freshnessChecks.js';
 import { createResourceMutations } from './resourceMutations.js';
 import { dropQueries, dropQuery } from './queryRemoval.js';
+import { createWriteGuard } from './writeGuard.js';
 
 /** A list call: resolves the list's items. */
 export type TListCall<T> = () => Promise<(T | undefined)[]>;
@@ -213,6 +214,9 @@ export const createRestResource = <
         staleTime
     });
 
+    /** Read/mutation write ordering for this resource's records (see the module header). */
+    const writeGuard = createWriteGuard<K>();
+
     /** belongsTo relations, read from the same cache as the records. */
     const relations = createParentRelations<T, K, P>({
         queryClient,
@@ -226,17 +230,22 @@ export const createRestResource = <
 
     /**
      * Stores one fetched item. `partial`: merge and keep the record's freshness. `merge`: merge.
-     * Otherwise the item replaces the record.
+     * Otherwise the item replaces the record. With `readAt`, the write is a read's: skipped once
+     * the write guard says a mutation on `id` owns it now (see the module header).
      *
      * @param item - the fetched item
      * @param id - its id
      * @param settings - merge / partial
+     * @param readAt - the clock value the read captured when it began; omitted for a mutation's
+     *                 own write, which is never guarded (see `IResourceMutationsContext.storeItem`)
      */
     const storeItem = (
         item: T,
         id: K,
-        { merge = false, partial = false }: Pick<IFetchSettings, 'merge' | 'partial'> = {}
+        { merge = false, partial = false }: Pick<IFetchSettings, 'merge' | 'partial'> = {},
+        readAt?: number
     ): void => {
+        if (readAt !== undefined && !writeGuard.canWrite(id, readAt)) return;
         if (partial) editRecord(item, id, true);
         else if (merge) store.asFetched(() => editRecord(item, id, true));
         else store.asFetched(() => addRecord(item));
@@ -250,7 +259,8 @@ export const createRestResource = <
         dependsOn,
         records: { createIdentifier, getRecord, addRecord, editRecord, deleteRecord },
         store,
-        storeItem
+        storeItem,
+        writeGuard
     });
 
     /**
@@ -258,17 +268,19 @@ export const createRestResource = <
      *
      * @param items - the fetched items; empty slots are skipped
      * @param settings - merge / partial
+     * @param readAt - the clock value the read captured when it began
      * @returns the stored ids, in order
      */
     const storeItems = (
         items: (T | undefined)[],
-        settings: Pick<IFetchSettings, 'merge' | 'partial'>
+        settings: Pick<IFetchSettings, 'merge' | 'partial'>,
+        readAt: number
     ): K[] =>
         items
             .filter((item): item is T => !isNil(item))
             .map((item) => {
                 const id = createIdentifier(item);
-                storeItem(item, id, settings);
+                storeItem(item, id, settings, readAt);
                 return id;
             });
 
@@ -303,13 +315,15 @@ export const createRestResource = <
      * @param scopeAtStart - the `dependsOn` snapshot the call started under
      * @param running - the query writing them (kept through a `maxRecords` wipe)
      * @param settings - merge / partial
+     * @param readAt - the clock value the read captured when it began
      * @returns the stored ids, in order
      */
     const storeBatch = (
         items: (T | undefined)[] = [],
         scopeAtStart: unknown[],
         running: IRunningQuery,
-        settings: Pick<IFetchSettings, 'merge' | 'partial'>
+        settings: Pick<IFetchSettings, 'merge' | 'partial'>,
+        readAt: number
     ): K[] => {
         if (running.isCancelled() || !keys.isCurrent(scopeAtStart)) return [];
         // Only records not cached yet grow the cache: a refetch of the same list adds nothing.
@@ -322,7 +336,7 @@ export const createRestResource = <
                 )
         );
         enforceMaxRecords(added.length, running.queryKey);
-        return storeItems(items, settings);
+        return storeItems(items, settings, readAt);
     };
 
     /**
@@ -413,8 +427,9 @@ export const createRestResource = <
         extra?: TListExtra<K>
     ): Promise<IListCacheEntry<K>> => {
         const scopeAtStart = dependsOn();
+        const readAt = writeGuard.readClock();
         return apiCall().then((items) => {
-            const ids = storeBatch(items, scopeAtStart, running, settings);
+            const ids = storeBatch(items, scopeAtStart, running, settings, readAt);
             return { ids, ...extra?.(ids) };
         });
     };
@@ -437,11 +452,12 @@ export const createRestResource = <
         merge = false
     ): Promise<ITargetEntry<T>> => {
         const scopeAtStart = dependsOn();
+        const readAt = writeGuard.readClock();
         return apiCall().then((item) => {
             // Cancelled (an update or delete of this record started) or late: store nothing.
             if (isNil(item) || running.isCancelled() || !keys.isCurrent(scopeAtStart))
                 return { data: item };
-            storeItem(item, id, { merge });
+            storeItem(item, id, { merge }, readAt);
             return queryClient.getQueryData<ITargetEntry<T>>(keys.target(id)) ?? { data: item };
         });
     };
@@ -571,13 +587,14 @@ export const createRestResource = <
     ): Promise<T | undefined> => {
         if (id === undefined) {
             const scopeAtStart = dependsOn();
+            const readAt = writeGuard.readClock();
             return settleRead(
                 // Wrapped: TanStack refuses a query function that resolves undefined.
                 runThrowaway(scopeAtStart, () => apiCall().then((item) => ({ data: item }))),
                 ({ data: item }): T | undefined => {
                     if (isNil(item) || !keys.isCurrent(scopeAtStart)) return item;
                     const itemId = createIdentifier(item);
-                    storeItem(item, itemId, { merge: settings.merge });
+                    storeItem(item, itemId, { merge: settings.merge }, readAt);
                     return getRecord(itemId);
                 },
                 nothing
@@ -830,9 +847,12 @@ export const createRestResource = <
         const collect = () => [...expiredIds, ...cachedIds].map((id) => getRecord(id));
         if (expiredIds.length === 0) return Promise.resolve(collect());
         const scopeAtStart = dependsOn();
+        const readAt = writeGuard.readClock();
         return settleRead(
             runThrowaway(scopeAtStart, (running) =>
-                apiCall().then((items) => storeBatch(items, scopeAtStart, running, settings))
+                apiCall().then((items) =>
+                    storeBatch(items, scopeAtStart, running, settings, readAt)
+                )
             ),
             collect,
             collect

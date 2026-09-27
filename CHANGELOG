@@ -233,6 +233,15 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- `updateTarget`/`deleteTarget` cancelled every list read of the resource's current scope (`all`,
+  `parent`, `page`, `search`), not just the record's own: an unrelated in-flight `fetchAll` (or a
+  search page, or another parent's list) resolved `[]` on that cancellation and never retried on
+  its own. Reads were also unprotected the other way — `fetchTarget`'s id-less path could resurrect
+  a record a `deleteTarget` had just removed, and `fetchMultiple` could overwrite a value an
+  `updateTarget` had just applied, whichever answer happened to arrive last. A mutation now cancels
+  only the record's own query; a per-resource write guard tracks which id a mutation owns and for
+  how long, and every read's write to a record — `fetch*`/`watch*` and search alike — is dropped
+  once a mutation on that id has started since the read began, or is still running.
 - `useStructureDataManagement`/`useStructureRestApi`'s composite identifiers (`identifiers: ['a',
   'b']`) collided whenever a value contained the delimiter: `{ a: 'x|y', b: 'z' }` and
   `{ a: 'x', b: 'y|z' }` both joined to `'x|y|z'`, so adding the second silently overwrote the

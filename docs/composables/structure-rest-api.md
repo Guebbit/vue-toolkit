@@ -127,9 +127,15 @@ What they share:
   the same entry join one request.
 - A failure rejects. An entry that already held data keeps it (stale data still renders); an entry
   that failed before ever holding data is removed.
-- A read the toolkit cancels itself (a `dependsOn` change; an update or delete of that record, or,
-  for a list read, of any record of the scope) resolves with what is cached instead of rejecting, and its answer, if it still arrives, is not
-  stored. Neither is an answer that arrives after `dependsOn` moved on.
+- A read the toolkit cancels itself (a `dependsOn` change, or an update or delete of that same
+  record) resolves with what is cached instead of rejecting. Neither its answer, if it still
+  arrives, nor one that arrives after `dependsOn` moved on, is stored.
+- **A read never overwrites a record a newer mutation has touched.** Every write a `fetch*`/
+  `watch*` call makes — a list read's items included — is dropped once an `updateTarget`/
+  `deleteTarget` on that same id has started since the read began, or is still running. This holds
+  even though a mutation only cancels its own record's in-flight read: a `fetchAll` or search page
+  in flight when an unrelated record is mutated is never cancelled, and still stores every id it
+  carries except the one being mutated.
 
 Per method:
 
@@ -232,10 +238,9 @@ so `loading`, `isLoading` and `useIsLoading` see it.
   when the call settles, whatever it resolved. On success the returned record is stored as freshly
   fetched (an empty answer stores nothing), and this resource's lists are marked stale.
 - **`updateTarget`** and **`deleteTarget`** are optimistic, and share one protocol:
-  1. Cancel the record's own in-flight read (a `fetchTarget` or `watchTarget` of that id) and
-     every list read of the current scope (`all`, `parent`, `page`, `search`). A cancelled read's
-     answer is never stored, so an older answer cannot undo the edit or bring a deleted record
-     back.
+  1. Cancel the record's own in-flight read (a `fetchTarget` or `watchTarget` of that id) — its
+     answer is never stored, so it cannot undo the edit or bring a deleted record back. Nothing
+     else is cancelled: a list read of the scope keeps running (see the write guarantee above).
   2. Apply the change locally: `updateTarget` merges `itemData` into the record, `deleteTarget`
      removes it. Skipped if `dependsOn` changed in the meantime.
   3. Send the request. Once it settles, only touch the record if it still holds exactly this
@@ -412,19 +417,12 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   make the fuller record look freshly fetched.
 - **`fetchMultiple`'s `apiCall` gets no ids.** Use `checkMultiple` to learn which ones it will ask
   for.
-- **Two writes to the same record race by arrival order, not by which one you called first.**
-  `cancelReads` (see Writing, above) only cancels an in-flight `fetchTarget`/`watchTarget` of that
-  id and the scope's list reads — it does not, and cannot, reach the *other* mutation already in
-  flight for the same id. `updateTarget`'s success is guarded against a newer mutation (a concurrent
-  `deleteTarget` can't be resurrected by a stale `updateTarget` success), but a `deleteTarget` that
-  then itself *fails* still rolls back to whatever the record held at the moment it started — which,
-  raced against another mutation, may be that mutation's own optimistic (not yet server-confirmed)
-  value. Two mutations on the same record from two different call sites is not a pattern this
-  library linearizes; a screen editing one record has one place doing the editing.
-- **`fetchMultiple`/`fetchAny` are not cancelled by a concurrent mutation on the same id.** Unlike
-  `fetchTarget`/`watchTarget` (kind `target`) and the list reads (kind `all`/`parent`/`page`/
-  `search`), a `fetchMultiple` or keyed `fetchAny` runs as its own `any`-kind entry, outside
-  `cancelReads`'s cancel set. A response that arrives after a concurrent `updateTarget`/
-  `deleteTarget` on one of its ids can overwrite that mutation's result with what was true when the
-  read started. Avoid `fetchMultiple`/`fetchAny` for an id a mutation on the same resource might be
-  touching at the same time.
+- **Two *mutations* on the same record race by arrival order, not by which one you called first.**
+  The write guard (see the guarantee above) protects a mutation from a *read*'s stale answer, not
+  from another mutation on the same id: `updateTarget`'s success is guarded against a newer
+  mutation (a concurrent `deleteTarget` can't be resurrected by a stale `updateTarget` success), but
+  a `deleteTarget` that then itself *fails* still rolls back to whatever the record held at the
+  moment it started — which, raced against another mutation, may be that mutation's own optimistic
+  (not yet server-confirmed) value. Two mutations on the same record from two different call sites
+  is not a pattern this library linearizes; a screen editing one record has one place doing the
+  editing.
