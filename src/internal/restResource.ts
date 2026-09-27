@@ -20,7 +20,9 @@
 import {
     computed,
     effectScope,
+    getCurrentScope,
     markRaw,
+    onScopeDispose,
     toValue,
     watch,
     type MaybeRefOrGetter,
@@ -51,6 +53,7 @@ import { createFreshnessChecks } from './freshnessChecks.js';
 import { createResourceMutations } from './resourceMutations.js';
 import { dropQueries, dropQuery } from './queryRemoval.js';
 import { createWriteGuard } from './writeGuard.js';
+import { scopeRegistryFor } from './scopeRegistry.js';
 
 /** A list call: resolves the list's items. */
 export type TListCall<T> = () => Promise<(T | undefined)[]>;
@@ -160,12 +163,23 @@ export const createRestResource = <
     queryClient.setQueryDefaults([resourceKey, 'target'], { gcTime: Number.POSITIVE_INFINITY });
     queryClient.setQueryDefaults([resourceKey, 'parent'], { gcTime: Number.POSITIVE_INFINITY });
 
-    // Anything of this resource cached under another scope belongs to a user or language that
-    // is no longer current (it changed while no instance was alive to clean up): drop it.
-    const inCurrentScope = keys.inScope(dependsOn());
+    // Live-scope claims for this (queryClient, resourceKey): lets a second instance under a
+    // different scope (two screens side by side) coexist with this one instead of either wiping
+    // the other's data out from under it (see ./scopeRegistry).
+    const scopeRegistry = scopeRegistryFor(queryClient, resourceKey);
+
+    // Claimed before the sweep below, so this instance's own scope is never read as abandoned.
+    let releaseScope = scopeRegistry.claim(dependsOn());
+    if (getCurrentScope()) onScopeDispose(() => releaseScope());
+
+    // Anything of this resource cached under a scope nothing claims any more belongs to a user or
+    // language that is no longer current (it changed while no instance was alive to clean up):
+    // drop it. A scope another live instance still claims is left alone.
     dropQueries(
         queryClient,
-        (query) => query.queryKey[0] === resourceKey && !inCurrentScope(query)
+        (query) =>
+            query.queryKey[0] === resourceKey &&
+            !scopeRegistry.isLive(query.queryKey[2] as unknown[])
     );
 
     /** The records, stored as TanStack queries. */
@@ -882,6 +896,11 @@ export const createRestResource = <
     // their keys embed dependsOn.
     watch(dependsOn, (current, previous) => {
         if (stableKey(current) === stableKey(previous)) return;
+        // Move this instance's claim before checking who still needs the old scope: if it was the
+        // only one claiming it, releasing first is what makes isLive(previous) false below.
+        releaseScope();
+        releaseScope = scopeRegistry.claim(current);
+        if (scopeRegistry.isLive(previous)) return; // another instance still shows that data
         const inPrevious = keys.inScope(previous);
         // Cancelling never rejects; the drop runs once the old fetches have stopped.
         void queryClient

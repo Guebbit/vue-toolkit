@@ -233,6 +233,15 @@ is an active TanStack observer that reacts to invalidation on its own.
 
 ## Fixed
 
+- A resource's start-up sweep dropped every cache entry of its `resourceKey` under any other
+  `dependsOn` value, and a `dependsOn` switch dropped everything under the old value the same way —
+  both on the assumption that nothing still alive could be using it. True for an ordinary scope
+  change, false the moment a second instance of the same `resourceKey` is alive under a different
+  scope: creating it wiped the first instance's data, and either instance moving its `dependsOn`
+  away from a scope the other was still showing dropped that scope's data out from under it. A new
+  live-scope registry (`src/internal/scopeRegistry.ts`) tracks how many instances currently claim
+  each scope; the sweep and the switch's drop now only remove a scope nothing claims any more, so
+  two instances of the same resource under different scopes coexist.
 - `fetchTarget`/`watchTarget` by an alternate key stored the record twice: `fetchTarget(apiCall,
   'my-slug')` resolving `{ id: 7 }` wrote the record under `7` (its own id) and, separately, under
   `'my-slug'` (whatever TanStack writes the query function's return value back under) — two

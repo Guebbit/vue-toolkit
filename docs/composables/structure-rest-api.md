@@ -375,10 +375,13 @@ sequenceDiagram
   stale: one user's data never shows for the next, and a language switch never mixes languages.
 - An answer or rollback that arrives after the change is discarded.
 - Active watchers switch to the new value on their own.
-- One `dependsOn` per `resourceKey`. When a resource is created, it drops every entry of its
-  `resourceKey` cached under another `dependsOn` value: the scope changed while no instance was
-  alive to clean up. A second instance created under another value therefore drops the first
-  one's entries.
+- When a resource is created, it drops every entry of its `resourceKey` cached under a
+  `dependsOn` value **nothing still alive claims**: the scope changed while no instance was around
+  to clean up after it. A value another live instance is currently showing is left alone — two
+  instances of the same `resourceKey` under different `dependsOn` values (two shops compared side
+  by side, a master/detail pair where only the detail's own `dependsOn` moves on) coexist rather
+  than one wiping the other's cache out from under it on creation, or on a later `dependsOn`
+  switch.
 
 ## Cache lifetime
 
