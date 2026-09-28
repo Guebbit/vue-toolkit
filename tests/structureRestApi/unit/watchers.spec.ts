@@ -78,7 +78,9 @@ describe('UNIT · watchTarget', () => {
         const order: string[] = [];
 
         c.watchTarget(() => Promise.resolve(USERS[0]), ref(1), {
-            onSuccess: () => order.push('onSuccess')
+            onSuccess: () => {
+                order.push('onSuccess');
+            }
         });
         // Registered after watchTarget's own subscription: within one synchronous dispatch, every
         // subscriber to the same event fires in registration order, so this runs right after
@@ -111,7 +113,7 @@ describe('UNIT · watchAll / watchByParent', () => {
         const c = makeComposable<IUser, number>();
         const parentId = ref<string | number>('team-1');
         const apiCall = jest.fn(() =>
-            Promise.resolve(parentId.value === 'team-1' ? [USERS[0]] : [USERS[1]])
+            Promise.resolve([parentId.value === 'team-1' ? USERS[0] : USERS[1]])
         );
 
         c.watchByParent(apiCall, parentId);

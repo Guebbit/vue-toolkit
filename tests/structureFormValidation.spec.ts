@@ -36,10 +36,7 @@ const schedule = (): IScheduleForm => ({
  * A handler the test finishes by hand, so two submits can overlap deliberately.
  */
 const pendingHandler = () => {
-    let finish!: () => void;
-    const promise = new Promise<void>((resolve) => {
-        finish = resolve;
-    });
+    const { promise, resolve: finish } = Promise.withResolvers<void>();
     return { handler: () => promise, finish };
 };
 

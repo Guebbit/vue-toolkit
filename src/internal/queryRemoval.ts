@@ -30,9 +30,10 @@ export const dropQueries = (
     const observed = (query: Query) => predicate(query) && query.getObserversCount() > 0;
     // TanStack: resetQueries resets, then refetches the active (enabled) ones.
     if (refetch) void queryClient.resetQueries({ predicate: observed });
-    else
-        for (const query of queryClient.getQueryCache().findAll({ predicate: observed }))
-            query.reset();
+    else {
+        const matches = queryClient.getQueryCache().findAll({ predicate: observed });
+        for (const query of matches) query.reset();
+    }
 };
 
 /**

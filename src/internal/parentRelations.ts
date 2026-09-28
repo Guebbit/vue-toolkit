@@ -81,7 +81,8 @@ export const createQueryRelationStore = <K extends string | number, P extends st
         void version.value;
         const result = {} as Record<P, K[]>;
         const current = keys.inScope(dependsOn(), ['parent']);
-        for (const query of queryClient.getQueryCache().findAll({ predicate: current })) {
+        const queries = queryClient.getQueryCache().findAll({ predicate: current });
+        for (const query of queries) {
             const parentId = query.queryKey[3] as P;
             result[parentId] = uniqueIds([...(result[parentId] ?? []), ...idsOf(query)]);
         }

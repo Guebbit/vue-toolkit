@@ -316,9 +316,8 @@ export const useStructureSearchApi = <
         // Single-pass max, not .toSorted(...)[0]: toSorted needs Safari 16+ (2022), and every
         // caller here only wants the single freshest page anyway.
         let latest: Query | undefined;
-        for (const query of queryClient
-            .getQueryCache()
-            .findAll({ predicate: isPageOf(applied.value) }))
+        const pages = queryClient.getQueryCache().findAll({ predicate: isPageOf(applied.value) });
+        for (const query of pages)
             if (!latest || query.state.dataUpdatedAt > latest.state.dataUpdatedAt) latest = query;
         return latest?.state.data as ISearchCacheEntry<K> | undefined;
     });

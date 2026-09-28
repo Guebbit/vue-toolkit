@@ -41,7 +41,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
  * @returns an equivalent value with every Set/Map replaced by a tagged plain shape
  */
 const expandCollections = (value: unknown, seen: WeakSet<object> = new WeakSet()): unknown => {
-    if (value instanceof Date || typeof value !== 'object' || value === null) return value;
+    if (value === null || typeof value !== 'object' || value instanceof Date) return value;
     if (seen.has(value)) return value;
     seen.add(value);
     let result: unknown;

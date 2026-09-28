@@ -140,7 +140,7 @@ const createLocalRelationStore = <
         dictionary,
         addToParent: (parentId: P, childId: K) => {
             const children = (dictionary.value[parentId] ??= []);
-            if (!children.some((id) => sameId(id, childId))) children.push(childId);
+            if (children.every((id) => !sameId(id, childId))) children.push(childId);
         },
         removeFromParent: (parentId: P, childId: K) => {
             dictionary.value[parentId] = (dictionary.value[parentId] ?? []).filter(
@@ -422,9 +422,9 @@ export const useStructureDataManagement = <
      */
     const addRecords = (itemsArray: (T | undefined)[]) => {
         const ids: K[] = [];
-        for (let i = 0, len = itemsArray.length; i < len; i++) {
-            if (!itemsArray[i]) continue;
-            addRecord(itemsArray[i]!);
+        for (const item of itemsArray) {
+            if (!item) continue;
+            addRecord(item);
             ids.push(lastInsertedIdentifier.value as K);
         }
         lastInsertedIdentifiers.value = ids;
@@ -483,9 +483,9 @@ export const useStructureDataManagement = <
      */
     const editRecords = (itemsArray: (T | undefined)[]) => {
         const ids: K[] = [];
-        for (let i = 0, len = itemsArray.length; i < len; i++) {
-            if (!itemsArray[i]) continue;
-            const insertedId = editRecord(itemsArray[i]);
+        for (const item of itemsArray) {
+            if (!item) continue;
+            const insertedId = editRecord(item);
             if (insertedId !== undefined) ids.push(insertedId);
         }
         lastInsertedIdentifiers.value = ids;

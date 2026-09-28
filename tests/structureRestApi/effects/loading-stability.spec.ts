@@ -26,7 +26,9 @@ const trackLoading = (c: ReturnType<typeof makeComposable<IUser, number>>) => {
     const seq: boolean[] = [];
     const stop = watch(
         () => c.isLoading(),
-        (v) => seq.push(v),
+        (v) => {
+            seq.push(v);
+        },
         { flush: 'sync' }
     );
     watchers.push(stop);

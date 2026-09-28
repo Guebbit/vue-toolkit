@@ -30,15 +30,16 @@ export function createServer<T extends { id: number }>(
     for (const item of seed) autoId = Math.max(autoId, item.id);
 
     const settle = <R>(value: R): Promise<R> => {
-        if (!options.latency) return Promise.resolve(value);
-        return new Promise<R>((resolve) => setTimeout(() => resolve(value), options.latency));
+        return options.latency
+            ? new Promise<R>((resolve) => setTimeout(() => resolve(value), options.latency))
+            : Promise.resolve(value);
     };
 
     /** GET /resource — all items. */
     // eslint-disable-next-line unicorn/consistent-function-scoping -- must stay nested to match the `() => apiCall` factory contract shared with `get`/`many`/`search`
     const list = () => () => {
         calls.list += 1;
-        return settle([...store.values()] as (T | undefined)[]);
+        return settle(store.values().toArray() as (T | undefined)[]);
     };
 
     /** GET /resource/:id — single item (or undefined). */
@@ -62,7 +63,10 @@ export function createServer<T extends { id: number }>(
         (predicate: (item: T) => boolean = () => true, page = 1, pageSize = 10) =>
         () => {
             calls.search += 1;
-            const matched = [...store.values()].filter((item) => predicate(item));
+            const matched = store
+                .values()
+                .filter((item) => predicate(item))
+                .toArray();
             const start = (page - 1) * pageSize;
             return settle(matched.slice(start, start + pageSize) as (T | undefined)[]);
         };

@@ -414,7 +414,7 @@ describe('MODEL · structureRestApi command sequences', () => {
                                 let captured: { ids: number[] } | undefined;
                                 const apiCall = scheduleCall('fetchAll()', command.fail, () => {
                                     const result = server.list()();
-                                    captured = { ids: [...server.store.keys()] };
+                                    captured = { ids: server.store.keys().toArray() };
                                     return result;
                                 });
                                 // fetchAll can return ANY id the model ever creates, and which ones

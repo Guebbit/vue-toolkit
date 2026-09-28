@@ -191,8 +191,7 @@ const readEntryField = (entry: Record<string, unknown>): string | undefined => {
     }
     const { path } = entry;
     if (typeof path === 'string' && path) return path;
-    if (Array.isArray(path) && typeof path[0] === 'string' && path[0]) return path[0];
-    return undefined;
+    return Array.isArray(path) && typeof path[0] === 'string' && path[0] ? path[0] : undefined;
 };
 
 /**
@@ -658,7 +657,7 @@ export const useStructureFormValidation = <
         // onUnmapped, when given, owns displaying these; without it they go to formLevelErrors
         // instead of being silently dropped.
         const displayedUnmapped = unmapped.length > 0 && !onUnmapped;
-        if (unmapped.length > 0 && onUnmapped) onUnmapped(unmapped);
+        if (onUnmapped && unmapped.length > 0) onUnmapped(unmapped);
 
         const fields = Object.keys(applied) as (keyof T)[];
 
@@ -672,7 +671,7 @@ export const useStructureFormValidation = <
         }
         // showFormErrors only turns on when the FORM itself displays something; onUnmapped owns
         // its own display (e.g. a toast), so it does not also reveal the (empty) form errors.
-        if (fields.length > 0 || displayedUnmapped) showFormErrors.value = true;
+        if (displayedUnmapped || fields.length > 0) showFormErrors.value = true;
         return fields.length > 0 || unmapped.length > 0;
     };
 

@@ -52,8 +52,8 @@ describe('UNIT · cache lifetime defaults', () => {
         const c = makeComposable<IUser, number>();
         const gcTimeOf = (key: unknown[]) => c.queryClient.getQueryDefaults(key).gcTime;
 
-        expect(gcTimeOf(['resource', 'target', [], '1'])).toBe(Number.POSITIVE_INFINITY);
-        expect(gcTimeOf(['resource', 'parent', [], 'team-1'])).toBe(Number.POSITIVE_INFINITY);
+        expect(gcTimeOf(['resource', 'target', [], '1'])).toBe(Infinity);
+        expect(gcTimeOf(['resource', 'parent', [], 'team-1'])).toBe(Infinity);
         expect(gcTimeOf(['resource', 'all', []])).toBeUndefined();
         expect(gcTimeOf(['resource', 'search', [], '{}', 10, 1])).toBeUndefined();
     });

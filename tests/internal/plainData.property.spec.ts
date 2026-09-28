@@ -12,6 +12,9 @@ import {
     stableKey
 } from '../../src/internal/plainData';
 
+/** Default `sort()` order, spelled out: by UTF-16 code unit, so no two distinct strings tie. */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 /** Rotates an array by `by` positions — a cheap, deterministic reordering for key-order tests. */
 const rotate = <E>(array: E[], by: number): E[] =>
     array.length === 0
@@ -62,7 +65,7 @@ describe('PROPERTY · stableKey', () => {
                 fc.dictionary(fc.string(), fc.jsonValue()),
                 fc.string(),
                 (object, extraKey) => {
-                    fc.pre(!(extraKey in object));
+                    fc.pre(!Object.hasOwn(object, extraKey));
                     const withUndefined = { ...object, [extraKey]: undefined };
                     expect(stableKey(withUndefined)).toBe(stableKey(object));
                 }
@@ -88,7 +91,10 @@ describe('PROPERTY · stableKey', () => {
                 fc.uniqueArray(fc.string()),
                 fc.uniqueArray(fc.string()),
                 (itemsA, itemsB) => {
-                    fc.pre(stableKey(itemsA.toSorted()) !== stableKey(itemsB.toSorted()));
+                    fc.pre(
+                        stableKey(itemsA.toSorted(byCodeUnit)) !==
+                            stableKey(itemsB.toSorted(byCodeUnit))
+                    );
                     expect(stableKey(new Set(itemsA))).not.toBe(stableKey(new Set(itemsB)));
                 }
             )

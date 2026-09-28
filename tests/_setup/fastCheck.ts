@@ -13,5 +13,5 @@ const seed = process.env.FC_SEED ? Number(process.env.FC_SEED) : undefined;
 
 fc.configureGlobal({
     numRuns: Number(process.env.FC_NUM_RUNS ?? 50),
-    ...(seed === undefined ? {} : { seed })
+    ...(seed !== undefined && { seed })
 });

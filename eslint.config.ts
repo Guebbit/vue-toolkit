@@ -77,6 +77,20 @@ export default defineConfigWithVueTs(
             'no-nested-ternary': 'off',
             'unicorn/no-nested-ternary': 'off',
             'unicorn/prefer-top-level-await': 'off',
+            // Off: each contradicts one of this repo's own rules (CLAUDE.md).
+            // Promise chaining is the house style for one or two awaits.
+            'unicorn/prefer-await': 'off',
+            // Boolean options (`forced`, `enabled`, `withValidation`) are public API: no renames.
+            'unicorn/consistent-boolean-name': 'off',
+            // A one-line JSDoc stays one line: short, scannable blocks.
+            'unicorn/single-line-block-comment-style': 'off',
+            // `Promise.try` is newer than the Node floor; src/internal/promiseTry.ts stands in.
+            'unicorn/prefer-promise-try': 'off',
+            // A ternary only where it stays one line; a chain of guard returns keeps its shape.
+            'unicorn/prefer-ternary': ['error', 'only-single-line'],
+            // `.then(onSuccess, onFailure)` is deliberate where used: the failure handler covers
+            // the call only, never a throw from its own success handler, as `.catch()` would.
+            'unicorn/prefer-then-catch': 'off',
 
             '@typescript-eslint/restrict-plus-operands': [
                 'error',
@@ -155,8 +169,8 @@ export default defineConfigWithVueTs(
                 }
             ],
 
-            // https://github.com/sindresorhus/eslint-plugin-unicorn/blob/main/docs/rules/prevent-abbreviations.md
-            'unicorn/prevent-abbreviations': [
+            // https://github.com/sindresorhus/eslint-plugin-unicorn/blob/main/docs/rules/name-replacements.md
+            'unicorn/name-replacements': [
                 'error',
                 {
                     replacements: {
@@ -268,7 +282,13 @@ export default defineConfigWithVueTs(
         files: ['tests/**/*', '**/*.spec.ts', '**/*.test.ts', '**/*.d.ts'],
         rules: {
             'unicorn/filename-case': 'off',
-            'unicorn/prevent-abbreviations': 'off'
+            'unicorn/name-replacements': 'off',
+            // Jest's `let x; beforeEach(() => { x = make(); })` is exactly what this forbids.
+            'unicorn/no-top-level-assignment-in-function': 'off',
+            // fast-check nests by design: `fc.assert(fc.property(arbitrary, (value) => ...))`.
+            'unicorn/max-nested-calls': 'off',
+            // A model-based test dispatches each command through a `switch` inside its loop.
+            'unicorn/no-break-in-nested-loop': 'off'
         }
     },
     {

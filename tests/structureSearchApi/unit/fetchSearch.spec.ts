@@ -172,8 +172,9 @@ describe('UNIT · fetchSearch applies the page it fetches', () => {
         // A pre-flush watcher sees what a render in the same flush would.
         const stop = watch(
             [searchApi.pageCurrent, searchApi.pageItemList, searchApi.isPlaceholder],
-            ([page, items, isPlaceholder]) =>
-                frames.push({ page, ids: items.map((item) => item.id), isPlaceholder })
+            ([page, items, isPlaceholder]) => {
+                frames.push({ page, ids: items.map((item) => item.id), isPlaceholder });
+            }
         );
 
         await searchApi.fetchSearch(pageOf('b', 201), { category: 'b' }, 1);

@@ -237,8 +237,8 @@ export const createRestResource = <
 
     // TanStack defaults, by key prefix (every scope at once). gcTime Infinity: records and
     // parent relations stay cached while nothing watches them — stale data still renders.
-    queryClient.setQueryDefaults([resourceKey, 'target'], { gcTime: Number.POSITIVE_INFINITY });
-    queryClient.setQueryDefaults([resourceKey, 'parent'], { gcTime: Number.POSITIVE_INFINITY });
+    queryClient.setQueryDefaults([resourceKey, 'target'], { gcTime: Infinity });
+    queryClient.setQueryDefaults([resourceKey, 'parent'], { gcTime: Infinity });
 
     // Live-scope claims for this (queryClient, resourceKey): lets a second instance under a
     // different scope (two screens side by side) coexist with this one instead of either wiping
@@ -489,10 +489,10 @@ export const createRestResource = <
         for (const query of scoped) {
             if (query.getObserversCount() === 0) continue;
             const kind = query.queryKey[1] as TResourceKind;
-            if (LIST_KINDS.includes(kind))
-                for (const id of (query.state.data as IListCacheEntry<K> | undefined)?.ids ?? [])
-                    protectedIds.add(String(id));
-            else if (kind === 'target') {
+            if (LIST_KINDS.includes(kind)) {
+                const ids = (query.state.data as IListCacheEntry<K> | undefined)?.ids ?? [];
+                for (const id of ids) protectedIds.add(String(id));
+            } else if (kind === 'target') {
                 const aliasOf = (query.state.data as ITargetEntry<T> | undefined)?.aliasOf;
                 if (aliasOf !== undefined) protectedIds.add(aliasOf);
             }
@@ -530,16 +530,13 @@ export const createRestResource = <
     ): K[] => {
         if (running.isCancelled() || !scopeRegistry.isLive(scope)) return [];
         return store.forScope(scope, () => {
+            /** Whether `item`'s record is already cached under `scope`. */
+            const isCached = (item: T): boolean => {
+                const key = keys.target(createIdentifier(item), scope);
+                return !isNil(queryClient.getQueryData<ITargetEntry<T>>(key)?.data);
+            };
             // Only records not cached yet grow the cache: a refetch of the same list adds nothing.
-            const added = items.filter(
-                (item) =>
-                    !isNil(item) &&
-                    isNil(
-                        queryClient.getQueryData<ITargetEntry<T>>(
-                            keys.target(createIdentifier(item), scope)
-                        )?.data
-                    )
-            );
+            const added = items.filter((item) => !isNil(item) && !isCached(item));
             enforceMaxRecords(added.length, running.queryKey, scope);
             return storeItems(items, settings, scope, readAt);
         });
@@ -951,13 +948,13 @@ export const createRestResource = <
             stop: () => scope.stop(),
             refetch: () => {
                 const id = currentId();
-                if (id === undefined) return Promise.resolve(id);
-                return refetch().then(() => getRecord(id));
+                return id === undefined ? Promise.resolve(id) : refetch().then(() => getRecord(id));
             },
             suspense: () => {
                 const id = currentId();
-                if (id === undefined) return Promise.resolve(id);
-                return suspense().then(() => getRecord(id));
+                return id === undefined
+                    ? Promise.resolve(id)
+                    : suspense().then(() => getRecord(id));
             },
             error: query.error
         };

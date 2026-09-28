@@ -92,10 +92,7 @@ describe('useUploadProgress', () => {
         });
 
         it('does not let an earlier overlapping call reset the bar a newer call owns', async () => {
-            let resolveFirst!: () => void;
-            const first = new Promise<void>((resolve) => {
-                resolveFirst = resolve;
-            });
+            const { promise: first, resolve: resolveFirst } = Promise.withResolvers<void>();
 
             const firstCall = composable.track(() => first);
             // The second call starts while the first is still in flight.
@@ -113,10 +110,7 @@ describe('useUploadProgress', () => {
 
         it('does not let a stale overlapping call report over the newer call', async () => {
             let firstOnProgress!: (fraction: number) => void;
-            let resolveFirst!: () => void;
-            const first = new Promise<void>((resolve) => {
-                resolveFirst = resolve;
-            });
+            const { promise: first, resolve: resolveFirst } = Promise.withResolvers<void>();
 
             const firstCall = composable.track((options) => {
                 firstOnProgress = options!.onProgress;

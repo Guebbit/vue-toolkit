@@ -18,13 +18,13 @@ const crud = useStructureCrudApi<IUser, number>(
         get: (id, context) => {
             expectTypeOf(id).toEqualTypeOf<number>();
             expectTypeOf(context).toEqualTypeOf<IFetchContext>();
-            // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+             
             return Promise.resolve(undefined);
         },
         create: (data, options) => {
             expectTypeOf(data).toEqualTypeOf<Partial<IUser>>();
             expectTypeOf(options).toEqualTypeOf<unknown>();
-            // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+             
             return Promise.resolve(undefined);
         }
     },
@@ -39,7 +39,7 @@ expectTypeOf(crud).toEqualTypeOf<IStructureCrudApi<IUser, number>>();
 // An operation ignoring the context it doesn't need still compiles.
 useStructureCrudApi<IUser, number>(
     {
-        // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+         
         get: (_id: number) => Promise.resolve(undefined)
     },
     { resourceKey: 'users' }
@@ -48,7 +48,7 @@ useStructureCrudApi<IUser, number>(
 useStructureCrudApi<IUser, number>(
     {
         // @ts-expect-error -- `get`'s 2nd argument is a read context, never a write's `options`
-        // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+         
         get: (_id: number, _options: { retries: number }) => Promise.resolve(undefined)
     },
     { resourceKey: 'users' }
@@ -76,7 +76,7 @@ const writable = useStructureCrudApi<
     {
         create: (_data, options) => {
             expectTypeOf(options).toEqualTypeOf<IRequestOptions | undefined>();
-            // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+             
             return Promise.resolve(undefined);
         }
     },

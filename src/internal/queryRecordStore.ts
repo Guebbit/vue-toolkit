@@ -108,7 +108,8 @@ export const createQueryRecordStore = <
         void version.value;
         const result = {} as Record<K, T>;
         const current = keys.inScope(dependsOn(), ['target']);
-        for (const query of queryClient.getQueryCache().findAll({ predicate: current })) {
+        const queries = queryClient.getQueryCache().findAll({ predicate: current });
+        for (const query of queries) {
             const record = (query.state.data as ITargetEntry<T> | undefined)?.data;
             if (!isNil(record)) result[query.queryKey[3] as K] = record;
         }
@@ -272,8 +273,9 @@ export const createQueryRecordStore = <
     const snapshot = (id: K): IRecordSnapshot<T> | undefined => {
         const state = queryClient.getQueryState<ITargetEntry<T>>(keyOf(id));
         const item = state?.data?.data;
-        if (state === undefined || isNil(item)) return undefined;
-        return { item, updatedAt: state.dataUpdatedAt, isInvalidated: state.isInvalidated };
+        return state === undefined || isNil(item)
+            ? undefined
+            : { item, updatedAt: state.dataUpdatedAt, isInvalidated: state.isInvalidated };
     };
 
     /**

@@ -26,7 +26,7 @@ const instances: { instance: AnyInstance; scope: EffectScope }[] = [];
 function watchInside(instance: AnyInstance, scope: EffectScope): void {
     const methods = instance as unknown as Record<string, unknown>;
     for (const [name, method] of Object.entries(methods))
-        if (name.startsWith('watch') && typeof method === 'function')
+        if (typeof method === 'function' && name.startsWith('watch'))
             methods[name] = (...parameters: unknown[]) =>
                 scope.run(() => (method as (...rest: unknown[]) => unknown)(...parameters));
 }

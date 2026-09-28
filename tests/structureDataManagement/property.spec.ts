@@ -222,7 +222,7 @@ describe('PROPERTY · client-side pagination', () => {
                 pageItemsArbitrary,
                 // What a clamp to 1 cannot mend (integers are the property above)
                 fc.oneof(
-                    fc.constant(Number.NaN),
+                    fc.constant(NaN),
                     fc.double({ min: 1, max: 40, noNaN: true, noInteger: true })
                 ),
                 (items, requestedPageSize) => {
@@ -262,7 +262,7 @@ describe('PROPERTY · addRecord / editRecord / deleteRecord sequences', () => {
                         }
                     }
                 }
-                const expected = Object.fromEntries(model.entries());
+                const expected = Object.fromEntries(model);
                 expect(c.itemDictionary.value).toEqual(expected);
             })
         );

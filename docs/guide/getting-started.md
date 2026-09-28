@@ -19,7 +19,7 @@ The package expects these already in your project:
 | Package               | Version         |
 | ---------------------- | --------------- |
 | `vue`                 | `^3.4`          |
-| `pinia`               | `^2.1 \|\| ^3`  |
+| `pinia`               | `^2.1 \|\| ^3 \|\| ^4` |
 | `@tanstack/vue-query` | `^5.103`        |
 | `zod`                 | `^4.4.3` (optional) |
 

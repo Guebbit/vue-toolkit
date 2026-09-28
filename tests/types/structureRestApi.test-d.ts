@@ -21,7 +21,7 @@ expectTypeOf(resource.itemList.value).toEqualTypeOf<IUser[]>();
 // fetchTarget resolves the stored record.
 expectTypeOf(
     resource.fetchTarget(
-        // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+         
         () => Promise.resolve<IUser | undefined>(undefined),
         1
     )
@@ -41,11 +41,11 @@ void resource.updateTarget(() => Promise.resolve<IUser>({} as IUser), { nope: tr
 // Every read apiCall's last parameter is a { signal } context (V2.1); ignoring it still compiles.
 void resource.fetchTarget((context) => {
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
-    // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+     
     return Promise.resolve<IUser | undefined>(undefined);
 }, 1);
 void resource.fetchTarget(
-    // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+     
     () => Promise.resolve<IUser | undefined>(undefined),
     1
 );
@@ -76,7 +76,7 @@ const watchHandle = resource.watchTarget(
     (id, context) => {
         expectTypeOf(id).toEqualTypeOf<number>();
         expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
-        // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+         
         return Promise.resolve<IUser | undefined>(undefined);
     },
     () => 1

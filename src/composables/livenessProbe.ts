@@ -66,7 +66,7 @@ export const useLivenessProbe = (
      * there is no connectivity event.
      */
     const _eventTarget: EventTarget | undefined =
-        target ?? (typeof globalThis.addEventListener === 'function' ? globalThis : undefined);
+        target ?? (typeof addEventListener === 'function' ? globalThis : undefined);
 
     /**
      * Whether the last probe failed. The whole point of the composable.

@@ -192,12 +192,8 @@ describe('useLivenessProbe', () => {
         });
 
         it('ignores a slow failure that lands after a newer probe found it up', () => {
-            let failSlow!: (reason: unknown) => void;
-            probe.mockReturnValueOnce(
-                new Promise((_resolve, reject) => {
-                    failSlow = reject;
-                })
-            );
+            const { promise: slow, reject: failSlow } = Promise.withResolvers<never>();
+            probe.mockReturnValueOnce(slow);
             probe.mockResolvedValue({});
 
             const { result } = inScope(() => useLivenessProbe(probe, { target }));
