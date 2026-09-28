@@ -2,7 +2,7 @@
  * TYPES — useStructureRestApi: record inference, per-call setting refusals, and the required
  * `resourceKey`.
  */
-import { ref } from 'vue';
+import { ref, type ComputedRef } from 'vue';
 import { expectTypeOf } from 'expect-type';
 import { useStructureRestApi } from '../../src/index.js';
 import type { IStructureRestApi, IWatchHandle } from '../../src/composables/structureRestApi.js';
@@ -18,10 +18,21 @@ expectTypeOf(resource.getRecord(1)).toEqualTypeOf<IUser | undefined>();
 expectTypeOf(resource.itemDictionary.value).toEqualTypeOf<Record<number, IUser>>();
 expectTypeOf(resource.itemList.value).toEqualTypeOf<IUser[]>();
 
+// Derived views are typed as the computeds they are, so they read-only type-check as such.
+expectTypeOf(resource.itemList).toEqualTypeOf<ComputedRef<IUser[]>>();
+expectTypeOf(resource.selectedRecord).toEqualTypeOf<ComputedRef<IUser | undefined>>();
+expectTypeOf(resource.lastInsertedRecord).toEqualTypeOf<ComputedRef<IUser | undefined>>();
+expectTypeOf(resource.pageTotal).toEqualTypeOf<ComputedRef<number>>();
+expectTypeOf(resource.pageOffset).toEqualTypeOf<ComputedRef<number>>();
+expectTypeOf(resource.pageItemList).toEqualTypeOf<ComputedRef<IUser[]>>();
+
+// Unlinking returns the parent's remaining child ids, as the local store's does.
+expectTypeOf(resource.removeFromParent('team', 1)).toEqualTypeOf<number[]>();
+expectTypeOf(resource.removeDuplicateChildren('team')).toEqualTypeOf<number[]>();
+
 // fetchTarget resolves the stored record.
 expectTypeOf(
     resource.fetchTarget(
-         
         () => Promise.resolve<IUser | undefined>(undefined),
         1
     )
@@ -41,11 +52,9 @@ void resource.updateTarget(() => Promise.resolve<IUser>({} as IUser), { nope: tr
 // Every read apiCall's last parameter is a { signal } context; ignoring it still compiles.
 void resource.fetchTarget((context) => {
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
-     
     return Promise.resolve<IUser | undefined>(undefined);
 }, 1);
 void resource.fetchTarget(
-     
     () => Promise.resolve<IUser | undefined>(undefined),
     1
 );
@@ -76,7 +85,6 @@ const watchHandle = resource.watchTarget(
     (id, context) => {
         expectTypeOf(id).toEqualTypeOf<number>();
         expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
-         
         return Promise.resolve<IUser | undefined>(undefined);
     },
     () => 1

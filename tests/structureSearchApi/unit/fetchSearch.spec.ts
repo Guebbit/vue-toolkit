@@ -81,6 +81,21 @@ describe('UNIT · fetchSearch', () => {
         expect(searchApi.totalItems.value).toBe(TECH.length);
     });
 
+    // Omitting the size must not reset the one the screen shows: it defaults to the current
+    // pageSize, and checkSearch/searchGet default the same way so they address the same page.
+    it('without a size, keeps the current pageSize, and checkSearch/searchGet agree', async () => {
+        const { searchApi } = make();
+        searchApi.pageSize.value = 25;
+
+        await searchApi.fetchSearch(apiResolve({ items: TECH, totalItems: TECH.length }), {
+            category: 'tech'
+        });
+
+        expect(searchApi.pageSize.value).toBe(25);
+        expect(searchApi.checkSearch({ category: 'tech' })).toBe(true);
+        expect(searchApi.searchGet({ category: 'tech' })).toEqual(TECH);
+    });
+
     it('applies page/pageSize, so pageItemList shows the page it just fetched', async () => {
         const { searchApi } = make();
         const PAGE1 = buildArticles(5, 'tech', 1);

@@ -159,7 +159,10 @@ export interface IStructureSearchApi<
         settings?: Pick<IFetchSettings, 'key'>
     ) => T[];
 
-    /** Fetches one page of a filtered search and makes it the applied search. */
+    /**
+     * Fetches one page of a filtered search and makes it the applied search, applying `page` and
+     * `size` to `pageCurrent`/`pageSize`. `size` defaults to the current `pageSize`.
+     */
     fetchSearch: <FF = F>(
         apiCall: (context: ISearchFetchContext<FF>) => Promise<ISearchResult<T>>,
         filters?: FF,
@@ -424,14 +427,14 @@ export const useStructureSearchApi = <
      *
      * @param filters - the filters, or their stableKey string
      * @param page - page number
-     * @param size - page size (as used when fetching)
+     * @param size - page size (as used when fetching); the current `pageSize` when omitted
      * @param settings - key
      * @returns the page's items
      */
     const searchGet = (
         filters: string | object,
         page = 1,
-        size = 10,
+        size = pageSize.value,
         { key }: Pick<IFetchSettings, 'key'> = {}
     ): T[] =>
         getRecords(
@@ -486,7 +489,8 @@ export const useStructureSearchApi = <
      * @param apiCall - resolves the page
      * @param filters - the search filters
      * @param page - page number
-     * @param size - page size, part of the cache key
+     * @param size - page size, part of the cache key; the current `pageSize` when omitted, so
+     *   leaving it out never resets the size the screen shows
      * @param settings - forced / merge / partial / staleTime / key
      * @returns the page, with the search's total
      */
@@ -494,7 +498,7 @@ export const useStructureSearchApi = <
         apiCall: (context: ISearchFetchContext<FF>) => Promise<ISearchResult<T>>,
         filters: FF = {} as FF,
         page = 1,
-        size = 10,
+        size = pageSize.value,
         settings: IFetchSettings = {}
     ): Promise<ISearchResult<T>> => {
         const snapshot = applySearch(filters as unknown as F, settings.key) as object;
@@ -523,14 +527,14 @@ export const useStructureSearchApi = <
      *
      * @param filters - the search filters
      * @param page - page number
-     * @param size - page size
+     * @param size - page size; the current `pageSize` when omitted, like fetchSearch's
      * @param settings - key / staleTime
      * @returns whether it would
      */
     const checkSearch = <FF = F>(
         filters: FF = {} as FF,
         page = 1,
-        size = 10,
+        size = pageSize.value,
         { key, staleTime }: Pick<IFetchSettings, 'key' | 'staleTime'> = {}
     ): boolean => engine.isFresh(searchQueryKey(filters as object, size, page, key), staleTime);
 

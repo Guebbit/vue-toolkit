@@ -10,7 +10,7 @@
  * @module composables/structureDataManagement
  * @see docs/composables/structure-data-management.md
  */
-import { computed, customRef, ref, toRaw, type Ref } from 'vue';
+import { computed, customRef, ref, toRaw, type ComputedRef, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
 import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
 import { joinIdentifiers } from '../internal/identifierJoin.js';
@@ -174,7 +174,7 @@ export interface IStructureDataManagementApi<
     itemDictionary: Ref<Record<K, T>>;
 
     /** Every record, as a list. */
-    itemList: Ref<T[]>;
+    itemList: ComputedRef<T[]>;
 
     /** Replaces the whole dictionary. */
     setRecords: (items: Record<K, T>) => Record<K, T>;
@@ -207,7 +207,7 @@ export interface IStructureDataManagementApi<
     selectedIdentifier: Ref<K | undefined>;
 
     /** The record of `selectedIdentifier`. */
-    selectedRecord: Ref<T | undefined>;
+    selectedRecord: ComputedRef<T | undefined>;
 
     /**
      * Id of the most recently inserted (created, not merely updated) record. A record the REST
@@ -219,7 +219,7 @@ export interface IStructureDataManagementApi<
     lastInsertedIdentifiers: Ref<K[]>;
 
     /** The record of `lastInsertedIdentifier`. */
-    lastInsertedRecord: Ref<T | undefined>;
+    lastInsertedRecord: ComputedRef<T | undefined>;
 
     /** Current page, from 1. */
     pageCurrent: Ref<number>;
@@ -228,13 +228,13 @@ export interface IStructureDataManagementApi<
     pageSize: Ref<number>;
 
     /** Page count. */
-    pageTotal: Ref<number>;
+    pageTotal: ComputedRef<number>;
 
     /** Index of the current page's first record. */
-    pageOffset: Ref<number>;
+    pageOffset: ComputedRef<number>;
 
     /** The current page's records. */
-    pageItemList: Ref<T[]>;
+    pageItemList: ComputedRef<T[]>;
 
     /** Child ids by parent id: the local "parent hasMany" relation. */
     parentHasMany: Ref<Record<P, K[]>>;

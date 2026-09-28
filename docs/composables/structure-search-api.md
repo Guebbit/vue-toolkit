@@ -182,7 +182,7 @@ served from cache still has it.
 
 ## fetchSearch
 
-`fetchSearch(apiCall, filters = {}, page = 1, pageSize = 10, settings?)`, with
+`fetchSearch(apiCall, filters = {}, page = 1, pageSize = <current pageSize>, settings?)`, with
 `apiCall: (context: ISearchFetchContext<F>) => Promise<{ items, totalItems }>` and `settings`:
 `forced`, `merge`, `partial`, `staleTime`, `key`.
 
@@ -240,8 +240,8 @@ sequenceDiagram
 
 | Method                                                          | Purpose                                                                                     |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `searchGet(filters, page = 1, pageSize = 10, { key? })`         | The cached items of one page, without fetching. `filters` is an object; `key` must match the one the page was fetched with. |
-| `checkSearch(filters = {}, page = 1, pageSize = 10, { key?, staleTime? })` | Would that `fetchSearch` be served from cache?                                   |
+| `searchGet(filters, page = 1, pageSize = <current pageSize>, { key? })` | The cached items of one page, without fetching. `filters` is an object; `key` must match the one the page was fetched with. |
+| `checkSearch(filters = {}, page = 1, pageSize = <current pageSize>, { key?, staleTime? })` | Would that `fetchSearch` be served from cache?                                   |
 | `isPageCached({ key?, staleTime? })`                            | `checkSearch` for the **live** filters and the current `pageCurrent`/`pageSize`: would applying the edited filters fetch? |
 | `isPaginateCached({ key?, staleTime? })`                        | `checkPaginate(pageCurrent, pageSize)`, for `fetchPaginate`.                                |
 

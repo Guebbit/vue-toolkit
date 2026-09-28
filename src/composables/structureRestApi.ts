@@ -280,7 +280,7 @@ export interface IStructureRestApi<
     itemDictionary: Ref<Record<K, T>>;
 
     /** Every record cached under the current `dependsOn`, as a list. */
-    itemList: Ref<T[]>;
+    itemList: ComputedRef<T[]>;
 
     /** Replaces every record of the current scope; none of them counts as fetched. */
     setRecords: (items: Record<K, T>) => Record<K, T>;
@@ -316,7 +316,7 @@ export interface IStructureRestApi<
     selectedIdentifier: Ref<K | undefined>;
 
     /** The record of `selectedIdentifier`. */
-    selectedRecord: Ref<T | undefined>;
+    selectedRecord: ComputedRef<T | undefined>;
 
     /** Id of the most recently inserted (created, not merely updated) record. */
     lastInsertedIdentifier: Ref<K | undefined>;
@@ -325,7 +325,7 @@ export interface IStructureRestApi<
     lastInsertedIdentifiers: Ref<K[]>;
 
     /** The record of `lastInsertedIdentifier`. */
-    lastInsertedRecord: Ref<T | undefined>;
+    lastInsertedRecord: ComputedRef<T | undefined>;
 
     /** Current page, from 1 (client-side pagination over `itemList`). */
     pageCurrent: Ref<number>;
@@ -334,13 +334,13 @@ export interface IStructureRestApi<
     pageSize: Ref<number>;
 
     /** Page count. */
-    pageTotal: Ref<number>;
+    pageTotal: ComputedRef<number>;
 
     /** Index of the current page's first record. */
-    pageOffset: Ref<number>;
+    pageOffset: ComputedRef<number>;
 
     /** The current page's records. */
-    pageItemList: Ref<T[]>;
+    pageItemList: ComputedRef<T[]>;
 
     /** Every parent's child ids under the current scope: the union of its `fetchByParent` buckets. */
     parentHasMany: Ref<Record<P, K[]>>;
@@ -348,11 +348,11 @@ export interface IStructureRestApi<
     /** Links a child to a parent, once, into the parent's plain (keyless) entry. */
     addToParent: (parentId: P, childId: K) => void;
 
-    /** Unlinks a child from a parent, in every bucket. */
-    removeFromParent: (parentId: P, childId: K) => void;
+    /** Unlinks a child from a parent, in every bucket; returns the parent's remaining child ids. */
+    removeFromParent: (parentId: P, childId: K) => K[];
 
-    /** Drops repeated child ids of a parent, in every bucket. */
-    removeDuplicateChildren: (parentId: P) => void;
+    /** Drops repeated child ids of a parent, in every bucket; returns its child ids. */
+    removeDuplicateChildren: (parentId: P) => K[];
 
     /** A parent's children, by id. Ids whose record is not cached are skipped. */
     getRecordsByParent: (parentId?: P) => Record<K, T>;
