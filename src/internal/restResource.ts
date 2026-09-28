@@ -6,10 +6,33 @@
  * (`parentRelations`). On top sit three kinds of operation over the same `QueryClient`: one-shot
  * reads (`fetchQuery`), active reads (`useQuery`) and mutations (`resourceMutations`).
  *
- * Every write of an answer checks the `dependsOn` snapshot its call started under, and that its
- * query was not cancelled: an answer that arrives after the scope moved on (logout, language
- * switch) or after an update/delete cancelled its read is dropped. An active query fetches what
- * its own key and `meta` say, never the watcher's live id or page, which may have moved on.
+ * An answer belongs to the scope baked into ITS OWN running query's key (`keys.scopeOf`), never
+ * whatever `dependsOn()` reads by the time it lands — reading it fresh would judge a fetch "late"
+ * the instant the fetching instance's own scope moves on, even while a SIBLING instance (same
+ * `resourceKey`, same `QueryClient`, a different `dependsOn`) still shows it. Whether an answer
+ * may still be stored is instead a question for the live-scope registry (`scopeRegistry.isLive`):
+ * a scope nothing claims any more is genuinely abandoned; one another instance still shows is not.
+ * A write for a scope other than the CURRENT one runs inside `store.forScope`, so every key it
+ * builds — through the `IRecordStore` seam included — addresses that scope, not `dependsOn()`.
+ * Every write of an answer also checks that its query was not cancelled (an update/delete
+ * cancelled its record's own read). An active query fetches what its own key and `meta` say, never
+ * the watcher's live id or page, which may have moved on.
+ *
+ * A record fetched by an alternate key (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`)
+ * is stored once, under its own id; the requested key becomes a pointer (`ITargetEntry.aliasOf`)
+ * instead of a second, divergent copy — `storeServerRecord` is the one place every server-returned
+ * record (a read, an update response, a create response) goes through this rule. Every write and
+ * removal follows a pointer to the record it names (`queryRecordStore.ts`'s `resolve`/`keyOf`),
+ * and reaches every OTHER pointer to that same record too (`resourceKeys.ts`'s `refersTo`), so an
+ * update, a delete or an invalidation by any alias lands on the record itself, not a duplicate.
+ *
+ * `maxRecords` (`enforceMaxRecords`) spares whatever is on screen, not just what has its OWN
+ * observer: a watched list's rows (read off its cached `ids`) and the record behind a watched
+ * alias are collected straight from the cache before the wipe, even though neither of THOSE
+ * specific entries is itself observed — otherwise a watched list would keep pointing at ids that
+ * resolve to nothing, or a watched alias would serve "nothing" for a record no longer there, with
+ * nothing telling either to refetch. The bound can be exceeded by what is on screen; that is
+ * already true for a directly-watched record and this only extends it.
  *
  * Returns the public `api`, and the `engine` `useStructureSearchApi` builds its `'search'` kind
  * on. The engine never reaches application code.
@@ -50,15 +73,22 @@ import type {
     TMultipleCall
 } from '../composables/structureRestApi.js';
 import { isNil, stableKey } from './plainData.js';
-import { createResourceKeys, type IListCacheEntry, type ITargetEntry } from './resourceKeys.js';
+import { joinIdentifiers } from './identifierJoin.js';
+import {
+    createResourceKeys,
+    LIST_KINDS,
+    type IListCacheEntry,
+    type ITargetEntry,
+    type TResourceKind
+} from './resourceKeys.js';
+import { canWrite } from './recordMutations.js';
 import { useResourceActivity } from './resourceActivity.js';
 import { createQueryRecordStore } from './queryRecordStore.js';
 import { createQueryRelationStore } from './parentRelations.js';
 import { watchSettled } from './settleCallbacks.js';
 import { createFreshnessChecks } from './freshnessChecks.js';
 import { createResourceMutations } from './resourceMutations.js';
-import { dropQueries, dropQuery } from './queryRemoval.js';
-import { createWriteGuard } from './writeGuard.js';
+import { dropQueries } from './queryRemoval.js';
 import { scopeRegistryFor } from './scopeRegistry.js';
 
 /** Extra data a list entry stores next to its ids, computed once the ids are known. */
@@ -202,7 +232,7 @@ export const createRestResource = <
     const keys = createResourceKeys(resourceKey, dependsOn);
 
     /** What this resource has in flight, and when its data changes. */
-    const activity = useResourceActivity(queryClient, resourceKey);
+    const activity = useResourceActivity(queryClient, resourceKey, (id) => store.resolve(id as K));
 
     // TanStack defaults, by key prefix (every scope at once). gcTime Infinity: records and
     // parent relations stay cached while nothing watches them — stale data still renders.
@@ -293,9 +323,6 @@ export const createRestResource = <
         staleTime
     });
 
-    /** Read/mutation write ordering for this resource's records (see the module header). */
-    const writeGuard = createWriteGuard<K>();
-
     // ------------------------------------------ storing ------------------------------------------
 
     /**
@@ -306,6 +333,7 @@ export const createRestResource = <
      * @param item - the fetched item
      * @param id - its id
      * @param settings - merge / partial
+     * @param scope - the scope this write belongs to
      * @param readAt - the clock value the read captured when it began; omitted for a mutation's
      *                 own write, which is never guarded (see `IResourceMutationsContext.storeItem`)
      */
@@ -313,12 +341,77 @@ export const createRestResource = <
         item: T,
         id: K,
         { merge = false, partial = false }: Pick<IFetchSettings, 'merge' | 'partial'> = {},
+        scope: unknown[],
         readAt?: number
     ): void => {
-        if (readAt !== undefined && !writeGuard.canWrite(id, readAt)) return;
+        if (readAt !== undefined && !canWrite(queryClient, resourceKey, id, scope, readAt)) return;
         if (partial) editRecord(item, id, true);
         else if (merge) store.asFetched(() => editRecord(item, id, true));
         else store.asFetched(() => addRecord(item));
+    };
+
+    /**
+     * Reads `item`'s own identifier, WITHOUT `createIdentifier`'s fabricate-a-random-id fallback:
+     * `undefined` when it is genuinely not there, never a fabricated one. A partial update
+     * response (a merge, an acknowledgement) legitimately carries no id at all — fabricating one
+     * to compare against `requestedId` would land the write on a phantom record instead of the
+     * one actually being updated.
+     *
+     * @param item - the value to read an identifier off
+     * @returns its id, when every identifier field is genuinely present
+     */
+    const peekIdentifier = (item: T): K | undefined => {
+        const fields = Array.isArray(identifiers) ? identifiers : [identifiers];
+        const values = fields.map((field) => (item as Record<string, unknown>)[field]);
+        if (values.some((value) => isNil(value))) return undefined;
+        return (fields.length > 1 ? joinIdentifiers(values, delimiter) : values[0]) as K;
+    };
+
+    /**
+     * Stores a record the server returned, under its own id — one rule for every record the
+     * server reports, whether from a read, an update response or a create response: it always
+     * lives under its own id, and the address it was requested by, if different, becomes a
+     * pointer instead of a second, divergent copy (see A2 in the module header). Called from
+     * inside `store.forScope(scope, ...)`, so `storeItem`'s own writes address `scope` too.
+     *
+     * @param item - the record, as the server returned it
+     * @param requestedId - the id this record was addressed by; omit when there is none (a create)
+     * @param scope - the scope this write belongs to
+     * @param settings - merge / partial
+     * @param readAt - the write guard clock value a READ captured when it began; omitted for a
+     *                 mutation's own write, which is never guarded (see `storeItem`)
+     * @returns the entry `requestedId`'s own key now holds: the record itself when it matches the
+     *          real id, an alias entry otherwise
+     */
+    const storeServerRecord = (
+        item: T,
+        requestedId: K | undefined,
+        scope: unknown[],
+        settings: Pick<IFetchSettings, 'merge' | 'partial'>,
+        readAt?: number
+    ): ITargetEntry<T> => {
+        // A known requestedId is trusted over a response that never carries its own id (see
+        // peekIdentifier); only a create (no requestedId at all) needs createIdentifier's
+        // fabricate-if-missing fallback.
+        const realId =
+            requestedId === undefined
+                ? createIdentifier(item)
+                : (peekIdentifier(item) ?? requestedId);
+        storeItem(item, realId, settings, scope, readAt);
+        // String(): keys.target() itself keys every id as a string, so '1' and 1 already address
+        // the SAME entry — comparing the raw values would treat them as different ids and write
+        // an alias pointing an entry at itself, overwriting the record it was meant to hold.
+        if (requestedId === undefined || String(requestedId) === String(realId))
+            return (
+                queryClient.getQueryData<ITargetEntry<T>>(keys.target(realId, scope)) ?? {
+                    data: item
+                }
+            );
+        // Addressed by a different id (a slug, say): that address becomes a pointer, not a
+        // second, divergent copy.
+        const aliasEntry: ITargetEntry<T> = { aliasOf: String(realId) };
+        queryClient.setQueryData<ITargetEntry<T>>(keys.target(requestedId, scope), aliasEntry);
+        return aliasEntry;
     };
 
     /** Optimistic writes and free-form commands. */
@@ -329,8 +422,6 @@ export const createRestResource = <
         dependsOn,
         records: {
             createIdentifier,
-            getRecord,
-            addRecord,
             editRecord,
             deleteRecord,
             markInserted: (id: K) => {
@@ -338,8 +429,8 @@ export const createRestResource = <
             }
         },
         store,
-        storeItem,
-        writeGuard
+        storeServerRecord,
+        scopeRegistry
     });
 
     /**
@@ -347,62 +438,83 @@ export const createRestResource = <
      *
      * @param items - the fetched items; empty slots are skipped
      * @param settings - merge / partial
+     * @param scope - the scope this write belongs to
      * @param readAt - the clock value the read captured when it began
      * @returns the stored ids, in order
      */
     const storeItems = (
         items: (T | undefined)[],
         settings: Pick<IFetchSettings, 'merge' | 'partial'>,
+        scope: unknown[],
         readAt: number
     ): K[] =>
         items
             .filter((item): item is T => !isNil(item))
             .map((item) => {
                 const id = createIdentifier(item);
-                storeItem(item, id, settings, readAt);
+                storeItem(item, id, settings, scope, readAt);
                 return id;
             });
 
     /**
-     * Past `maxRecords`, removes every query of the current scope except `keep` (the call writing
-     * right now), the ones still fetching (their answers are on the way), and the ones something is
+     * Past `maxRecords`, removes every query of `scope` except `keep` (the call writing right
+     * now), the ones still fetching (their answers are on the way), and the ones something is
      * actively watching (they're on screen — a wipe would empty a detail view with nothing to
      * refetch it). Those still count toward the bound; they're just never the ones evicted.
      *
      * @param incoming - how many records not cached yet are about to be written
      * @param keep - key of the query writing them
+     * @param scope - the scope the writing query belongs to
      */
-    const enforceMaxRecords = (incoming: number, keep: QueryKey): void => {
+    const enforceMaxRecords = (incoming: number, keep: QueryKey, scope: unknown[]): void => {
         if (maxRecords <= 0) return;
-        const inCurrent = keys.inScope(dependsOn());
-        const cached = queryClient
-            .getQueryCache()
-            .findAll({ predicate: inCurrent })
-            .filter(
-                (query) =>
-                    query.queryKey[1] === 'target' &&
-                    // An alias entry (see targetQueryFunction) holds no record of its own: it
-                    // never counts as one of the bound's cached records.
-                    (query.state.data as ITargetEntry<T> | undefined)?.data !== undefined
-            );
+        const inScope = keys.inScope(scope);
+        const scoped = queryClient.getQueryCache().findAll({ predicate: inScope });
+        const cached = scoped.filter(
+            (query) =>
+                query.queryKey[1] === 'target' &&
+                // An alias entry (see targetQueryFunction) holds no record of its own: it
+                // never counts as one of the bound's cached records.
+                (query.state.data as ITargetEntry<T> | undefined)?.data !== undefined
+        );
         if (cached.length + incoming <= maxRecords) return;
         const kept = queryClient.getQueryCache().find({ queryKey: keep, exact: true });
+        // What is on screen right now, straight from the cache: the ids of a watched list's own
+        // rows, and the record behind a watched alias. Neither query has its OWN observer, so
+        // without this a wipe would still drop them — leaving a watched list pointing at ids that
+        // resolve to nothing, or a watched alias serving "nothing" for a record no longer there,
+        // with nothing telling either to refetch (see A5 in the module header).
+        const protectedIds = new Set<string>();
+        for (const query of scoped) {
+            if (query.getObserversCount() === 0) continue;
+            const kind = query.queryKey[1] as TResourceKind;
+            if (LIST_KINDS.includes(kind))
+                for (const id of (query.state.data as IListCacheEntry<K> | undefined)?.ids ?? [])
+                    protectedIds.add(String(id));
+            else if (kind === 'target') {
+                const aliasOf = (query.state.data as ITargetEntry<T> | undefined)?.aliasOf;
+                if (aliasOf !== undefined) protectedIds.add(aliasOf);
+            }
+        }
         dropQueries(
             queryClient,
             (query) =>
-                inCurrent(query) &&
+                inScope(query) &&
                 query !== kept &&
                 query.state.fetchStatus !== 'fetching' &&
-                query.getObserversCount() === 0
+                query.getObserversCount() === 0 &&
+                !(query.queryKey[1] === 'target' && protectedIds.has(query.queryKey[3] as string))
         );
     };
 
     /**
-     * Stores a fetched batch under the scope it was asked in. A late answer (scope moved on, or
-     * the query was cancelled) stores nothing.
+     * Stores a fetched batch under the scope it was asked in — the running query's own scope
+     * (`scope`), not whatever `dependsOn()` reads now. Stores nothing when the query was
+     * cancelled, or when nothing claims `scope` any more (no instance shows it, and the scope
+     * registry has already swept it): a late answer for an abandoned scope has nowhere to land.
      *
      * @param items - the fetched items
-     * @param scopeAtStart - the `dependsOn` snapshot the call started under
+     * @param scope - the scope the running query belongs to (see `resourceKeys.ts`'s `scopeOf`)
      * @param running - the query writing them (kept through a `maxRecords` wipe)
      * @param settings - merge / partial
      * @param readAt - the clock value the read captured when it began
@@ -410,33 +522,43 @@ export const createRestResource = <
      */
     const storeBatch = (
         items: (T | undefined)[] = [],
-        scopeAtStart: unknown[],
+        scope: unknown[],
         running: IRunningQuery,
         settings: Pick<IFetchSettings, 'merge' | 'partial'>,
         readAt: number
     ): K[] => {
-        if (running.isCancelled() || !keys.isCurrent(scopeAtStart)) return [];
-        // Only records not cached yet grow the cache: a refetch of the same list adds nothing.
-        const added = items.filter(
-            (item) =>
-                !isNil(item) &&
-                isNil(
-                    queryClient.getQueryData<ITargetEntry<T>>(keys.target(createIdentifier(item)))
-                        ?.data
-                )
-        );
-        enforceMaxRecords(added.length, running.queryKey);
-        return storeItems(items, settings, readAt);
+        if (running.isCancelled() || !scopeRegistry.isLive(scope)) return [];
+        return store.forScope(scope, () => {
+            // Only records not cached yet grow the cache: a refetch of the same list adds nothing.
+            const added = items.filter(
+                (item) =>
+                    !isNil(item) &&
+                    isNil(
+                        queryClient.getQueryData<ITargetEntry<T>>(
+                            keys.target(createIdentifier(item), scope)
+                        )?.data
+                    )
+            );
+            enforceMaxRecords(added.length, running.queryKey, scope);
+            return storeItems(items, settings, scope, readAt);
+        });
     };
 
     /**
      * Removes a query that failed before ever holding data: it is only an error marker. One that
-     * holds data keeps serving it — stale data still renders.
+     * holds data keeps serving it — stale data still renders. Left alone when a watcher observes
+     * it: removing it there would silently detach that watcher (TanStack never tells an observer
+     * its query left the cache), wiping the error it is meant to show and retry on its own.
      *
      * @param queryKey - the failed query's key
      */
     const dropIfEmpty = (queryKey: QueryKey): void => {
-        if (queryClient.getQueryData(queryKey) === undefined) dropQuery(queryClient, queryKey);
+        // TanStack: a single, atomic predicate — no separate read-then-remove race.
+        queryClient.removeQueries({
+            queryKey,
+            exact: true,
+            predicate: (query) => query.getObserversCount() === 0 && query.state.data === undefined
+        });
     };
 
     /**
@@ -516,10 +638,10 @@ export const createRestResource = <
         running: IRunningQuery,
         extra?: TListExtra<K>
     ): Promise<IListCacheEntry<K>> => {
-        const scopeAtStart = dependsOn();
-        const readAt = writeGuard.readClock();
+        const scope = keys.scopeOf(running.queryKey);
+        const readAt = performance.now();
         return apiCall(readContextOf(running)).then((items) => {
-            const ids = storeBatch(items, scopeAtStart, running, settings, readAt);
+            const ids = storeBatch(items, scope, running, settings, readAt);
             return { ids, ...extra?.(ids) };
         });
     };
@@ -541,29 +663,36 @@ export const createRestResource = <
         running: IRunningQuery,
         merge = false
     ): Promise<ITargetEntry<T>> => {
-        const scopeAtStart = dependsOn();
-        const readAt = writeGuard.readClock();
+        const scope = keys.scopeOf(running.queryKey);
+        const readAt = performance.now();
         return apiCall(readContextOf(running)).then((item) => {
-            // Cancelled (an update or delete of this record started) or late: store nothing.
-            if (isNil(item) || running.isCancelled() || !keys.isCurrent(scopeAtStart))
+            // Cancelled (an update or delete of this record started), or nothing claims this
+            // scope any more: store nothing.
+            if (isNil(item) || running.isCancelled() || !scopeRegistry.isLive(scope))
                 return { data: item };
-            // The record always lives under its own id, whatever id this query was fetched by
-            // (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`): storing it a second time
-            // under the requested id would leave two independent, divergent copies in the cache.
             const realId = createIdentifier(item);
-            const targetKey = keys.target(realId);
-            // Single-record fetches never went through enforceMaxRecords (only list-shaped ones
-            // did): browsing many detail pages one at a time, each cached with gcTime: Infinity,
-            // grew the cache without bound. Only a genuinely new id counts — a refetch of one
-            // already cached doesn't grow the total.
-            if (queryClient.getQueryData<ITargetEntry<T>>(targetKey)?.data === undefined)
-                enforceMaxRecords(1, targetKey);
-            storeItem(item, realId, { merge }, readAt);
-            if (realId === id)
-                return queryClient.getQueryData<ITargetEntry<T>>(keys.target(id)) ?? { data: item };
-            // Fetched by an alternate key: this entry is an alias, not a second copy. getRecord and
-            // selectedRecord follow it one hop (see queryRecordStore.ts's `resolve`).
-            return { aliasOf: realId };
+            // A mutation on this record owns it: cancel THIS query's own fetch instead of
+            // resolving with the answer. TanStack then discards whatever this function returns
+            // and reverts the query to what is already cached, with its ORIGINAL timestamp —
+            // never resurrecting a just-deleted record, never stamping an unconfirmed optimistic
+            // patch fresh (see A1 in the module header).
+            if (!canWrite(queryClient, resourceKey, realId, scope, readAt)) {
+                void queryClient.cancelQueries({ queryKey: running.queryKey, exact: true });
+                return { data: undefined };
+            }
+            const targetKey = keys.target(realId, scope);
+            return store.forScope(scope, () => {
+                // Single-record fetches never went through enforceMaxRecords (only list-shaped
+                // ones did): browsing many detail pages one at a time, each cached with
+                // gcTime: Infinity, grew the cache without bound. Only a genuinely new id counts —
+                // a refetch of one already cached doesn't grow the total.
+                if (queryClient.getQueryData<ITargetEntry<T>>(targetKey)?.data === undefined)
+                    enforceMaxRecords(1, targetKey, scope);
+                // Stores under the record's OWN id, whatever id this query was fetched by
+                // (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`) — `id` becomes a
+                // pointer instead of a second, divergent copy (see storeServerRecord).
+                return storeServerRecord(item, id, scope, { merge }, readAt);
+            });
         });
     };
 
@@ -705,17 +834,24 @@ export const createRestResource = <
     ): Promise<T | undefined> => {
         if (id === undefined) {
             const scopeAtStart = dependsOn();
-            const readAt = writeGuard.readClock();
+            const readAt = performance.now();
             return settleRead(
-                // Wrapped: TanStack refuses a query function that resolves undefined.
+                // Wrapped: TanStack refuses a query function that resolves undefined. The scope
+                // travels with the answer, taken from the running query's own key — not
+                // re-read from dependsOn() once the answer lands, which may be later (see A4).
                 runThrowaway(scopeAtStart, (running) =>
-                    apiCall(readContextOf(running)).then((item) => ({ data: item }))
+                    apiCall(readContextOf(running)).then((item) => ({
+                        data: item,
+                        scope: keys.scopeOf(running.queryKey)
+                    }))
                 ),
-                ({ data: item }): T | undefined => {
-                    if (isNil(item) || !keys.isCurrent(scopeAtStart)) return item;
+                ({ data: item, scope }): T | undefined => {
+                    if (isNil(item) || !scopeRegistry.isLive(scope)) return item;
                     const itemId = createIdentifier(item);
-                    storeItem(item, itemId, { merge: settings.merge }, readAt);
-                    return getRecord(itemId);
+                    return store.forScope(scope, () => {
+                        storeItem(item, itemId, { merge: settings.merge }, scope, readAt);
+                        return store.read(itemId);
+                    });
                 },
                 nothing
             );
@@ -1002,11 +1138,11 @@ export const createRestResource = <
         const collect = () => [...expiredIds, ...cachedIds].map((id) => getRecord(id));
         if (expiredIds.length === 0) return Promise.resolve(collect());
         const scopeAtStart = dependsOn();
-        const readAt = writeGuard.readClock();
+        const readAt = performance.now();
         return settleRead(
             runThrowaway(scopeAtStart, (running) =>
                 apiCall(expiredIds, readContextOf(running)).then((items) =>
-                    storeBatch(items, scopeAtStart, running, settings, readAt)
+                    storeBatch(items, keys.scopeOf(running.queryKey), running, settings, readAt)
                 )
             ),
             collect,

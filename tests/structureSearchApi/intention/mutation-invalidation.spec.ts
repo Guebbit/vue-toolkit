@@ -1,7 +1,8 @@
 /**
  * INTENTION — a successful create / update / delete marks the resource's SEARCH pages stale too,
- * like every other list kind: an active watchSearch refetches the page on screen, and a page
- * cached with no watcher is asked for again on its next fetchSearch.
+ * like every other list kind: an active watchSearch refetches the page on screen (with the
+ * filters it applied, not the live ones), and a page cached with no watcher is asked for again
+ * on its next fetchSearch.
  *
  * (The other list kinds: tests/structureRestApi/intention/list-invalidation.spec.ts.)
  */
@@ -15,9 +16,14 @@ afterEach(clearAllInstances);
 const TECH = buildArticles(3, 'tech', 1);
 const NEW_ARTICLE: IArticle = { id: 99, title: 'New', category: 'tech' };
 
+/** Matches the trailing `{ signal }` context every apiCall receives. */
+const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
+
 /** A search operation answering the tech page. */
 const searchOperation = () =>
-    jest.fn(() => Promise.resolve({ items: [...TECH], totalItems: TECH.length }));
+    jest.fn((_filters?: object, _page?: number, _pageSize?: number) =>
+        Promise.resolve({ items: [...TECH], totalItems: TECH.length })
+    );
 
 type TSearchApi = ReturnType<typeof makeSearchComposable<IArticle, number>>['searchApi'];
 
@@ -39,17 +45,22 @@ const mutations: { name: string; run: (searchApi: TSearchApi) => Promise<unknown
 ];
 
 describe.each(mutations)('INTENTION · $name invalidates search pages', ({ run }) => {
-    it('an active watchSearch refetches the page on screen', async () => {
-        const { searchApi } = makeSearchComposable<IArticle, number>();
+    it('an active watchSearch refetches the page on screen, with the filters it applied', async () => {
+        const { searchApi, filters } = makeSearchComposable<IArticle, number>(
+            {},
+            { category: 'tech' }
+        );
         const operation = searchOperation();
         searchApi.watchSearch(operation);
         await flush();
         expect(operation).toHaveBeenCalledTimes(1);
+        filters.value = { category: 'typed-not-applied' };
 
         await run(searchApi);
         await flush();
 
         expect(operation).toHaveBeenCalledTimes(2);
+        expect(operation).toHaveBeenLastCalledWith({ category: 'tech' }, 1, 10, anyContext);
     });
 
     it('a cached page with no watcher is stale: the next fetchSearch asks the server', async () => {

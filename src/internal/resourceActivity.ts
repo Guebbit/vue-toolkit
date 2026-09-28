@@ -15,6 +15,7 @@ import { computed, getCurrentScope, onScopeDispose, readonly, ref, type Ref } fr
 import type { QueryCacheNotifyEvent, QueryClient } from '@tanstack/vue-query';
 import { hasKeyPrefix } from './plainData.js';
 import type { TResourceKind } from './resourceKeys.js';
+import { recordMutationsOf } from './recordMutations.js';
 
 /**
  * Cache events that touch data or fetch status. The `observer*` events only track `useQuery`
@@ -62,9 +63,17 @@ const changesData = (event: QueryCacheNotifyEvent): boolean =>
  *
  * @param queryClient - the client the resource's queries and mutations live on
  * @param resourceKey - first key segment of everything the resource makes
- * @returns `version(kind)`, `isLoading` and `loading`
+ * @param resolveId - follows an id to the one its record actually lives under, one hop (see
+ *                    `queryRecordStore.ts`'s `resolve`) — a lazy reference: the record store is
+ *                    built after this one (it needs `version`, below), so this is called, never
+ *                    read, until `isSaving` itself is
+ * @returns `version(kind)`, `isLoading`, `loading` and `isSaving`
  */
-export const useResourceActivity = (queryClient: QueryClient, resourceKey: string) => {
+export const useResourceActivity = (
+    queryClient: QueryClient,
+    resourceKey: string,
+    resolveId: (id: string | number) => string | number
+) => {
     /** Data counters, one per kind, created on first read. */
     const dataVersions = new Map<string, Ref<number>>();
 
@@ -153,26 +162,19 @@ export const useResourceActivity = (queryClient: QueryClient, resourceKey: strin
      * True while an update or delete mutation on record `id` is running — a per-row pending
      * signal, e.g. for a row's own spinner instead of one shared across the whole list. A plain
      * function, like `isLoading`: call it inside a `computed` to track it. Create is deliberately
-     * excluded: a record being created has no stable id of its own yet to key this by.
+     * excluded: a record being created has no stable id of its own yet to key this by. `id` is
+     * resolved first, so `isSaving('my-slug')` and `isSaving(7)` agree once 'my-slug' is a known
+     * pointer to 7 — mutation keys are always built from the resolved id (see A2 in
+     * restResource.ts's module header).
      *
-     * @param id - the record id
+     * @param id - the record id, an alias included
      * @returns whether a save (update or delete) of that record is in flight
      */
     const isSaving = (id: string | number): boolean => {
         // Read the same counter isLoading does: any mutation of this resource bumps it.
         void mutationStatus.value;
-        const idKey = String(id);
-        return (
-            queryClient.isMutating({
-                predicate: (mutation) => {
-                    const mutationKey = mutation.options.mutationKey;
-                    return (
-                        mutationKey?.[0] === resourceKey &&
-                        (mutationKey[1] === 'update' || mutationKey[1] === 'delete') &&
-                        mutationKey[2] === idKey
-                    );
-                }
-            }) > 0
+        return recordMutationsOf(queryClient, resourceKey, resolveId(id)).some(
+            (mutation) => mutation.state.status === 'pending'
         );
     };
 

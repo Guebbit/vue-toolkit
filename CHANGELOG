@@ -51,11 +51,14 @@ is an active TanStack observer that reacts to invalidation on its own.
   store, on `pinia >=2.1` — see below). One shared client per app is what makes cross-resource
   cache invalidation possible at all. `vue` peer moves to `^3.4` — one minor past `vue-query`'s
   own floor (`3.3`): see Fixed, below, for why.
-- **BREAKING** — `pinia` peer floor moves from `>=2.0.0` to `^2.1 || ^3`. A Pinia SETUP store's
-  own setup function did not run inside Vue's injection context before `2.1`, so a resource built
-  inside one (`defineStore('x', () => useStructureRestApi(...))`) had `useQueryClient()` silently
-  find nothing — this never actually worked on `2.0.x`, so the new floor states the real
-  requirement rather than removing support. `vue` and `zod` peers also move from `>=3.4`/`>=4.4.3`
+- **BREAKING** — `pinia` peer floor moves from `>=2.0.0` to `^2.1 || ^3`. Inside a component's
+  `setup()`, a Pinia SETUP store finds the injection context on any Pinia version. Built outside a
+  component instead (a router guard, `main.ts`: `useStore(pinia)`) it needed Pinia to wrap its own
+  setup function in `app.runWithContext`, which only exists from `2.1` — before that,
+  `useQueryClient()` inside one **threw**, since there was no injection context at all. This never
+  worked outside a component on `2.0.x`, so the new floor states the real requirement rather than
+  removing support. Pass the `queryClient` option instead to work on any Pinia version — it needs
+  no injection at all. `vue` and `zod` peers also move from `>=3.4`/`>=4.4.3`
   to `^3.4`/`^4.4.3` (caret, not open-ended) — no consumer on a current major is affected.
 - **BREAKING** — `loadingKey` → **`resourceKey`**, and it is now **required**, with no random
   fallback. It's the key every query and mutation a resource makes starts with — what
@@ -127,9 +130,15 @@ is an active TanStack observer that reacts to invalidation on its own.
   blanked the list while the user typed, before Search was pressed. Migration: call `search()` (or
   `searchNow()`) wherever an edit of the filters should take effect.
 - **BREAKING** — on `useStructureSearchApi`/`useStructureCrudApi`, changing `pageSize` now also
-  resets `pageCurrent` to `1`, in the same fetch — a page number from the old page size rarely
-  means anything under the new one. The client-side pagination of `useStructureDataManagement`/
-  `useStructureRestApi` is unchanged.
+  resets `pageCurrent` to `1`, synchronously, in the same tick — a page number from the old page
+  size rarely means anything under the new one. The reset watcher runs with `flush: 'sync'`
+  specifically so it always lands before vue-query's own (`pre`-flush) key watcher can react to
+  either change — otherwise, depending on where the watching call was started (a click handler, an
+  `onMounted` after an `await`, a parent building a child's store), the key watcher could flush
+  first and fire one wasted request for the OLD page at the new size before landing on page 1. ⚠
+  Setting `pageCurrent` to something else right after, in that same tick, now keeps that value
+  instead of being forced back to 1 — useful for restoring `?page=4&size=25` from a URL. The
+  client-side pagination of `useStructureDataManagement`/`useStructureRestApi` is unchanged.
 - **BREAKING** — every watcher returns a handle **`{ stop, refetch, error }`** (`IWatchHandle`).
   `watchTarget` (and the CRUD `watchOne`) returned a bare stop function (`WatchStopHandle`), and
   `watchSearch` (the CRUD `watchList`) returned `{ stop, search }`. Migration:
@@ -238,11 +247,16 @@ is an active TanStack observer that reacts to invalidation on its own.
   watcher that is not currently enabled (no id yet, `enabled: false`) resolves right away with
   whatever is cached, instead of waiting for `enabled` to turn true — TanStack's own `suspense()`
   on a disabled query never resolves at all.
-- **`useStructureSearchApi`'s `pageItemList`** keeps showing the most recently cached page's
-  items while a page/size/filters change is in flight, instead of dropping to `[]` until the new
-  page lands (`totalItems` already did this). A new `isPlaceholder: ComputedRef<boolean>` is
-  `true` exactly while `pageItemList` is showing that fallback, `false` once the real current page
-  is cached (including an empty one) or on a genuinely empty first load.
+- **`useStructureSearchApi`'s `pageItemList`** keeps showing whatever was shown a moment ago while
+  a page, size OR filters change is in flight, instead of dropping to `[]` until the new page lands
+  (`totalItems` already did this). A new `isPlaceholder: ComputedRef<boolean>` is `true` exactly
+  while `pageItemList` is showing that fallback, `false` once the real current page is cached
+  (including an empty one) or on a genuinely empty first load. Cleared on a `dependsOn` change or a
+  `resetAll()`, so one user's or one language's rows never flash onto another's screen.
+- **`ISearchFetchContext<F>`**: `fetchSearch`'s `apiCall` now receives `{ filters, page, pageSize,
+  signal }` as its context — the search this call was asked for, FROZEN at the moment it started —
+  instead of the plain `{ signal }` read context. An `apiCall` typed on the old, plain context
+  still compiles; it just ignores the new fields.
 - **`package.json` metadata**: `description`, `keywords`, `homepage`, `bugs`, `repository`
   (needed for npm provenance), `author` and `engines.node` (`>=20`). Previously all unset.
   `license` is intentionally left as-is here (`"AGPLv3.0"` is not a valid SPDX id) pending a
@@ -377,10 +391,7 @@ is an active TanStack observer that reacts to invalidation on its own.
   ordering guard: whichever call settled first reset the bar to idle even while a second call was
   still in flight, and a stale call's late progress event could overwrite the newer call's
   percentage. A per-call token now scopes both the reporter and the idle-reset to the call that
-  started it, so only the newest `track` call can move `progress`. Also, `track(send, { enabled:
-  false })` let a synchronous throw from `send` escape as a thrown error instead of a rejected
-  promise; `send` is now always called inside a `Promise` executor, so a synchronous throw
-  rejects like any other failure.
+  started it, so only the newest `track` call can move `progress`.
 - `useStructureFormValidation`'s root-level Zod issues (an empty `path` — a cross-field
   `.refine()` with no `path` option, say) were silently dropped: `validate()` could return `false`
   while `isValid` stayed `true` and nothing showed on screen. A new `formLevelErrors: Ref<string[]>`
@@ -400,7 +411,8 @@ is an active TanStack observer that reacts to invalidation on its own.
   `readonly()` record (`selectedRecord`, say) then left that nested object genuinely read-only
   inside `form` too — writing to it failed silently (Vue's own dev warning) instead of editing the
   form. `resetForm` also handed the live form and the baseline the same nested object, so editing
-  one edited the other. All four now use a detached (deep) copy, sharing no object with the source.
+  one edited the other. All four now use a detached (deep) copy, sharing no plain object or array
+  with the source (Set, Map and Date fields also detached now — see Fixed, below).
 - `fetchSearch(apiCall, filters, page, pageSize)` fetched and cached the requested page, but never
   applied `page`/`pageSize` to the live `pageCurrent`/`pageSize` refs — `pageItemList`/`totalItems`
   kept showing whatever page was current *before* the call, not the one it just fetched, until
@@ -532,6 +544,123 @@ is an active TanStack observer that reacts to invalidation on its own.
 - `editRecord` checked `id` with `!id`, so a falsy-but-real id (`0`, `''`) was treated as "no id
   given" and silently fell back to inferring the id from `data` instead of editing the record it
   was actually asked for. Checks `id === undefined` instead — `0` and `''` are real ids.
+- `applyServerErrors` returned `false` whenever nothing was written to `formErrors`/
+  `formLevelErrors`, even after handing every message to `onUnmapped` — the docs' own snippet then
+  showed a second, generic message on top of the one `onUnmapped` already displayed. It now returns
+  `true` whenever something was shown, on the form or through `onUnmapped`; `false` only when the
+  rejection carried nothing at all.
+- `useAsyncAction`'s `run`, `useUploadProgress`'s `track` and `useLivenessProbe`'s `check` all
+  called the caller's function directly, before any promise existed, so a SYNCHRONOUS throw (a
+  throwing `buildOptions`, a null dereference before the first `await`) escaped instead of
+  settling into the composable's own state: `run()` left `loading` stuck `true` with `error`
+  unset, `track()` left `isUploading` stuck at 0%, and `useLivenessProbe` threw out of its own
+  creation. A new internal `promiseTry` (`new Promise((resolve) => resolve(fn()))`, the same
+  contract as ES2025 `Promise.try`) now wraps all three call sites, so a synchronous throw settles
+  exactly like a rejection.
+- `useLivenessProbe`'s `check()`, called after `stop()` (a late "Retry" click on an unmounted
+  banner), still probed and, on failure, scheduled a retry timer nothing would ever cancel — every
+  retry scheduling the next, forever. `stop()` now sets a `stopped` flag `check()` checks first:
+  after `stop()`, `check()` resolves without probing, and no timer is ever scheduled.
+- A one-shot `fetch*` read that failed on a key an active `watch*` was showing reset that query
+  in place — the same handling every other removal gives an observed entry — which wiped the
+  watcher's own `error` back to `null` along with it. The empty, error-only entry a failed
+  one-shot read leaves behind is now removed only while nothing watches it; a watched one is left
+  untouched, so the watcher keeps showing the error and retries it on its own.
+- `useStructureCrudApi`'s `searchNow`/`resetFilters` handed `fetchSearch` a closure that read live
+  `filters`/`pageSize` when IT RAN, not when `searchNow`/`resetFilters` was called. TanStack keeps
+  the last `apiCall`/`queryFn` a query was given and re-runs that same closure on an unrelated
+  invalidation (`invalidateQueries`, another mutation's own invalidation) — not a fresh call. So a
+  `deleteOne` elsewhere could re-run `resetFilters`'s old closure with whatever was typed in the
+  filter form by then (not submitted), and the answer landed under the search that was actually
+  applied. Both now read the search from `fetchSearch`'s new context (see `ISearchFetchContext`
+  under Added) — a snapshot frozen when the call started — so a later re-run asks the same
+  question again.
+- `useStructureSearchApi`'s placeholder fallback (`pageItemList`/`isPlaceholder`, see Added) only
+  looked among pages of the currently APPLIED filters. Applying filters that had never been
+  fetched before — genuinely new ones, not merely a page or size change — dropped the list to
+  `[]` with `isPlaceholder: false`: exactly the combination the docs reserve for "genuinely empty,"
+  so an empty-state message flashed on every new search, contrary to the feature's own stated
+  intent ("page/size/filters change"). It now falls back to whatever was shown a moment ago
+  regardless of what changed, the same idea as TanStack's own `keepPreviousData`.
+- `detachedCopy` (and so `useStructureFormValidation`'s `form`/`setForm`/the baseline) rebuilt only
+  plain objects and arrays; a Set or Map field was kept by reference. Vue proxies a Set or Map like
+  any other object, so `form.tags.add(x)` (a tag picker) was a real, reactive edit that reached the
+  source record AND the reset baseline — `resetForm()` kept it. `isDirty`'s `JSON.stringify`
+  compounded this: `JSON.stringify(new Set(['x']))` is `"{}"` for any Set, so it couldn't see the
+  edit either way. `detachedCopy` now rebuilds Set/Map (values recursively; a Map's keys stay by
+  reference, so a Map keyed by object identity still resolves `.get()`) and Date too; `isDirty`
+  compares by `stableKey` instead of `JSON.stringify`, which also makes property order a non-
+  difference. Class instances are still kept by reference — there is no safe generic clone for
+  one — documented as policy, not a gap.
+- A late answer's "is this still mine to store?" check judged by the FETCHING INSTANCE's own
+  current `dependsOn()`, not by whether anything still showed the scope the fetch actually ran
+  under. Two instances of one `resourceKey` sharing a client under different scopes is documented
+  as supported (`dependsOn`, "two shops compared side by side"); instance A moving its `dependsOn`
+  elsewhere while its own fetch for the old scope was still in flight made that fetch's answer
+  "late" by A's own reckoning, even while instance B still showed that exact scope — the rows were
+  dropped, but `{ ids: [] }` was cached as fresh under it, so B's next read silently resolved
+  empty instead of asking the server. `fetchSearch` had the same problem the other way: cut short
+  by a `dependsOn` change, it rebuilt its page key to read the total AFTER the change, pairing its
+  (correctly empty) answer with the NEW scope's total instead of `0`. An answer now belongs to the
+  scope baked into its own running query's key (`resourceKeys.ts`'s `scopeOf`) — fixed for that
+  query's whole life — and is storable as long as ANY instance still claims that scope (the
+  existing live-scope registry, `scopeRegistry.isLive`), not just the fetching instance's own.
+  `fetchSearch` now builds its page key once and reads the total off that same key.
+- Only `getRecord` followed a record fetched by an alternate key (`fetchTarget(apiCall, 'my-slug')`
+  resolving `{ id: 7 }`) to the record it pointed at — every WRITE used the id as given instead:
+  `updateTarget(..., 'my-slug')` created a second, id-less record; a failed update by slug deleted
+  the pointer on rollback; `deleteTarget(..., 'my-slug')` removed only the pointer, leaving record
+  `7` in `itemList`; `invalidateRecord(7)` never reached a screen watching `'my-slug'`; and once
+  record `7` was actually removed, the `'my-slug'` pointer stayed cached and fresh, serving
+  `undefined` without ever asking the server again. Every write and removal — `editRecord`,
+  `deleteRecord`, `updateTarget`, `deleteTarget`, invalidation — now follows the pointer to the
+  record it names, and reaches every OTHER pointer to that same record too, through one place
+  (`queryRecordStore.ts`'s `resolve`/`keyOf`, `resourceKeys.ts`'s new `refersTo` predicate). A
+  server-returned record — a read, an update response, or a create response — is stored under one
+  rule (`storeServerRecord`): always under its own id, with the address it was requested by, if
+  different, becoming a pointer instead of a second, divergent copy. `isSaving(id)` and
+  `updateTarget`/`deleteTarget`'s own mutation key now resolve `id` first too, so `isSaving('my-
+  slug')` and `isSaving(7)` agree. **Known limit, documented:** an address never fetched before
+  cannot be resolved ahead of the server's answer — the very first `updateTarget(..., 'my-slug')`
+  with no prior fetch by that slug applies its optimistic patch under `'my-slug'` itself; the
+  update's own response then resolves it into a proper pointer.
+- The "a read never overwrites a record a newer mutation has touched" guarantee had three holes,
+  all traced to `src/internal/writeGuard.ts`: a private, per-`useStructureRestApi`-INSTANCE map
+  no other instance of the same resource (sharing the same client) could see; keyed by the id AS
+  GIVEN (`'1'` from a route param, `1` from `createIdentifier`, treated as different records); and
+  bypassed outright by `targetQueryFunction`, which — when the guard blocked its write — still
+  RESOLVED with the raw fetched item, and TanStack wrote that return value back under the record's
+  key regardless, so a read landing while a delete was in flight could bring the deleted record
+  back. A related gap (R10): with `applyResponse: false` or an ack-only response, a read landing
+  mid-update re-stamped the still-unconfirmed optimistic patch as freshly fetched. `writeGuard.ts`
+  is deleted outright. "Is record `id` being changed?" is now asked of TanStack's own
+  `MutationCache` (`src/internal/recordMutations.ts`) — the exact question `isSaving` already
+  asks — so every instance sharing a client sees every mutation, ids are always compared as
+  strings, and there is nothing left to prune by hand (a settled mutation leaves the cache on its
+  own `gcTime`, same as everything else). `updateTarget`/`deleteTarget`'s optimistic protocol now
+  runs directly on TanStack's own mutation lifecycle (`onMutate`/`onSuccess`/`onError`/
+  `onSettled`) instead of a hand-chained `.then()`: TanStack marks a mutation `pending` — visible
+  to every read's own check — before `onMutate` (which cancels the record's read, snapshots and
+  applies the change) even starts, closing the window where a read could begin unaware of it. A
+  blocked read now cancels its OWN query instead of resolving with its stale answer; TanStack then
+  discards whatever it would have written and reverts to what is already cached, with that entry's
+  ORIGINAL timestamp — fixing both the resurrection and R10 in the same change. The public API,
+  and the documented mutation key layout (`[resourceKey, 'update' | 'delete', id]`), are unchanged.
+- A `maxRecords` wipe spared a query with its OWN active observer, but not what that query merely
+  REFERENCED: a watched list's own entry survived, but its rows are separate `target` entries with
+  no observer of their own, so the wipe dropped them anyway — the list stayed cached and fresh,
+  pointing at ids that resolved to nothing, with nothing telling it to refetch. A watched alternate
+  key (`watchTarget(get, () => 'my-slug')`) had the same problem the other way: the pointer entry
+  survived (it has the observer), the record it pointed at did not. `enforceMaxRecords` now
+  collects what is on screen straight from the cache before it runs — a watched list's own `ids`,
+  and a watched alias's `aliasOf` — and spares those records too, on top of directly-watched ones.
+- `stableKey` (used for every internal cache key: search filters, `dependsOn` snapshots) turned
+  any Set or Map into `{}` for the same reason (`canonicalize` walks a value through
+  `Object.keys()`, which is `[]` for both). Two searches whose filters held different Sets shared
+  ONE cache entry. `stableKey` now expands a Set/Map into a tagged, order-independent shape first
+  (sorted by each item's own `stableKey`, so insertion order is never a difference, and a Set
+  never collides with a plain array of the same items) — a local pre-pass ahead of
+  `@guebbit/js-toolkit`'s own `canonicalize` handling this natively.
 
 # 4.0.0
 

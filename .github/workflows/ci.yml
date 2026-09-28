@@ -126,9 +126,12 @@ jobs:
         # flush a pageSize-driven pageCurrent reset after the query-key watcher has already
         # re-fetched the old page (tests/structureSearchApi/unit/watchSearch.spec.ts catches it).
         #
-        # pinia's floor is 2.1.0, not 2.0's own `>=2.0.0`: a Pinia SETUP store's own setup function
-        # did not run inside an injection context before 2.1, so `useQueryClient()` inside one found
-        # nothing (tests/structureRestApi/lifecycle/piniaSetupStoreInjection.spec.ts catches it).
+        # pinia's floor is 2.1.0, not 2.0's own `>=2.0.0`: on 2.0.x, a Pinia SETUP store built
+        # OUTSIDE a component (a router guard, main.ts) does not run inside an injection context,
+        # so `useQueryClient()` inside one THROWS (built inside a component's setup(), any pinia
+        # version works — inject() finds the context there regardless).
+        # tests/structureRestApi/lifecycle/piniaSetupStoreInjection.spec.ts builds the store both
+        # ways and catches the outside-a-component case.
         runs-on: ubuntu-latest
         timeout-minutes: 15
         permissions:

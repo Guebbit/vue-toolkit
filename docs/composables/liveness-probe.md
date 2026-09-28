@@ -39,7 +39,9 @@ which stops the moment a probe succeeds.
 
 Teardown is automatic: created inside an effect scope — a component `setup`, a Pinia setup store,
 a bare `effectScope` — it stops with that scope. Created outside one, `stop()` is yours to call.
-`stop()` is idempotent, and a probe that outlives teardown cannot write to `down`.
+`stop()` is idempotent and final: a probe that outlives teardown cannot write to `down`, and any
+`check()` called after it — a late "Retry" click on a banner already unmounted — resolves without
+probing and starts no retry chain.
 
 ```mermaid
 stateDiagram-v2
@@ -90,6 +92,9 @@ working connection.
 `globalThis` is an `EventTarget` in a browser and not one under SSR or in a node test runner, so
 the capability is checked rather than assumed. Where there is no `online` event the probe simply
 never re-runs on its own, and nothing throws.
+
+A `probe` that throws synchronously, instead of returning a rejected promise, is read as
+unreachable exactly like a rejection — `check()` never lets it escape.
 
 Pass a `target` of your own to drive the re-check from a different signal — or to assert the
 wiring in a runner with no DOM at all:

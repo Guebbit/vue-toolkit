@@ -1,13 +1,14 @@
 /**
  * Composable factories + instance registry for the structureRestApi suite.
  * Every spec should call `afterEach(clearAllInstances)`: it stops each instance's effect scope
- * (unsubscribing the cache listeners the view/loading counters register via onScopeDispose) and
- * clears its QueryClient, so Jest exits cleanly and instances never leak into the next test.
+ * (unsubscribing the cache listeners the view/loading counters register via onScopeDispose),
+ * clears its QueryClient, and unmounts a client `runInjected` left mounted, so Jest exits cleanly
+ * and instances never leak into the next test.
  * Plain module (not a *.spec.ts) so Jest's testMatch ignores it.
  */
 
 import { createApp, effectScope, type EffectScope } from 'vue';
-import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
+import { QueryClient, VueQueryPlugin, environmentManager } from '@tanstack/vue-query';
 import {
     useStructureRestApi,
     type IStructureRestApiOptions
@@ -50,12 +51,19 @@ export function runTracked<C extends AnyInstance>(factory: () => C): C {
     return track(scope.run(factory)!, scope);
 }
 
-/** Stops every tracked scope, then clears every tracked QueryClient. */
+/** Extra teardown steps a helper registered for the current test (see runInjected). */
+const teardowns: (() => void)[] = [];
+
+/**
+ * Stops every tracked scope, clears every tracked QueryClient, then runs the registered teardown
+ * steps.
+ */
 export function clearAllInstances(): void {
     for (const { instance, scope } of instances.splice(0)) {
         scope.stop();
         instance.queryClient.clear();
     }
+    for (const teardown of teardowns.splice(0)) teardown();
 }
 
 /**
@@ -128,11 +136,15 @@ export function makeShared<
  * through `VueQueryPlugin`, so `useQueryClient()` / `useIsFetching()` find it by injection — the
  * path a component or a Pinia setup store (which runs in `runWithContext` too) gets its client
  * through. The app is never mounted — injection only needs `runWithContext` — so there is no
- * app to unmount; and in Jest's server environment the plugin does not mount the client either.
+ * app to unmount. The plugin itself mounts the client (focus/online listeners) whenever TanStack
+ * does not run as a server — under jsdom — and only `app.unmount()` of a mounted app would undo
+ * that: `clearAllInstances` unmounts the client instead.
  */
 export function runInjected<C extends AnyInstance>(queryClient: QueryClient, factory: () => C): C {
     const app = createApp({});
     app.use(VueQueryPlugin, { queryClient });
+    // Same test VueQueryPlugin runs before its own client.mount().
+    if (!environmentManager.isServer()) teardowns.push(() => queryClient.unmount());
     return app.runWithContext(() => runTracked(factory));
 }
 

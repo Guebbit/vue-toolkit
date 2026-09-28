@@ -3,7 +3,7 @@
  *   - fires at once for the id present at creation
  *   - selects eagerly, before the fetch resolves
  *   - refetches and re-selects when the id source changes
- *   - a nullish id fetches nothing and leaves the selection as it is
+ *   - a nullish id fetches nothing, settles nothing and leaves the selection as it is
  *   - onSuccess/onError/onSettled fire with the right arguments; a failure with nothing cached
  *     clears the selection, but a failed refetch of an already-cached record does not
  *
@@ -78,6 +78,27 @@ describe('UNIT · watchTarget', () => {
         expect(c.selectedIdentifier.value).toBe(1);
         stop();
     });
+
+    // Known bug: restResource.ts's idle placeholder key `[rk, 'any', scope, 'idle']` is exactly the
+    // key fetchAny/watchAny build for `key: ['idle']`, so their fetch settles the idle watcher.
+    it.failing(
+        "a watcher idle for lack of an id settles nothing, even when a keyed fetchAny uses key ['idle']",
+        async () => {
+            const c = make();
+            const onSuccess = jest.fn();
+            const { stop } = c.watchTarget(fakeApiCall(), ref<number | undefined>(undefined), {
+                onSuccess
+            });
+            await flush();
+
+            // any caller-chosen key: the idle watcher must not share its cache entry
+            await c.fetchAny(() => Promise.resolve('stats'), { key: ['idle'] });
+            await flush();
+
+            expect(onSuccess).not.toHaveBeenCalled();
+            stop();
+        }
+    );
 
     it('calls onSuccess/onSettled with the fetched item and id', async () => {
         const c = make();

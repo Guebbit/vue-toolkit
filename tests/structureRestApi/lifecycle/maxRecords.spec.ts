@@ -8,8 +8,9 @@
  * list next to a wiped dictionary would list ids that resolve to nothing. The freshest
  * items (the incoming batch) always survive; the crossing query itself is kept (see
  * maxRecords-crossing.spec.ts). A record something is actively watching is never dropped
- * (still counts toward the cap, just never evicted), and single-record fetches enforce the
- * bound too, not only list-shaped ones.
+ * (still counts toward the cap, just never evicted) — nor the rows of a watched list, nor the
+ * record a watched alias points at — and single-record fetches enforce the bound too, not only
+ * list-shaped ones.
  */
 
 import { ref } from 'vue';
@@ -33,6 +34,15 @@ describe('LIFECYCLE · maxRecords', () => {
         expect(c.itemList.value).toHaveLength(5);
         // the freshest batch is the one that survived
         expect(c.itemList.value.map((a) => a.id)).toEqual([100, 101, 102, 103, 104]);
+    });
+
+    it('does not wipe when a batch lands exactly on the cap, not past it', async () => {
+        const c = make(8);
+        // 7 already cached, 1 new one incoming — the sum lands exactly on the cap.
+        await c.fetchAll(apiResolve(buildArticles(7, 'tech', 1)), { key: ['a'] });
+        await c.fetchAll(apiResolve(buildArticles(1, 'tech', 100)), { key: ['b'] });
+        // exactly at the cap: nothing is past it, so the first batch survives alongside the second
+        expect(c.itemList.value).toHaveLength(8);
     });
 
     it('never wipes when disabled (maxRecords = 0)', async () => {
@@ -72,6 +82,35 @@ describe('LIFECYCLE · maxRecords', () => {
         // the watched record survives, still showing its data, instead of being emptied
         // with nothing telling it to refetch
         expect(c.getRecord(1)).toBeDefined();
+        watched.stop();
+    });
+
+    it('never empties the rows of a list something is actively watching', async () => {
+        const c = make(6);
+        const listCall = jest.fn(() => Promise.resolve(buildArticles(5, 'tech', 1)));
+        const watched = c.watchAll(listCall);
+        await flush();
+
+        // 5 cached + 3 new crosses the cap of 6
+        await c.fetchAll(apiResolve(buildArticles(3, 'tech', 100)), { key: ['other'] });
+
+        // the watcher still serves its rows: kept, or fetched again — never ids pointing at nothing
+        await expect(watched.suspense()).resolves.toEqual(buildArticles(5, 'tech', 1));
+        watched.stop();
+    });
+
+    it('never empties a record watched through an alternate key', async () => {
+        const c = makeComposable<IArticle, number | string>({ maxRecords: 3 });
+        const watched = c.watchTarget(
+            () => Promise.resolve(buildArticles(1, 'tech', 7)[0]),
+            ref('my-slug')
+        );
+        await flush();
+
+        await c.fetchAll(apiResolve(buildArticles(3, 'tech', 100)));
+        await flush();
+
+        expect(c.selectedRecord.value).toEqual(buildArticles(1, 'tech', 7)[0]);
         watched.stop();
     });
 

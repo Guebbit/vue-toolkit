@@ -280,10 +280,12 @@ HTML report to `reports/mutation/mutation.html` — open that to see each surviv
 with the source, which is the fastest way to decide "real gap or equivalent mutant?". `reports/` is
 gitignored: the score doesn't live in git, only in the report and in this page.
 
-A full run against `5.0.0` scored **84.33%** (1429 killed / 2 timed out / 251 survived, of 1699
-covered mutants; 1756 total), against a `thresholds.break` of 81. `writeGuard.ts` (57%) and
-`parentRelations.ts` (76%) are the two weakest files — worth a look before chasing the aggregate
-number any higher elsewhere.
+A full run against an early `5.0.0` snapshot scored **84.33%** (1429 killed / 2 timed out / 251
+survived, of 1699 covered mutants; 1756 total), against a `thresholds.break` of 81 — from before the
+write guard (`writeGuard.ts`, then the weakest-scoring file at 57%) was replaced by
+`recordMutations.ts`'s `canWrite`, asked directly of TanStack's own `MutationCache` (see
+`internal/resourceMutations`'s module header). Re-run locally (`npm run test:mutation`) for a
+current score; `parentRelations.ts` (76% in that same snapshot) is worth a look regardless.
 
 > The full run mutates the whole `src/` tree and takes a few minutes. While iterating, scope it to
 > one file with `npx stryker run --mutate "src/composables/structureDataManagement.ts"`.

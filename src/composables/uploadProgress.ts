@@ -8,6 +8,7 @@
  * @see docs/composables/upload-progress.md
  */
 import { computed, ref } from 'vue';
+import { promiseTry } from '../internal/promiseTry.js';
 
 /**
  * Sink the request reports its progress to, as a 0–1 fraction (what HTTP clients hand out).
@@ -88,9 +89,9 @@ export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<
         send: (options?: TOptions) => Promise<T>,
         { enabled = true }: ITrackUploadSettings = {}
     ): Promise<T> => {
-        // Wrapped in a Promise executor so a SYNCHRONOUS throw from send (not just a rejection)
-        // still reaches the caller as a rejected promise instead of escaping this call frame.
-        if (!enabled) return new Promise<T>((resolve) => resolve(send()));
+        // promiseTry: a SYNCHRONOUS throw from send (not just a rejection) still reaches the
+        // caller as a rejected promise instead of escaping this call frame.
+        if (!enabled) return promiseTry(() => send());
 
         // This call's own identity: two overlapping track() calls must not let the first to
         // settle (or report) clobber the bar the other still owns.
@@ -100,11 +101,14 @@ export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<
         // event never appears at all on a fast connection.
         progress.value = 0;
 
-        // `finally` forwards the value and re-throws the rejection untouched
-        return send(
-            buildOptions((fraction) => {
-                if (token === currentTrackToken) report(fraction);
-            })
+        // promiseTry also covers buildOptions: a throwing builder must still return to idle
+        // through the `finally` below, not skip it.
+        return promiseTry(() =>
+            send(
+                buildOptions((fraction) => {
+                    if (token === currentTrackToken) report(fraction);
+                })
+            )
         ).finally(() => {
             if (token === currentTrackToken) reset();
         });

@@ -67,6 +67,20 @@ describe('useAsyncAction', () => {
          * `Error`. The API's own message has to survive it, or the user is told "could not load"
          * while the API is saying exactly what went wrong.
          */
+        it('never throws either, when the action throws before returning its promise', async () => {
+            const { error, loading, run } = useAsyncAction((): Promise<string> => {
+                throw new Error('boom');
+            });
+            let pending: Promise<string | undefined> | undefined;
+
+            expect(() => {
+                pending = run();
+            }).not.toThrow();
+            await expect(pending).resolves.toBeUndefined();
+            expect(error.value).toBe('boom');
+            expect(loading.value).toBe(false);
+        });
+
         it("reads the message off an http layer's plain reject envelope", async () => {
             const { error, run } = useAsyncAction(
                 () =>

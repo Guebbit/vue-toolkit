@@ -20,6 +20,24 @@ type TModelOp =
     | { kind: 'edit'; id: number; tag: string }
     | { kind: 'delete'; id: number };
 
+/**
+ * Every other tuple a plain `.join(delimiter)` cannot tell apart from `[a, b]`: `a + delimiter +
+ * b` cut at each other occurrence of `delimiter`.
+ *
+ * @param a - the first value
+ * @param b - the second value
+ * @param delimiter - the separator joining them
+ * @returns the other `[a, b]` splits of the same joined string
+ */
+const otherSplits = (a: string, b: string, delimiter: string): [string, string][] => {
+    const joined = `${a}${delimiter}${b}`;
+    const splits: [string, string][] = [];
+    for (let at = joined.indexOf(delimiter); at !== -1; at = joined.indexOf(delimiter, at + 1))
+        if (at !== a.length)
+            splits.push([joined.slice(0, at), joined.slice(at + delimiter.length)]);
+    return splits;
+};
+
 /** A small, overlapping id pool, so a sequence actually exercises add-over-add, edit, delete. */
 const idArbitrary = fc.integer({ min: 0, max: 4 });
 
@@ -69,6 +87,29 @@ describe('PROPERTY · createIdentifier — composite identifiers', () => {
             })
         );
     });
+
+    // Known bug: escapeSegment (src/internal/identifierJoin.ts) escapes whole occurrences of the
+    // delimiter, which only disambiguates a single character other than the escape character.
+    it.failing('different tuples never collide, whatever the delimiter', () => {
+        // Two characters, one of them the escape character: the delimiter then often overlaps
+        // itself or the values around it, which is where a join can turn ambiguous.
+        const piece = (minLength: number) =>
+            fc.string({ unit: fc.constantFrom(':', '\\'), minLength, maxLength: 3 });
+
+        fc.assert(
+            fc.property(piece(1), piece(0), piece(0), (delimiter, a, b) => {
+                const c = useStructureDataManagement<{ a: string; b: string }>(
+                    ['a', 'b'],
+                    delimiter
+                );
+                const id = c.createIdentifier({ a, b });
+                for (const [otherA, otherB] of otherSplits(a, b, delimiter))
+                    expect(c.createIdentifier({ a: otherA, b: otherB })).not.toBe(id);
+            }),
+            // A floor, so a low FC_NUM_RUNS cannot skip every ambiguous case
+            { numRuns: Math.max(100, fc.readConfigureGlobal().numRuns ?? 0) }
+        );
+    });
 });
 
 // '__proto__' is excluded: recordsByIds writes into a plain object with `result[id] = value`,
@@ -92,51 +133,104 @@ describe('PROPERTY · recordListByIds / recordsByIds', () => {
         );
     });
 
-    it('recordsByIds returns only requested ids, values matching the store', () => {
+    it('recordsByIds holds exactly the requested ids that have a record, with the stored values', () => {
         fc.assert(
             fc.property(
                 fc.array(fc.tuple(idOf, fc.jsonValue())),
                 fc.array(idOf),
-                (entries, ids) => {
+                (entries, otherIds) => {
                     const store = new Map(entries);
                     const getRecord = (id: string): unknown => store.get(id);
-                    const result = recordsByIds(ids, getRecord);
-                    for (const key of Object.keys(result)) {
-                        expect(ids).toContain(key);
-                        expect(result[key]).toEqual(store.get(key));
-                    }
+                    // Every stored id, plus others that are mostly not stored
+                    const ids = [...store.keys(), ...otherIds];
+                    const expected = Object.fromEntries(
+                        ids.filter((id) => store.has(id)).map((id) => [id, store.get(id)])
+                    );
+
+                    expect(recordsByIds(ids, getRecord)).toEqual(expected);
                 }
             )
         );
     });
 });
 
+/** A record of the pagination properties. */
+interface IPageItem {
+    id: number;
+    name: string;
+}
+
+/** Up to 40 records, duplicate ids included. */
+const pageItemsArbitrary = fc.array(fc.record({ id: fc.integer(), name: fc.string() }), {
+    maxLength: 40
+});
+
+/**
+ * A composable holding `items`, with `pageSize` written as given. Duplicate ids collapse to their
+ * last occurrence, same as the dictionary would.
+ *
+ * @param items - the records
+ * @param pageSize - the value written to `pageSize`
+ * @returns the composable
+ */
+const paginated = (items: IPageItem[], pageSize: number) => {
+    const c = useStructureDataManagement<IPageItem, number>('id');
+    c.setRecords(Object.fromEntries(items.map((item) => [item.id, item])));
+    c.pageSize.value = pageSize;
+    return c;
+};
+
+/**
+ * Walks every page: each holds at most `pageSize` records, and together, over `pageTotal` pages,
+ * they are `itemList` exactly.
+ *
+ * @param c - the composable to walk
+ */
+const expectPagesToPartitionItemList = (c: ReturnType<typeof paginated>) => {
+    const collected: IPageItem[] = [];
+    for (let page = 1; page <= c.pageTotal.value; page++) {
+        c.pageCurrent.value = page;
+        expect(c.pageItemList.value.length).toBeLessThanOrEqual(c.pageSize.value);
+        collected.push(...c.pageItemList.value);
+    }
+    expect(collected).toEqual(c.itemList.value);
+    expect(c.pageTotal.value).toBe(Math.ceil(c.itemList.value.length / c.pageSize.value));
+};
+
 describe('PROPERTY · client-side pagination', () => {
     it('walking every page reconstructs itemList exactly, each page holding at most pageSize items', () => {
         fc.assert(
             fc.property(
-                fc.array(fc.record({ id: fc.integer(), name: fc.string() }), { maxLength: 40 }),
+                pageItemsArbitrary,
                 // Includes values below 1, to exercise the pageSize clamp (§9 open decision #2).
                 fc.integer({ min: -5, max: 20 }),
                 (items, requestedPageSize) => {
-                    const c = useStructureDataManagement<{ id: number; name: string }, number>(
-                        'id'
-                    );
-                    // Duplicate ids collapse to their last occurrence, same as the dictionary would.
-                    c.setRecords(Object.fromEntries(items.map((item) => [item.id, item])));
-                    c.pageSize.value = requestedPageSize;
+                    const c = paginated(items, requestedPageSize);
 
                     expect(c.pageSize.value).toBeGreaterThanOrEqual(1);
-                    const collected: { id: number; name: string }[] = [];
-                    for (let page = 1; page <= c.pageTotal.value; page++) {
-                        c.pageCurrent.value = page;
-                        expect(c.pageItemList.value.length).toBeLessThanOrEqual(c.pageSize.value);
-                        collected.push(...c.pageItemList.value);
-                    }
-                    expect(collected).toEqual(c.itemList.value);
-                    expect(c.pageTotal.value).toBe(
-                        Math.ceil(c.itemList.value.length / c.pageSize.value)
-                    );
+                    expectPagesToPartitionItemList(c);
+                }
+            )
+        );
+    });
+
+    // Known bug: the pageSize customRef (src/composables/structureDataManagement.ts) clamps with
+    // Math.max(1, value), which lets NaN through (pageTotal NaN) and keeps a fraction as written.
+    it.failing('pageSize stays a whole number of at least 1 when written NaN or a fraction', () => {
+        fc.assert(
+            fc.property(
+                pageItemsArbitrary,
+                // What a clamp to 1 cannot mend (integers are the property above)
+                fc.oneof(
+                    fc.constant(Number.NaN),
+                    fc.double({ min: 1, max: 40, noNaN: true, noInteger: true })
+                ),
+                (items, requestedPageSize) => {
+                    const c = paginated(items, requestedPageSize);
+
+                    expect(c.pageSize.value % 1).toBe(0);
+                    expect(c.pageSize.value).toBeGreaterThanOrEqual(1);
+                    expectPagesToPartitionItemList(c);
                 }
             )
         );
@@ -182,9 +276,8 @@ describe('PROPERTY · addToParent / removeFromParent / removeDuplicateChildren',
                 fc.array(fc.integer({ min: 0, max: 5 }), { maxLength: 10 }),
                 fc.integer({ min: 0, max: 5 }),
                 (existingChildren, addedChild) => {
-                    // addToParent never dedupes on its own (removeDuplicateChildren exists for
-                    // that, see the next test), so re-adding an already-present child and removing
-                    // it would strip every occurrence, not just the one just added.
+                    // A child the parent already lists makes the add a no-op, and the removal
+                    // then unlinks it for good: this is about a child new to the parent.
                     fc.pre(!existingChildren.includes(addedChild));
                     const c = useStructureDataManagement<Record<string, unknown>>('id');
                     for (const id of existingChildren) c.addToParent('p', id);
@@ -199,16 +292,33 @@ describe('PROPERTY · addToParent / removeFromParent / removeDuplicateChildren',
         );
     });
 
-    it('removeDuplicateChildren leaves no repeated child id', () => {
+    // Known bug: the local relation store's addToParent (src/composables/structureDataManagement.ts)
+    // pushes unconditionally, where IRelationStore promises a no-op for a child already linked.
+    it.failing('addToParent links a child once, however often it is added', () => {
+        fc.assert(
+            fc.property(
+                fc.array(fc.integer({ min: 0, max: 5 }), { minLength: 1, maxLength: 10 }),
+                (childIds) => {
+                    const c = useStructureDataManagement<Record<string, unknown>>('id');
+                    // Every id twice over, so each one is re-added at least once
+                    for (const id of [...childIds, ...childIds]) c.addToParent('p', id);
+
+                    expect(c.parentHasMany.value.p).toEqual([...new Set(childIds)]);
+                }
+            )
+        );
+    });
+
+    it('removeDuplicateChildren keeps every distinct child once, in first-seen order', () => {
         fc.assert(
             fc.property(fc.array(fc.integer({ min: 0, max: 5 }), { maxLength: 15 }), (childIds) => {
                 const c = useStructureDataManagement<Record<string, unknown>>('id');
-                for (const id of childIds) c.addToParent('p', id);
+                // Seeded directly: repeats come from outside addToParent (a server's list, say)
+                c.parentHasMany.value = { p: childIds };
 
                 c.removeDuplicateChildren('p');
 
-                const children = c.parentHasMany.value.p ?? [];
-                expect(new Set(children).size).toBe(children.length);
+                expect(c.parentHasMany.value.p).toEqual([...new Set(childIds)]);
             })
         );
     });

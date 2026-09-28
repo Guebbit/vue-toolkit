@@ -3,12 +3,13 @@
  * whole-resource `loading`/`isLoading`.
  *   - false before anything happens
  *   - true for the record being updated, false for an unrelated one
+ *   - `1` and `'1'` name one record; the same id in another resource is another record
  *   - true for the record being deleted
  *   - false again once the mutation settles, success or failure
  *   - a plain create (no id of its own to key by) never sets it
  */
 
-import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
+import { makeComposable, clearAllInstances, flush, newTestClient } from '../_helpers/harness';
 import { deferredApi } from '../_helpers/fakeApi';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
@@ -51,6 +52,34 @@ describe('UNIT · isSaving', () => {
         control.resolve();
         await remove;
         expect(c.isSaving(1)).toBe(false);
+    });
+
+    it("a string id and a number id name one record: isSaving(1) is true during updateTarget(…, '1')", async () => {
+        const c = makeComposable<IUser, number | string>();
+        await c.fetchTarget(() => Promise.resolve(USERS[0]), 1);
+        const { call, control } = deferredApi<IUser>();
+
+        const update = c.updateTarget(call, { name: 'Alice V2' }, '1'); // a route param
+        await flush();
+        expect(c.isSaving(1)).toBe(true);
+
+        control.resolve({ ...USERS[0], name: 'Alice V2' });
+        await update;
+    });
+
+    it('is false for an update of the same id in another resource on the same client', async () => {
+        const queryClient = newTestClient();
+        const users = makeComposable<IUser, number>({ resourceKey: 'users', queryClient });
+        const posts = makeComposable<IUser, number>({ resourceKey: 'posts', queryClient });
+        await posts.fetchTarget(() => Promise.resolve(USERS[0]), 1);
+        const { call, control } = deferredApi<IUser>();
+
+        const update = posts.updateTarget(call, { name: 'Post V2' }, 1);
+        await flush();
+        expect(users.isSaving(1)).toBe(false);
+
+        control.resolve({ ...USERS[0], name: 'Post V2' });
+        await update;
     });
 
     it('is false again after a failed update', async () => {

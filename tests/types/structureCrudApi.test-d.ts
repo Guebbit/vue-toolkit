@@ -48,7 +48,8 @@ useStructureCrudApi<IUser, number>(
 useStructureCrudApi<IUser, number>(
     {
         // @ts-expect-error -- `get`'s 2nd argument is a read context, never a write's `options`
-        get: (id: number, options: { retries: number }) => Promise.resolve()
+        // eslint-disable-next-line unicorn/no-useless-undefined -- resolve() alone is always Promise<void>
+        get: (_id: number, _options: { retries: number }) => Promise.resolve(undefined)
     },
     { resourceKey: 'users' }
 );

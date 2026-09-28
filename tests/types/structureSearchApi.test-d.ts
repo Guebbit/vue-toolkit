@@ -5,7 +5,11 @@
 import { ref } from 'vue';
 import { expectTypeOf } from 'expect-type';
 import { useStructureSearchApi } from '../../src/index.js';
-import type { IStructureSearchApi } from '../../src/composables/structureSearchApi.js';
+import type {
+    IStructureSearchApi,
+    ISearchFetchContext
+} from '../../src/composables/structureSearchApi.js';
+import type { IFetchContext } from '../../src/composables/structureRestApi.js';
 import type { IUser } from './_fixtures.js';
 
 interface IUserFilters {
@@ -28,6 +32,24 @@ expectTypeOf(
 ).toEqualTypeOf<Promise<{ items: (IUser | undefined)[]; totalItems: number }>>();
 expectTypeOf(search.totalItems.value).toEqualTypeOf<number>();
 expectTypeOf(search.pageItemList.value).toEqualTypeOf<IUser[]>();
+
+// fetchSearch's apiCall receives the frozen search through its context (A3): filters/page/
+// pageSize, typed off the call's own filters argument, plus the { signal } every read context has.
+void search.fetchSearch((context: ISearchFetchContext<IUserFilters>) => {
+    expectTypeOf(context.filters).toEqualTypeOf<IUserFilters>();
+    expectTypeOf(context.page).toEqualTypeOf<number>();
+    expectTypeOf(context.pageSize).toEqualTypeOf<number>();
+    expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
+    return Promise.resolve({ items: [], totalItems: 0 });
+}, { name: 'Ada' });
+
+// An old-style apiCall typed on the plain { signal } context (pre-A3) still compiles: it is
+// assignable wherever the richer ISearchFetchContext is expected — it just ignores the extras.
+const oldStyleApiCall = (context: IFetchContext) => {
+    expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
+    return Promise.resolve({ items: [], totalItems: 0 });
+};
+void search.fetchSearch(oldStyleApiCall, { name: 'Ada' });
 
 // watchSearch's handle: stop/refetch/error plus search(). Its apiCall's last argument is the
 // { signal } read context (V2.1).

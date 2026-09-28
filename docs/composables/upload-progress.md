@@ -49,7 +49,9 @@ const submit = () =>
 ```
 
 `track` forwards whatever `send` produced, untouched — a rejection stays a rejection with its
-original reason, so your existing `.catch` keeps working.
+original reason, so your existing `.catch` keeps working. `send` (or `buildOptions`) throwing
+synchronously is treated the same way: `track`'s promise rejects with it, and `progress` still
+returns to idle.
 
 ```mermaid
 sequenceDiagram

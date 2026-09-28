@@ -78,6 +78,38 @@ describe('PROPERTY · stableKey', () => {
             })
         );
     });
+
+    // A search's `filters` object is stableKey'd for its cache key: two searches whose filters
+    // hold different Sets (a multi-select's `Set<string>`, say) must land in different cache
+    // entries, not collide on one shared `"{}"` — see A9.
+    it('produces different keys for two Sets that differ in content', () => {
+        fc.assert(
+            fc.property(
+                fc.uniqueArray(fc.string()),
+                fc.uniqueArray(fc.string()),
+                (itemsA, itemsB) => {
+                    fc.pre(stableKey(itemsA.toSorted()) !== stableKey(itemsB.toSorted()));
+                    expect(stableKey(new Set(itemsA))).not.toBe(stableKey(new Set(itemsB)));
+                }
+            )
+        );
+    });
+
+    it("a Set's own insertion order never changes its key", () => {
+        fc.assert(
+            fc.property(fc.uniqueArray(fc.string()), fc.nat(7), (items, rotateBy) => {
+                expect(stableKey(new Set(rotate(items, rotateBy)))).toBe(stableKey(new Set(items)));
+            })
+        );
+    });
+
+    it('a Set never stableKeys the same as an array of the same items', () => {
+        fc.assert(
+            fc.property(fc.uniqueArray(fc.string(), { minLength: 1 }), (items) => {
+                expect(stableKey(new Set(items))).not.toBe(stableKey(items));
+            })
+        );
+    });
 });
 
 describe('PROPERTY · hasKeyPrefix', () => {
@@ -96,6 +128,50 @@ describe('PROPERTY · hasKeyPrefix', () => {
             })
         );
     });
+
+    it('one differing segment anywhere inside the prefix is a miss', () => {
+        fc.assert(
+            fc.property(
+                fc.array(fc.jsonValue(), { minLength: 1 }),
+                fc.array(fc.jsonValue()),
+                fc.nat(),
+                fc.jsonValue(),
+                (prefix, rest, at, replacement) => {
+                    const index = at % prefix.length;
+                    fc.pre(replacement !== prefix[index]);
+                    const key = [...prefix, ...rest];
+                    key[index] = replacement;
+                    expect(hasKeyPrefix(key, prefix)).toBe(false);
+                }
+            )
+        );
+    });
+
+    it('the right segments in the wrong order are a miss', () => {
+        fc.assert(
+            fc.property(
+                fc.uniqueArray(fc.oneof(fc.string(), fc.integer()), { minLength: 2 }),
+                fc.array(fc.jsonValue()),
+                (prefix, rest) => {
+                    expect(hasKeyPrefix([...rotate(prefix, 1), ...rest], prefix)).toBe(false);
+                }
+            )
+        );
+    });
+
+    it('a key shorter than a non-empty prefix, or no key at all, is a miss', () => {
+        fc.assert(
+            fc.property(
+                fc.array(fc.jsonValue(), { minLength: 1 }),
+                fc.nat(),
+                fc.boolean(),
+                (prefix, cut, missing) => {
+                    const key = missing ? undefined : prefix.slice(0, cut % prefix.length);
+                    expect(hasKeyPrefix(key, prefix)).toBe(false);
+                }
+            )
+        );
+    });
 });
 
 describe('PROPERTY · matchesAnyPrefix', () => {
@@ -104,6 +180,33 @@ describe('PROPERTY · matchesAnyPrefix', () => {
             fc.property(fc.jsonValue(), (value) => {
                 expect(matchesAnyPrefix(value, [])).toBe(true);
             })
+        );
+    });
+
+    it('a string starting with any one of the prefixes matches', () => {
+        fc.assert(
+            fc.property(
+                fc.array(fc.string(), { minLength: 1 }),
+                fc.nat(),
+                fc.string(),
+                (prefixes, pick, rest) => {
+                    const value = prefixes[pick % prefixes.length] + rest;
+                    expect(matchesAnyPrefix(value, prefixes)).toBe(true);
+                }
+            )
+        );
+    });
+
+    it('a string starting with none of the prefixes does not match', () => {
+        fc.assert(
+            fc.property(
+                fc.string(),
+                fc.array(fc.string({ minLength: 1 }), { minLength: 1 }),
+                (value, prefixes) => {
+                    fc.pre(prefixes.every((prefix) => !value.startsWith(prefix)));
+                    expect(matchesAnyPrefix(value, prefixes)).toBe(false);
+                }
+            )
         );
     });
 
@@ -146,5 +249,37 @@ describe('PROPERTY · detachedCopy', () => {
                 expect({ ...source }).toEqual(plain);
             })
         );
+    });
+
+    it('detaches a Set field: editing the copy leaves the source Set untouched', () => {
+        const source = { tags: new Set(['a']) };
+        const copy = detachedCopy(source);
+        copy.tags.add('b');
+        expect([...source.tags]).toEqual(['a']);
+    });
+
+    it('detaches a Map field: editing the copy leaves the source Map untouched', () => {
+        const source = { limits: new Map([['max', 1]]) };
+        const copy = detachedCopy(source);
+        copy.limits.set('max', 2);
+        expect(source.limits.get('max')).toBe(1);
+    });
+
+    it('copies a Date, so editing the copy in place leaves the source untouched', () => {
+        const source = { at: new Date('2024-01-01') };
+        const copy = detachedCopy(source);
+        copy.at.setUTCFullYear(2099);
+        expect(source.at.getUTCFullYear()).toBe(2024);
+    });
+
+    // Policy, not a bug: there is no safe generic clone for a class instance
+    // (`structuredClone` drops the prototype). Replace it, don't mutate it — see the docs.
+    it('keeps a class instance by reference: there is no safe generic clone for one', () => {
+        class Address {
+            constructor(public city: string) {}
+        }
+        const address = new Address('London');
+        const copy = detachedCopy({ address });
+        expect(copy.address).toBe(address);
     });
 });

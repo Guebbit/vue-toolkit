@@ -14,6 +14,35 @@ const loginSchema = z.object({
 
 const INITIAL_LOGIN: ILoginForm = { email: '', password: '' };
 
+/** A form with a nested plain object, so a shallow copy is observable. */
+interface IProfileForm {
+    name: string;
+    address: { city: string };
+}
+
+/** A form whose fields are not plain data: what a date picker or a multi-select binds to. */
+interface IScheduleForm {
+    tags: Set<string>;
+    limits: Map<string, number>;
+}
+
+/** A fresh schedule: one tag, one limit. */
+const schedule = (): IScheduleForm => ({
+    tags: new Set(['a']),
+    limits: new Map([['max', 1]])
+});
+
+/**
+ * A handler the test finishes by hand, so two submits can overlap deliberately.
+ */
+const pendingHandler = () => {
+    let finish!: () => void;
+    const promise = new Promise<void>((resolve) => {
+        finish = resolve;
+    });
+    return { handler: () => promise, finish };
+};
+
 /**
  * Stand-in for the form element: the composable only ever asks it for a descendant and tries to
  * focus what comes back, so a container and a field are all a test needs.
@@ -63,9 +92,17 @@ describe('useStructureFormValidation', () => {
             expect(composable.form.value).toEqual(INITIAL_LOGIN);
         });
 
-        it('is independent of the initial data object (deep copy)', () => {
-            composable.form.value.email = 'mutated@test.com';
-            expect(INITIAL_LOGIN.email).toBe('');
+        it('shares no nested object with the initial data, nor with its own baseline (deep copy)', () => {
+            const source: IProfileForm = { name: 'Ada', address: { city: 'London' } };
+            const c = inScope(() => useStructureFormValidation<IProfileForm>(source));
+
+            c.form.value.address.city = 'Paris'; // edits the live form's nested object
+            source.address.city = 'Berlin'; // and, independently, the caller's
+
+            expect(c.form.value.address.city).toBe('Paris');
+            // the baseline saw neither edit
+            c.resetForm();
+            expect(c.form.value.address.city).toBe('London');
         });
     });
 
@@ -129,11 +166,6 @@ describe('useStructureFormValidation', () => {
     // ─── nested-field detachment (V3.3, repro F) ─────────────────────────────
 
     describe('nested fields are never shared with the source (detached copy)', () => {
-        interface IProfileForm {
-            name: string;
-            address: { city: string };
-        }
-
         it('setInitialData detaches: editing the source afterwards does not change the baseline', () => {
             const source: IProfileForm = { name: 'Ada', address: { city: 'London' } };
             const c = inScope(() => useStructureFormValidation<IProfileForm>(source));
@@ -188,6 +220,31 @@ describe('useStructureFormValidation', () => {
             patch.address.city = 'Berlin'; // mutated AFTER handing it over
 
             expect(c.form.value.address.city).toBe('Paris');
+        });
+
+        // Vue proxies a Set or Map inside `form` (a tag picker's `form.tags.add(tag)` is
+        // reactive), so an in-place edit is a real UI path. A Date is not proxied, so no working
+        // UI edits one in place: it is left out on purpose.
+        it('detaches Set and Map fields too: an in-place edit leaves the source untouched', () => {
+            const source = schedule();
+            const c = inScope(() => useStructureFormValidation<IScheduleForm>(source));
+
+            c.form.value.tags.add('b');
+            c.form.value.limits.set('max', 2);
+
+            expect([...source.tags]).toEqual(['a']);
+            expect(source.limits.get('max')).toBe(1);
+        });
+
+        it('resetForm restores a Set or Map field edited in place', () => {
+            const c = inScope(() => useStructureFormValidation<IScheduleForm>(schedule()));
+
+            c.form.value.tags.add('b');
+            c.form.value.limits.set('max', 2);
+            c.resetForm();
+
+            expect([...c.form.value.tags]).toEqual(['a']);
+            expect(c.form.value.limits.get('max')).toBe(1);
         });
     });
 
@@ -251,6 +308,14 @@ describe('useStructureFormValidation', () => {
             composable.setForm({ email: 'dirty@test.com' });
             composable.resetForm();
             expect(composable.isDirty.value).toBe(false);
+        });
+
+        // JSON.stringify(new Set(['a'])) is "{}" for any Set, so a plain JSON comparison can never
+        // see this edit — isDirty compares by stableKey instead (see A9).
+        it('is true after an in-place edit of a Set field', () => {
+            const c = inScope(() => useStructureFormValidation<IScheduleForm>(schedule()));
+            c.form.value.tags.add('b');
+            expect(c.isDirty.value).toBe(true);
         });
     });
 
@@ -642,6 +707,26 @@ describe('useStructureFormValidation', () => {
             expect(composable.isSubmitting.value).toBe(false);
         });
 
+        // Known bug: handleSubmit (src/composables/structureFormValidation.ts) clears the one
+        // isSubmitting flag in each call's `finally`, with no count of the submits still running.
+        it.failing('stays submitting until every overlapping submit has settled', async () => {
+            composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            const first = pendingHandler();
+            const second = pendingHandler();
+
+            const firstSubmit = composable.handleSubmit(first.handler);
+            const secondSubmit = composable.handleSubmit(second.handler);
+
+            first.finish();
+            await firstSubmit;
+            // the second handler is still running
+            expect(composable.isSubmitting.value).toBe(true);
+
+            second.finish();
+            await secondSubmit;
+            expect(composable.isSubmitting.value).toBe(false);
+        });
+
         it('skips validation when withValidation is false', async () => {
             // form is intentionally invalid
             const handler = jest.fn().mockImplementation(async () => {});
@@ -831,13 +916,24 @@ describe('useStructureFormValidation', () => {
 
         it('routes form-level messages to onUnmapped', () => {
             const onUnmapped = jest.fn();
-            const applied = composable.applyServerErrors(
-                { errors: ['Payment declined'] },
-                { onUnmapped }
-            );
+            composable.applyServerErrors({ errors: ['Payment declined'] }, { onUnmapped });
 
-            expect(applied).toBe(false);
             expect(onUnmapped).toHaveBeenCalledWith(['Payment declined']);
+        });
+
+        it('returns true once onUnmapped has taken the messages, so the caller owes no second one', () => {
+            const addMessage = jest.fn();
+
+            // The documented call site: `false` means the caller still owes the user a message.
+            if (
+                !composable.applyServerErrors(
+                    { errors: ['Payment declined'] },
+                    { onUnmapped: (messages) => addMessage(messages[0]) }
+                )
+            )
+                addMessage('Unexpected error');
+
+            expect(addMessage.mock.calls).toEqual([['Payment declined']]);
         });
 
         it('routes errors about fields this form does not have to onUnmapped', () => {

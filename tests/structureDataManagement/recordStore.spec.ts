@@ -55,6 +55,9 @@ const make = () => {
 };
 
 describe('useStructureDataManagement · recordStore', () => {
+    // Restores console spies even when a test's assertions failed first.
+    afterEach(() => jest.restoreAllMocks());
+
     it('reads through the store: what the store holds is what the composable shows', () => {
         const { store, records } = make();
         store.dictionary.value = dictOf(ALICE);
@@ -96,7 +99,6 @@ describe('useStructureDataManagement · recordStore', () => {
 
         expect(store.write.mock.calls).toEqual([[0, { id: 0, name: 'Zero 2' }]]);
         expect(error).toHaveBeenCalledTimes(1);
-        error.mockRestore();
     });
 
     it('deleteRecord removes through the store, only a record it holds', () => {

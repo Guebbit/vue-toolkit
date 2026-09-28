@@ -6,6 +6,9 @@
  * itself wrote) — two independent, divergent copies of the same record. The requested key now holds
  * an alias entry instead (`{ aliasOf: 7 }`); `getRecord`/`selectedRecord` follow it one hop, and
  * `itemDictionary`/`itemList` never see it as a second record.
+ *
+ * Writes by the alias (`updateTarget`, `deleteTarget`, `editRecord`, `deleteRecord`) reach the
+ * record it points at, and an alias whose record is gone is no cache hit.
  */
 
 import { makeComposable, clearAllInstances } from '../_helpers/harness';
@@ -18,6 +21,13 @@ interface ISlugged {
 }
 
 const make = () => makeComposable<ISlugged, number | string>();
+
+/** A resource holding record 7, fetched by its slug. */
+const seeded = async () => {
+    const c = make();
+    await c.fetchTarget(() => Promise.resolve({ id: 7, name: 'Alice' }), 'my-slug');
+    return c;
+};
 
 describe('UNIT · fetchTarget by an alternate key', () => {
     it('stores the record once, under its own id, with the requested key as an alias', async () => {
@@ -47,5 +57,54 @@ describe('UNIT · fetchTarget by an alternate key', () => {
         await c.fetchTarget(() => Promise.resolve({ id: 7, name: 'Alice' }), 7);
 
         expect(c.itemList.value).toHaveLength(1);
+    });
+});
+
+describe('UNIT · writes by an alternate key', () => {
+    it('updateTarget by the alias edits the record it points at, not a second one', async () => {
+        const c = await seeded();
+
+        await c.updateTarget(
+            () => Promise.resolve({ id: 7, name: 'Alice Edited' }),
+            { name: 'Alice Edited' },
+            'my-slug'
+        );
+
+        expect(c.itemList.value).toEqual([{ id: 7, name: 'Alice Edited' }]);
+    });
+
+    it('deleteTarget by the alias removes the record it points at', async () => {
+        const c = await seeded();
+
+        await c.deleteTarget(() => Promise.resolve({ ok: true }), 'my-slug');
+
+        expect(c.getRecord(7)).toBeUndefined();
+    });
+
+    it('editRecord by the alias edits the record it points at, not a second one', async () => {
+        const c = await seeded();
+
+        c.editRecord({ name: 'Alice Edited' }, 'my-slug');
+
+        expect(c.itemList.value).toEqual([{ id: 7, name: 'Alice Edited' }]);
+    });
+
+    it('deleteRecord by the alias removes the record it points at', async () => {
+        const c = await seeded();
+
+        c.deleteRecord('my-slug');
+
+        expect(c.getRecord(7)).toBeUndefined();
+    });
+
+    it('once the record it points at is deleted, a read by the alias asks the server again', async () => {
+        const c = await seeded();
+        await c.deleteTarget(() => Promise.resolve({ ok: true }), 7);
+
+        // the slug may now name another record
+        const get = jest.fn(() => Promise.resolve({ id: 8, name: 'Bob' }));
+        await c.fetchTarget(get, 'my-slug');
+
+        expect(get).toHaveBeenCalledTimes(1);
     });
 });

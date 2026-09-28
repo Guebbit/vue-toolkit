@@ -4,14 +4,18 @@
  *
  *   - a dependsOn change re-runs an active watchSearch under the new scope, and the old
  *     scope's page leaves the cache;
+ *   - an answer for a scope this instance left, but a sibling still shows, is not cached there
+ *     as an empty page;
+ *   - a fetchSearch cut short by the switch never pairs its items with the new scope's total;
  *   - resetAll() drops every search page of the current scope: the view empties and
  *     checkSearch() reports a miss.
  */
 
 import { ref } from 'vue';
-import { makeSearchComposable, clearAllInstances, flush } from '../_helpers/harness';
-import { apiResolve } from '../../structureRestApi/_helpers/fakeApi';
+import { makeSearchComposable, clearAllInstances, flush, newTestClient } from '../_helpers/harness';
+import { apiResolve, deferred } from '../../structureRestApi/_helpers/fakeApi';
 import { buildArticles, type IArticle } from '../../structureRestApi/_helpers/fixtures';
+import type { ISearchResult } from '../../../src/composables/structureSearchApi';
 
 afterEach(clearAllInstances);
 
@@ -40,6 +44,64 @@ describe('LIFECYCLE · search and dependsOn', () => {
             .getQueryCache()
             .findAll({ queryKey: ['resource', 'search'] });
         expect(searchPages.map((query) => query.queryKey[2])).toEqual([['fr']]);
+    });
+});
+
+describe('LIFECYCLE · search and dependsOn, two instances on one client', () => {
+    it('a page that lands after one instance left a scope its sibling still shows is not cached empty there', async () => {
+        const queryClient = newTestClient();
+        const localeA = ref('en');
+        const { searchApi: a } = makeSearchComposable<IArticle, number>({
+            queryClient,
+            dependsOn: () => [localeA.value]
+        });
+        const { searchApi: b } = makeSearchComposable<IArticle, number>({
+            queryClient,
+            dependsOn: () => ['en']
+        });
+        const english = buildArticles(2, 'en');
+        const answer = deferred<ISearchResult<IArticle>>();
+        const pending = a.fetchSearch(() => answer.promise, { c: 'tech' }, 1);
+        await flush();
+
+        localeA.value = 'fr'; // A moves on; B still shows 'en'
+        await flush();
+        answer.resolve({ items: english, totalItems: 20 });
+        await pending;
+
+        const served = await b.fetchSearch(
+            apiResolve({ items: english, totalItems: 20 }),
+            { c: 'tech' },
+            1
+        );
+        expect(served).toEqual({ items: english, totalItems: 20 });
+    });
+});
+
+describe('LIFECYCLE · a fetchSearch cut short by a dependsOn change', () => {
+    it("resolves its own page's total, never the new scope's", async () => {
+        const queryClient = newTestClient();
+        const localeA = ref('en');
+        const { searchApi: a } = makeSearchComposable<IArticle, number>({
+            queryClient,
+            dependsOn: () => [localeA.value]
+        });
+        const { searchApi: b } = makeSearchComposable<IArticle, number>({
+            queryClient,
+            dependsOn: () => ['fr']
+        });
+        // The same search, already cached under 'fr' by a sibling.
+        const french = buildArticles(2, 'fr', 50);
+        await b.fetchSearch(apiResolve({ items: french, totalItems: 7 }), { c: 'tech' }, 1);
+        const answer = deferred<ISearchResult<IArticle>>();
+        const pending = a.fetchSearch(() => answer.promise, { c: 'tech' }, 1);
+        await flush();
+
+        localeA.value = 'fr'; // the 'en' fetch is cancelled
+        await flush();
+        answer.resolve({ items: buildArticles(2, 'en'), totalItems: 20 });
+
+        await expect(pending).resolves.toEqual({ items: [], totalItems: 0 });
     });
 });
 

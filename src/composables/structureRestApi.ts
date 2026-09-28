@@ -154,8 +154,10 @@ export interface IStructureRestApiOptions {
 
     /**
      * The `QueryClient` this resource lives on. Default: the one `VueQueryPlugin` provides,
-     * through `useQueryClient()` (which also works inside a Pinia setup store). One client per
-     * app is what lets resources invalidate each other.
+     * through `useQueryClient()` — which also works inside a Pinia setup store built outside a
+     * component (a router guard, `main.ts`) on `pinia >=2.1`; pass this option instead to work on
+     * any Pinia version, or from outside a Pinia store altogether. One client per app is what
+     * lets resources invalidate each other.
      */
     queryClient?: QueryClient;
 

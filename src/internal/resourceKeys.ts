@@ -7,8 +7,15 @@
  * A query is "in scope" when its scope equals a given snapshot by content (see `stableKey`), so
  * every question of the form "this resource, this user, this language" is one predicate.
  *
+ * An answer belongs to the scope baked into ITS OWN key (`scopeOf`), fixed for that query's whole
+ * life — never to whatever `dependsOn()` reads later, which may have moved on by the time the
+ * answer lands. Whether a late answer may still be stored is a question for the LIVE-SCOPE
+ * registry (`./scopeRegistry`), not this module: a scope another instance still shows is live even
+ * once the fetching instance's own `dependsOn` has moved past it.
+ *
  * @module internal/resourceKeys
  */
+import type { Query } from '@tanstack/vue-query';
 import { stableKey } from './plainData.js';
 
 /** What a query entry holds: one record (`target`), a list of ids, or anything else (`any`). */
@@ -28,7 +35,7 @@ export interface ITargetEntry<T> {
     data?: T | undefined;
 
     /** The id this entry's record actually lives under, when this entry is only an alias. */
-    aliasOf?: string | number;
+    aliasOf?: string;
 }
 
 /** A list-shaped cache entry: the ids a list call returned, plus whatever travels with them. */
@@ -45,6 +52,18 @@ export interface IKeyed {
     /** The query key. */
     queryKey: readonly unknown[];
 }
+
+/**
+ * The scope segment of a query key this resource built (`queryKey[2]`) — the scope an ANSWER
+ * belongs to. Fixed for the query's whole life, unlike `dependsOn()` read again later: a fetch
+ * started under scope S keeps S in its own key even once `dependsOn()` has moved on, so an answer
+ * is always storable under the scope it was actually asked for, not whatever is current by the
+ * time it lands (see the module header's scope rule).
+ *
+ * @param queryKey - a query key this resource built
+ * @returns its scope snapshot
+ */
+export const scopeOf = (queryKey: readonly unknown[]): unknown[] => queryKey[2] as unknown[];
 
 /**
  * Key builders and scope predicates for one resource.
@@ -117,15 +136,26 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
     };
 
     /**
-     * True while `scope` still equals the current `dependsOn()`. A late answer, fetched for a
-     * user or language that is no longer current, fails this and is not stored.
+     * Predicate selecting `scope`'s `target` entry that IS `id`'s own record, or an alias entry
+     * pointing at it — "does this entry refer to id, directly or through one alias hop". Reaches
+     * every pointer to a record when it changes: an update/delete by an alternate key, a removal,
+     * or an invalidation must also touch the aliases that resolve to the same record (see A2 in
+     * `restResource.ts`'s module header).
      *
-     * @param scope - the snapshot a call started under
-     * @returns whether it is still the current scope
+     * @param id - the record's own (already resolved) id — never an alias itself
+     * @param scope - the scope snapshot to match
+     * @returns the predicate
      */
-    const isCurrent = (scope: unknown[]): boolean => stableKey(scope) === stableKey(dependsOn());
+    const refersTo = (id: unknown, scope: unknown[]) => {
+        const matchesScope = inScope(scope, ['target']);
+        const key = String(id);
+        return (query: Query): boolean =>
+            matchesScope(query) &&
+            (query.queryKey[3] === key ||
+                (query.state.data as ITargetEntry<unknown> | undefined)?.aliasOf === key);
+    };
 
-    return { target, parent, entry, inScope, isCurrent };
+    return { target, parent, entry, inScope, refersTo, scopeOf };
 };
 
 /** Key builders and scope predicates of one resource (what `createResourceKeys` returns). */

@@ -3,6 +3,7 @@ module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
     testMatch: ['**/tests/**/*.spec.ts', '**/__tests__/**/*.spec.ts'],
+    restoreMocks: true,
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
     // Configures fast-check (numRuns, seed) before any *.property.spec.ts imports it.
     setupFiles: ['<rootDir>/tests/_setup/fastCheck.ts'],

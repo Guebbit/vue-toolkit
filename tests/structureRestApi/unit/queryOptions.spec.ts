@@ -6,9 +6,11 @@
  *   - set on a watcher's own settings, it overrides the resource's default for that call
  *   - the test harness's QueryClient defaults to retry: false, so retry: N here is only visible
  *     if the passthrough actually reaches TanStack's useQuery call
+ *   - it never reaches a one-shot fetch*, and never overrides an engine-owned option (gcTime)
  */
 
 import { ref } from 'vue';
+import type { ITanStackQueryOptions } from '../../../src/composables/structureRestApi';
 import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
@@ -63,8 +65,34 @@ describe('UNIT · queryOptions passthrough', () => {
     });
 
     it('does not affect fetchAll (a one-shot read, not an active watcher)', async () => {
-        const c = makeComposable<IUser, number>();
-        await c.fetchAll(() => Promise.resolve([...USERS]));
-        expect(c.itemList.value).toEqual(USERS);
+        const c = makeComposable<IUser, number>({
+            queryOptions: { retry: 2, retryDelay: 0 }
+        });
+        const apiCall = jest.fn(() => Promise.reject(new Error('boom')));
+
+        await expect(c.fetchAll(apiCall)).rejects.toThrow('boom');
+
+        expect(apiCall).toHaveBeenCalledTimes(1); // no retry: the option never reached it
     });
+
+    // Known bug: restResource.ts's watchQuery spreads queryOptions into useQuery as-is, so any key
+    // outside the five it documents (gcTime here) overrides the engine's own setting.
+    it.failing(
+        'an engine-owned option smuggled into queryOptions (gcTime) is ignored: the record outlives its stopped watcher',
+        async () => {
+            const c = makeComposable<IUser, number>();
+            // outside ITanStackQueryOptions: only a JS caller or a widened object can pass it
+            const widened: Record<string, unknown> = { gcTime: 0 };
+            const handle = c.watchTarget(() => Promise.resolve(USERS[0]), ref(1), {
+                queryOptions: widened as ITanStackQueryOptions
+            });
+            await flush();
+            expect(c.getRecord(1)).toEqual(USERS[0]);
+
+            handle.stop();
+            await flush();
+
+            expect(c.getRecord(1)).toEqual(USERS[0]);
+        }
+    );
 });

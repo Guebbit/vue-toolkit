@@ -53,8 +53,11 @@ describe('useStructureDataManagement', () => {
         });
 
         it('creates a new record when create flag is true and id is missing', () => {
-            composable.editRecord({ id: 2, name: 'Bob' }, 2 as never, true);
-            expect(composable.getRecord(2 as never)).toEqual({ id: 2, name: 'Bob' });
+            const createdId = composable.editRecord({ id: 2, name: 'Bob' }, undefined, true);
+
+            // the id comes from `data`, and the call reports it as created
+            expect(createdId).toBe(2);
+            expect(composable.getRecord(2)).toEqual({ id: 2, name: 'Bob' });
         });
     });
 
@@ -126,6 +129,21 @@ describe('useStructureDataManagement', () => {
             const list = composable.getListByParent('parent-1');
             expect(list).toHaveLength(0);
         });
+
+        // Known bug: the local relation store's removeFromParent
+        // (src/composables/structureDataManagement.ts) compares ids with `!==`, where the REST
+        // store compares String(id): `'1'` (a route param) never matches a linked `1`.
+        it.failing(
+            'removeFromParent unlinks a child whether its id comes as a number or a string',
+            () => {
+                const store = useStructureDataManagement<ITestItem, number | string, string>();
+                store.addToParent('parent-1', 1);
+
+                store.removeFromParent('parent-1', '1');
+
+                expect(store.parentHasMany.value['parent-1']).toEqual([]);
+            }
+        );
     });
 });
 

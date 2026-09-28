@@ -17,7 +17,10 @@ import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
 import { buildUsers, type IUser } from '../_helpers/fixtures';
 
-afterEach(clearAllInstances);
+afterEach(() => {
+    jest.restoreAllMocks(); // the findAll spy, even when an assertion failed
+    clearAllInstances();
+});
 
 describe('UNIT · asymptotics — merge over a large cache', () => {
     it('merging 1k items over 3k cached records does not sweep the cache once per item', async () => {
@@ -34,7 +37,5 @@ describe('UNIT · asymptotics — merge over a large cache', () => {
         // rebuild): nowhere near the ~1000 a per-item findAll would cause.
         expect(findAll.mock.calls.length).toBeLessThan(20);
         expect(c.itemList.value).toHaveLength(3000);
-
-        findAll.mockRestore();
     });
 });

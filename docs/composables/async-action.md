@@ -32,6 +32,9 @@ That makes this a composable for **reads**. A write whose outcome the user asked
 either way should reject and let the view answer with the toast it already writes — otherwise the
 view ends up polling an error ref after the fact to work out which message to show.
 
+`action` throwing synchronously, instead of returning a rejected promise, is treated the same as a
+rejection: `error` is set and `loading` returns to `false`.
+
 ## Quickstart
 
 ```ts

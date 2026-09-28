@@ -30,8 +30,17 @@ import { USERS, type IUser } from '../structureRestApi/_helpers/fixtures';
 const browserClient = (): QueryClient =>
     new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
+/**
+ * Every client `make()` builds this test, so afterEach can unmount them — under jsdom,
+ * `VueQueryPlugin` (via `runInjected`) calls `client.mount()`, which subscribes it to
+ * `focusManager`/`onlineManager`. `clearAllInstances()` clears each client's cache but never
+ * unmounts it, so without this, that subscription outlives the test and leaks into the next one.
+ */
+const mountedClients: QueryClient[] = [];
+
 const make = (staleTime: number) => {
     const queryClient = browserClient();
+    mountedClients.push(queryClient);
     return runInjected(queryClient, () =>
         useStructureRestApi<IUser, number>({ resourceKey: 'resource', staleTime, queryClient })
     );
@@ -39,6 +48,7 @@ const make = (staleTime: number) => {
 
 afterEach(() => {
     clearAllInstances();
+    for (const queryClient of mountedClients.splice(0)) queryClient.unmount();
     // Neither manager resets itself between tests; the next one would otherwise inherit whatever
     // focus/online state this one left behind. `undefined` is FocusManager's own "unset, fall back
     // to document.visibilityState" value; OnlineManager has no such fallback (`isOnline()` just

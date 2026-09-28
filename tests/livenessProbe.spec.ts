@@ -4,28 +4,38 @@
  * retry chains exist at once, and the symptom is a background request storm nobody attributes to
  * a banner. So most of what is asserted here is the number of probes over time, not the flag.
  */
-import { effectScope } from 'vue';
+import { effectScope, type EffectScope } from 'vue';
 import { useLivenessProbe } from '../src/composables/livenessProbe';
 
 /**
  * Lets a probe's promise chain settle without advancing the fake clock.
  *
- * Two hops rather than one: the composable's own `.then`/`.catch` is a link of its own, so a
- * single tick reads the state from before it ran.
+ * Several hops rather than one: the composable's own `.then`/`.catch` is a link of its own, and
+ * a probe wrapped in another promise adds more, so a single tick reads the state from before
+ * they ran.
  */
 const settle = async () => {
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let hop = 0; hop < 5; hop++) await Promise.resolve();
 };
+
+/** Every scope a test built: `afterEach` stops them all, whether its assertions passed or not. */
+const scopes: EffectScope[] = [];
 
 /**
  * Runs the composable inside an effect scope, so the auto-teardown path is the one under test
- * rather than a manual `stop()` no consumer would remember to call.
+ * rather than a manual `stop()` no consumer would remember to call. Registered before it runs, so
+ * a composable that throws on creation is still torn down.
  */
 const inScope = <T>(run: () => T) => {
     const scope = effectScope();
+    scopes.push(scope);
     const result = scope.run(run) as T;
     return { result, dispose: () => scope.stop() };
+};
+
+/** A probe that throws before it ever returns a promise. */
+const throwSynchronously = (): Promise<unknown> => {
+    throw new Error('no network stack');
 };
 
 let probe: jest.Mock<Promise<unknown>, []>;
@@ -38,6 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    for (const scope of scopes.splice(0)) scope.stop();
     jest.useRealTimers();
     jest.clearAllMocks();
 });
@@ -45,15 +56,12 @@ afterEach(() => {
 describe('useLivenessProbe', () => {
     describe('the flag', () => {
         it('starts up, since nothing has failed yet', () => {
-            const { result, dispose } = inScope(() =>
-                useLivenessProbe(probe, { immediate: false, target })
-            );
+            const { result } = inScope(() => useLivenessProbe(probe, { immediate: false, target }));
             expect(result.down.value).toBe(false);
-            dispose();
         });
 
         it('reports down after a failed probe and up again once one succeeds', () => {
-            const { result, dispose } = inScope(() => useLivenessProbe(probe, { target }));
+            const { result } = inScope(() => useLivenessProbe(probe, { target }));
 
             return settle()
                 .then(() => {
@@ -64,17 +72,25 @@ describe('useLivenessProbe', () => {
                 })
                 .then(() => {
                     expect(result.down.value).toBe(false);
-                    dispose();
                 });
         });
 
         it('never rejects, so a caller awaiting a check cannot be caught out', () => {
-            const { result, dispose } = inScope(() =>
-                useLivenessProbe(probe, { immediate: false, target })
-            );
+            const { result } = inScope(() => useLivenessProbe(probe, { immediate: false, target }));
             return result.check().then(() => {
                 expect(result.down.value).toBe(true);
-                dispose();
+            });
+        });
+
+        it('reads a probe that throws synchronously as unreachable, like a rejection', () => {
+            probe.mockImplementation(throwSynchronously);
+            let created: ReturnType<typeof useLivenessProbe> | undefined;
+
+            expect(() => {
+                created = inScope(() => useLivenessProbe(probe, { target })).result;
+            }).not.toThrow();
+            return settle().then(() => {
+                expect(created?.down.value).toBe(true);
             });
         });
     });
@@ -82,7 +98,7 @@ describe('useLivenessProbe', () => {
     describe('the retry chain', () => {
         it('probes once on creation and not again while reachable', () => {
             probe.mockResolvedValue({});
-            const { dispose } = inScope(() => useLivenessProbe(probe, { target }));
+            inScope(() => useLivenessProbe(probe, { target }));
 
             return settle()
                 .then(() => {
@@ -93,14 +109,24 @@ describe('useLivenessProbe', () => {
                 .then(() => {
                     // A reachable target is never polled twice
                     expect(probe).toHaveBeenCalledTimes(1);
-                    dispose();
+                });
+        });
+
+        it('with immediate: false, probes nothing until check() is called', () => {
+            const { result } = inScope(() => useLivenessProbe(probe, { immediate: false, target }));
+
+            return settle()
+                .then(() => {
+                    expect(probe).not.toHaveBeenCalled();
+                    return result.check();
+                })
+                .then(() => {
+                    expect(probe).toHaveBeenCalledTimes(1);
                 });
         });
 
         it('retries on the configured delay while down', () => {
-            const { dispose } = inScope(() =>
-                useLivenessProbe(probe, { retryDelay: 5000, target })
-            );
+            inScope(() => useLivenessProbe(probe, { retryDelay: 5000, target }));
 
             return settle()
                 .then(() => {
@@ -115,8 +141,23 @@ describe('useLivenessProbe', () => {
                 })
                 .then(() => {
                     expect(probe).toHaveBeenCalledTimes(2);
-                    dispose();
                 });
+        });
+
+        it('keeps retrying after a retry whose probe throws synchronously', async () => {
+            probe
+                .mockRejectedValueOnce(new Error('unreachable'))
+                .mockImplementationOnce(throwSynchronously);
+            inScope(() => useLivenessProbe(probe, { retryDelay: 5000, target }));
+            await settle();
+
+            // First retry: the probe throws instead of rejecting
+            expect(() => jest.advanceTimersByTime(5000)).not.toThrow();
+            await settle();
+            jest.advanceTimersByTime(5000);
+            await settle();
+
+            expect(probe).toHaveBeenCalledTimes(3);
         });
 
         /**
@@ -125,7 +166,7 @@ describe('useLivenessProbe', () => {
          * scheduled. Asserted as a probe count because that is what a network tab shows.
          */
         it('keeps exactly one retry chain across repeated online events', () => {
-            const { dispose } = inScope(() => useLivenessProbe(probe, { target }));
+            inScope(() => useLivenessProbe(probe, { target }));
 
             return settle()
                 .then(() => {
@@ -147,7 +188,6 @@ describe('useLivenessProbe', () => {
                 .then(() => {
                     // One retry, not three
                     expect(probe).toHaveBeenCalledTimes(4);
-                    dispose();
                 });
         });
 
@@ -160,7 +200,7 @@ describe('useLivenessProbe', () => {
             );
             probe.mockResolvedValue({});
 
-            const { result, dispose } = inScope(() => useLivenessProbe(probe, { target }));
+            const { result } = inScope(() => useLivenessProbe(probe, { target }));
 
             // The second probe overtakes the first, which only then fails
             target.dispatchEvent(new Event('online'));
@@ -174,7 +214,31 @@ describe('useLivenessProbe', () => {
                 .then(() => {
                     // The banner must not come back up over a working connection
                     expect(result.down.value).toBe(false);
-                    dispose();
+                });
+        });
+
+        it('ignores a slow success that lands after a newer probe found it down', () => {
+            let succeedSlow!: () => void;
+            probe.mockReturnValueOnce(
+                new Promise((resolve) => {
+                    succeedSlow = () => resolve({});
+                })
+            );
+
+            const { result } = inScope(() => useLivenessProbe(probe, { target }));
+
+            // The second probe overtakes the first, and fails
+            target.dispatchEvent(new Event('online'));
+
+            return settle()
+                .then(() => {
+                    expect(result.down.value).toBe(true);
+                    succeedSlow();
+                    return settle();
+                })
+                .then(() => {
+                    // The banner must not drop over a dead connection
+                    expect(result.down.value).toBe(true);
                 });
         });
     });
@@ -229,16 +293,34 @@ describe('useLivenessProbe', () => {
                 expect(result.down.value).toBe(false);
             });
         });
+
+        it('starts no retry chain from a check() made after teardown', async () => {
+            const { result, dispose } = inScope(() =>
+                useLivenessProbe(probe, { retryDelay: 5000, target })
+            );
+            await settle();
+            dispose();
+
+            // A late "Retry" click on a banner already unmounted
+            await result.check();
+            for (let retry = 0; retry < 5; retry++) {
+                jest.advanceTimersByTime(5000);
+                await settle();
+            }
+
+            // Creation, and at most that one explicit check: nothing retried it
+            expect(probe.mock.calls.length).toBeLessThanOrEqual(2);
+            expect(jest.getTimerCount()).toBe(0);
+        });
     });
 
     describe('without an event target', () => {
         it('still probes, and simply never re-probes on its own', () => {
             // No DOM in this runner, so `globalThis` offers no `online` to subscribe to
-            const { dispose } = inScope(() => useLivenessProbe(probe));
+            inScope(() => useLivenessProbe(probe));
 
             return settle().then(() => {
                 expect(probe).toHaveBeenCalledTimes(1);
-                dispose();
             });
         });
     });

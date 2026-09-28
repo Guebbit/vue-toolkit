@@ -228,5 +228,9 @@ explicit interface — not inferred), plus:
 - **`pageTotal` and `totalItems` come from the `search` operation's `totalItems`**, not a local
   count, and survive a cache hit.
 - **A missing operation fails at call time, not at setup.** `{}` is a valid `operations` object.
+- **Slug-addressed backends work.** `updateOne(id)`/`deleteOne(id)` pass `id` to the operation
+  exactly as given — a slug included — and the cache resolves it to the real record on its own
+  (see [`useStructureRestApi`'s alternate-key note](./structure-rest-api#reading)): no separate
+  lookup needed first.
 - Everything underneath is still there: reach for `fetchByParent`, `fetchTarget`, `searchGet` or
   `resetAll` on the same object when a screen needs something this layer does not wrap.

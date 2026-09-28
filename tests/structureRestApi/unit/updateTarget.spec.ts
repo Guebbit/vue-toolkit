@@ -4,6 +4,8 @@
  *   - resolves with the raw API response
  *   - rolls back to the previous record on error, INCLUDING fields it added
  *   - cancels an in-flight read of the same record before applying the edit
+ *   - once settled, the record is refreshable by a read again
+ *   - an unconfirmed patch never becomes fresh
  *
  * (merge lives in modifiers/merge.spec.ts; the full CRUD round-trip in
  * intention/crud-lifecycle.spec.ts.)
@@ -77,6 +79,19 @@ describe('UNIT · updateTarget', () => {
         await updatePromise;
 
         expect(c.getRecord(1)).toBeUndefined();
+    });
+
+    it('once the update settles, a later read stores the newer server value again', async () => {
+        const c = make();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        await c.updateTarget(apiResolve({ ...USERS[0], name: 'Saved' }), { name: 'Saved' }, 1);
+
+        // someone else changes the record on the server afterwards
+        await c.fetchTarget(apiResolve({ ...USERS[0], name: 'Changed Elsewhere' }), 1, {
+            forced: true
+        });
+
+        expect(c.getRecord(1)?.name).toBe('Changed Elsewhere');
     });
 
     it('cancels an in-flight fetchTarget of the same id: the read settles, the edit shows', async () => {
@@ -174,6 +189,26 @@ describe('UNIT · updateTarget', () => {
             const get = apiResolve(USERS[0]);
             await c.fetchTarget(get, 1);
             expect(get).toHaveBeenCalledTimes(1); // still expired — applyResponse:false never stamped it fresh
+        });
+
+        it('a read landing while the update is in flight does not stamp the unconfirmed patch fresh', async () => {
+            const c = makeComposable<IUser, number>({ staleTime: STALE_TIME });
+            await c.fetchTarget(apiResolve(USERS[0]), 1);
+            await advance(STALE_TIME + 1); // expired before the update starts
+
+            const save = deferredApi<{ acknowledged: boolean }>();
+            const pendingUpdate = c.updateTarget(save.call, { name: 'Optimistic' }, 1, {
+                applyResponse: false
+            });
+            await advance(0); // the patch is applied
+            // expired, so it asks the server; the write guard drops its answer
+            await c.fetchTarget(apiResolve({ ...USERS[0], name: 'Server' }), 1);
+            save.control.resolve({ acknowledged: true });
+            await pendingUpdate;
+
+            const get = apiResolve(USERS[0]);
+            await c.fetchTarget(get, 1);
+            expect(get).toHaveBeenCalledTimes(1); // the patch was never confirmed: still expired
         });
     });
 });

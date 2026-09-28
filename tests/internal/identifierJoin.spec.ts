@@ -41,4 +41,14 @@ describe('UNIT · joinIdentifiers', () => {
     it('prefixes a delimiter found inside a value with the escape character', () => {
         expect(joinIdentifiers(['a|b', 'c'], '|')).toBe(String.raw`a\|b|c`);
     });
+
+    // Known bug: escapeSegment (src/internal/identifierJoin.ts) escapes whole occurrences of the
+    // delimiter, which only disambiguates a single character other than the escape character.
+    it.failing.each([
+        ['--', ['x', -1], ['x-', 1]],
+        ['::', ['x:', 'y'], ['x', ':y']],
+        ['\\', ['a\\', 'b'], ['a', String.raw`\b`]]
+    ])('different tuples never collide under the delimiter %j', (delimiter, one, other) => {
+        expect(joinIdentifiers(one, delimiter)).not.toBe(joinIdentifiers(other, delimiter));
+    });
 });

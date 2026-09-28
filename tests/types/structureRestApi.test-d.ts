@@ -5,7 +5,7 @@
 import { ref } from 'vue';
 import { expectTypeOf } from 'expect-type';
 import { useStructureRestApi } from '../../src/index.js';
-import type { IStructureRestApi } from '../../src/composables/structureRestApi.js';
+import type { IStructureRestApi, IWatchHandle } from '../../src/composables/structureRestApi.js';
 import type { IUser } from './_fixtures.js';
 
 const resource = useStructureRestApi<IUser, number>({ resourceKey: 'users' });
@@ -72,7 +72,7 @@ resource.watchAny(() => Promise.resolve('x'), { key: ref(['stats']), enabled: re
 // @ts-expect-error -- watchAny's key is required
 resource.watchAny(() => Promise.resolve('x'), {});
 // watchTarget takes apiCall first, idSource second — same order as fetchTarget/watchByParent (V2.4).
-resource.watchTarget(
+const watchHandle = resource.watchTarget(
     (id, context) => {
         expectTypeOf(id).toEqualTypeOf<number>();
         expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
@@ -81,3 +81,6 @@ resource.watchTarget(
     },
     () => 1
 );
+
+// IWatchHandle: every watch* returns exactly stop/refetch/suspense/error, never rejects (V5.2).
+expectTypeOf(watchHandle).toEqualTypeOf<IWatchHandle<IUser | undefined>>();

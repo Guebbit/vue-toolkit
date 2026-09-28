@@ -2,7 +2,7 @@
  * UNIT — watchByParent: fetchByParent's active counterpart. Same shape as watchAll, scoped
  * to a belongsTo parent — updates parentHasMany/getListByParent the same way fetchByParent
  * does, and stays that way without an imperative fetch call.
- *   - a nullish parent id idles instead of calling apiCall(undefined)
+ *   - a nullish parent id idles instead of calling apiCall(undefined), refetch() included
  *   - accepts enabled and a reactive key (V2.3)
  */
 
@@ -83,6 +83,23 @@ describe('UNIT · watchByParent', () => {
         expect(c.getListByParent('team-1').map((u) => u.id)).toEqual([1]);
         stop();
     });
+
+    // Known bug: restResource.ts's watchList refetch() calls TanStack's refetch, which runs the
+    // query function even while `enabled` is false; watchTarget guards this, watchByParent does not.
+    it.failing(
+        'refetch() while the parent id is nullish resolves [] without calling apiCall',
+        async () => {
+            const c = make();
+            const apiCall = jest.fn(() => Promise.resolve(buildUsers(1, 1)));
+            const { refetch } = c.watchByParent(apiCall, ref<string | undefined>(undefined));
+            await flush();
+
+            const result = await refetch();
+
+            expect(apiCall).not.toHaveBeenCalled();
+            expect(result).toEqual([]);
+        }
+    );
 
     it('accepts enabled: false, and starts fetching once it flips true', async () => {
         const c = make();

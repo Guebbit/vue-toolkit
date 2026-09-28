@@ -7,9 +7,12 @@
  *   - re-throws on error without polluting the cache
  *   - a cache hit still reports the right totalItems (it travels with the cached page)
  *   - applies page/pageSize itself, so pageItemList shows what it just fetched (V2.6)
+ *   - applies the page together with the filters and size: no request, and no frame, for a page
+ *     other than the one it was given
  */
 
-import { makeSearchComposable, clearAllInstances } from '../_helpers/harness';
+import { watch } from 'vue';
+import { makeSearchComposable, clearAllInstances, flush } from '../_helpers/harness';
 import { apiResolve, apiReject } from '../../structureRestApi/_helpers/fakeApi';
 import { buildArticles, type IArticle } from '../../structureRestApi/_helpers/fixtures';
 
@@ -102,5 +105,82 @@ describe('UNIT · fetchSearch', () => {
         expect(searchApi.pageCurrent.value).toBe(2);
         expect(searchApi.pageSize.value).toBe(5);
         expect(searchApi.pageItemList.value).toEqual(PAGE2);
+    });
+});
+
+/**
+ * A search server over 30 matches that logs every page asked of it.
+ *
+ * @returns the log, and the answer both a watcher and fetchSearch call
+ */
+const loggingServer = () => {
+    const requests: [object, number, number][] = [];
+    const answer = (filters: object, page: number, size: number) => {
+        requests.push([filters, page, size]);
+        return Promise.resolve({ items: buildArticles(1, 'tech', page), totalItems: 30 });
+    };
+    return { requests, answer };
+};
+
+/**
+ * One search page of `category`, holding the single article `id`.
+ *
+ * @param category - the article's category
+ * @param id - the article's id
+ * @returns the apiCall
+ */
+const pageOf = (category: string, id: number) =>
+    apiResolve({ items: buildArticles(1, category, id), totalItems: 30 });
+
+describe('UNIT · fetchSearch applies the page it fetches', () => {
+    it.each([
+        {
+            change: 'new filters, from page 3',
+            from: 3,
+            filters: { category: 'b' },
+            page: 1,
+            size: 10
+        },
+        { change: 'a new page size, from page 1', from: 1, filters: {}, page: 2, size: 25 }
+    ])(
+        'an active watchSearch asks the server for no other page than the one given ($change)',
+        async ({ from, filters, page, size }) => {
+            const { searchApi } = make();
+            const server = loggingServer();
+            searchApi.watchSearch(server.answer);
+            searchApi.pageCurrent.value = from;
+            await flush();
+            server.requests.length = 0;
+
+            await searchApi.fetchSearch(
+                () => server.answer(filters, page, size),
+                filters,
+                page,
+                size
+            );
+            await flush();
+
+            expect(server.requests).toEqual([[filters, page, size]]);
+        }
+    );
+
+    it('no frame shows a page left over from before it as the current page', async () => {
+        const { searchApi } = make();
+        await searchApi.fetchSearch(pageOf('b', 203), { category: 'b' }, 3);
+        await searchApi.fetchSearch(pageOf('a', 103), { category: 'a' }, 3);
+        const frames: { page: number; ids: number[]; isPlaceholder: boolean }[] = [];
+        // A pre-flush watcher sees what a render in the same flush would.
+        const stop = watch(
+            [searchApi.pageCurrent, searchApi.pageItemList, searchApi.isPlaceholder],
+            ([page, items, isPlaceholder]) =>
+                frames.push({ page, ids: items.map((item) => item.id), isPlaceholder })
+        );
+
+        await searchApi.fetchSearch(pageOf('b', 201), { category: 'b' }, 1);
+        await flush();
+        stop();
+
+        expect(frames.at(-1)).toEqual({ page: 1, ids: [201], isPlaceholder: false });
+        expect(frames.filter((frame) => frame.page !== 1)).toEqual([]);
     });
 });

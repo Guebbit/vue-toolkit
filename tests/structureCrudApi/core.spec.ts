@@ -9,7 +9,12 @@ import {
     useStructureCrudApi,
     type IStructureCrudOperations
 } from '../../src/composables/structureCrudApi';
-import { clearAllInstances, newTestClient, runTracked } from '../structureRestApi/_helpers/harness';
+import {
+    clearAllInstances,
+    flush,
+    newTestClient,
+    runTracked
+} from '../structureRestApi/_helpers/harness';
 
 interface IProduct {
     id: string;
@@ -233,6 +238,19 @@ describe('useStructureCrudApi', () => {
             expect(api.pageCurrent.value).toBe(1);
             expect(operations.search).toHaveBeenCalledWith({}, 1, 10, anyContext);
         });
+
+        it('sends the filters it applied, even when they are edited before the request goes out', async () => {
+            const { api, operations } = makeCrud();
+            api.filters.value = { text: 'chair' };
+
+            const pending = api.searchNow();
+            api.filters.value = { text: 'ch' }; // the user keeps typing in the same tick
+            await pending;
+
+            expect(jest.mocked(operations.search).mock.calls).toEqual([
+                [{ text: 'chair' }, 1, 10, anyContext]
+            ]);
+        });
     });
 
     describe('resetFilters', () => {
@@ -275,6 +293,21 @@ describe('useStructureCrudApi', () => {
 
             expect(operations.search).toHaveBeenCalledTimes(1);
         });
+
+        it('a later refetch of the page it applied sends the applied filters, not the ones typed since', async () => {
+            const { api, operations } = makeCrud();
+            api.watchList();
+            await flush();
+            await api.resetFilters();
+            api.filters.value = { text: 'typed-not-applied' };
+            jest.mocked(operations.search).mockClear();
+
+            // A successful update marks every search page stale: the watcher refetches its page.
+            await api.updateOne('p1', { title: 'Updated' });
+            await flush();
+
+            expect(jest.mocked(operations.search).mock.calls).toEqual([[{}, 1, 10, anyContext]]);
+        });
     });
 
     describe('fetchPage', () => {
@@ -292,10 +325,26 @@ describe('useStructureCrudApi', () => {
         });
 
         it('leaves the shared search state alone', async () => {
-            const { api } = makeCrud();
+            const { api } = makeCrud({
+                search: jest.fn((filters: IProductFilters) =>
+                    Promise.resolve(
+                        filters.text
+                            ? { items: [PRODUCT], totalItems: 1 }
+                            : { items: [OTHER], totalItems: 99 }
+                    )
+                )
+            });
+            api.filters.value = { text: 'chair' };
+            await api.searchNow();
             api.pageCurrent.value = 2;
+
             await api.fetchPage(3, 25);
+
             expect(api.pageCurrent.value).toBe(2);
+            expect(api.pageSize.value).toBe(10);
+            // Still the applied 'chair' search: its page, its total.
+            expect(api.pageItemList.value).toEqual([PRODUCT]);
+            expect(api.totalItems.value).toBe(1);
         });
     });
 
@@ -342,6 +391,50 @@ describe('useStructureCrudApi', () => {
 
             expect(operations.get).toHaveBeenCalledWith('p1', anyContext);
             expect(operations.get).toHaveBeenCalledWith('p2', anyContext);
+        });
+
+        it.each([
+            { setting: 'nothing', settings: {}, requests: 0 },
+            { setting: 'forced', settings: { forced: true }, requests: 1 },
+            { setting: 'staleTime', settings: { staleTime: 0 }, requests: 1 }
+        ])(
+            'forwards $setting: a record cached and fresh is asked for $requests time(s)',
+            async ({ settings, requests }) => {
+                const { api, operations } = makeCrud();
+                await api.fetchOne('p1');
+                jest.mocked(operations.get).mockClear();
+
+                api.watchOne(() => 'p1', settings);
+                await flush();
+
+                expect(operations.get).toHaveBeenCalledTimes(requests);
+            }
+        );
+
+        it('forwards merge: the answer is merged into the cached record', async () => {
+            const get = jest
+                .fn()
+                .mockResolvedValueOnce(PRODUCT)
+                .mockResolvedValue({ id: 'p1', title: 'Fresh' }); // no price
+            const { api } = makeCrud({ get });
+            await api.fetchOne('p1');
+
+            api.watchOne(() => 'p1', { forced: true, merge: true });
+            await flush();
+
+            expect(api.getRecord('p1')).toEqual({ ...PRODUCT, title: 'Fresh' });
+        });
+
+        it('forwards the settle callbacks', async () => {
+            const { api } = makeCrud();
+            const onSuccess = jest.fn();
+            const onSettled = jest.fn();
+
+            api.watchOne(() => 'p1', { onSuccess, onSettled });
+            await flush();
+
+            expect(onSuccess).toHaveBeenCalledWith(PRODUCT, 'p1');
+            expect(onSettled).toHaveBeenCalledWith(PRODUCT, undefined, 'p1');
         });
     });
 
@@ -433,6 +526,16 @@ describe('useStructureCrudApi', () => {
             expect(api.getRecord('p1')).toEqual({ ...PRODUCT, title: 'Updated' });
         });
 
+        it('an update bucketed under key is matched by isLoading(key)', async () => {
+            const update = jest.fn(() => new Promise<IProduct>(() => {})); // never settles
+            const { api } = makeCrud({ update });
+
+            void api.updateOne('p1', { title: 'Updated' }, { key: ['products', 'save'] });
+            await flush();
+
+            expect(api.isLoading(['products', 'save'])).toBe(true);
+        });
+
         it('applyResponse: false keeps the optimistic patch instead of the response', async () => {
             const update = jest.fn().mockResolvedValue({ acknowledged: true });
             const { api } = makeCrud({ update });
@@ -495,6 +598,16 @@ describe('useStructureCrudApi', () => {
             await api.deleteOne('p1', { requestOptions: options });
             expect(operations.remove).toHaveBeenCalledWith('p1', options);
         });
+
+        it('a delete bucketed under key is matched by isLoading(key)', async () => {
+            const remove = jest.fn(() => new Promise<unknown>(() => {})); // never settles
+            const { api } = makeCrud({ remove });
+
+            void api.deleteOne('p1', { key: ['products', 'remove'] });
+            await flush();
+
+            expect(api.isLoading(['products', 'remove'])).toBe(true);
+        });
     });
 
     // ─── missing operations ───────────────────────────────────────────────────
@@ -513,6 +626,30 @@ describe('useStructureCrudApi', () => {
                 `useStructureCrudApi - no "${operation}" operation was supplied`
             );
         });
+
+        it.each([
+            ['search', (api: TReadOnlyApi, onError: jest.Mock) => api.watchList({ onError })],
+            [
+                'get',
+                (api: TReadOnlyApi, onError: jest.Mock) => api.watchOne(() => 'p1', { onError })
+            ]
+        ])(
+            'a watcher shows the missing "%s" operation in error and onError',
+            async (operation, watch) => {
+                const api = makeReadOnly();
+                const onError = jest.fn();
+                const message = `useStructureCrudApi - no "${operation}" operation was supplied`;
+
+                const { error } = watch(api, onError);
+                await flush();
+
+                expect((error.value as Error | null)?.message).toBe(message);
+                expect(onError).toHaveBeenCalledWith(
+                    expect.objectContaining({ message }),
+                    expect.anything()
+                );
+            }
+        );
 
         it('still serves the operations that were supplied', async () => {
             const api = makeReadOnly();

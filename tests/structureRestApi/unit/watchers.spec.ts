@@ -12,7 +12,7 @@
 
 import { ref } from 'vue';
 import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
-import { apiReject, apiResolve } from '../_helpers/fakeApi';
+import { apiReject, apiResolve, apiVersioned } from '../_helpers/fakeApi';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
@@ -29,6 +29,14 @@ describe('UNIT · watchTarget', () => {
         await expect(handle.refetch()).resolves.toBeUndefined();
         expect(apiCall).not.toHaveBeenCalled();
         expect(c.itemDictionary.value).toEqual({});
+    });
+
+    it('refetch() resolves the record the refetch stored', async () => {
+        const c = makeComposable<IUser, number>();
+        const handle = c.watchTarget(apiVersioned(USERS[0]), ref(1));
+        await flush();
+
+        await expect(handle.refetch()).resolves.toEqual({ ...USERS[0], version: 2 });
     });
 
     it('onSuccess fires on a switch to a cached, fresh record — no fetch needed', async () => {
@@ -126,6 +134,27 @@ describe('UNIT · watchAny', () => {
 
         expect(stats.data.value).toBe('stats');
         expect(health.data.value).toBe('health');
+    });
+
+    it('refetch() resolves the data the refetch stored', async () => {
+        const c = makeComposable<IUser, number>();
+        const handle = c.watchAny(apiVersioned({ total: 42 }), { key: ['stats'] });
+        await flush();
+
+        await expect(handle.refetch()).resolves.toEqual({ total: 42, version: 2 });
+    });
+
+    it('stop() ends the watcher: a later invalidation fetches nothing', async () => {
+        const c = makeComposable<IUser, number>();
+        const apiCall = jest.fn(() => Promise.resolve('stats'));
+        const handle = c.watchAny(apiCall, { key: ['stats'] });
+        await flush();
+
+        handle.stop();
+        await c.queryClient.invalidateQueries({ queryKey: ['resource'] });
+        await flush();
+
+        expect(apiCall).toHaveBeenCalledTimes(1);
     });
 });
 

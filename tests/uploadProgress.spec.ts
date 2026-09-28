@@ -131,6 +131,41 @@ describe('useUploadProgress', () => {
             resolveFirst();
             await firstCall;
         });
+
+        it('rejects instead of throwing when a tracked send throws synchronously', async () => {
+            const send = jest.fn(() => {
+                throw new Error('boom');
+            });
+            let tracked: Promise<unknown> | undefined;
+
+            expect(() => {
+                tracked = composable.track(send);
+            }).not.toThrow();
+            await expect(tracked).rejects.toThrow('boom');
+        });
+
+        it('returns to idle when a tracked send throws synchronously', async () => {
+            const send = jest.fn(() => {
+                throw new Error('boom');
+            });
+
+            // A submit handler runs inside a promise chain, which turns the throw into a rejection
+            await expect(Promise.resolve().then(() => composable.track(send))).rejects.toThrow(
+                'boom'
+            );
+            expect(composable.isUploading.value).toBe(false);
+        });
+
+        it('rejects, and returns to idle, when buildOptions throws', async () => {
+            const throwing = useUploadProgress<IFakeOptions>(() => {
+                throw new Error('bad options');
+            });
+
+            await expect(
+                Promise.resolve().then(() => throwing.track(async () => 'done'))
+            ).rejects.toThrow('bad options');
+            expect(throwing.isUploading.value).toBe(false);
+        });
     });
 
     // ─── enabled ──────────────────────────────────────────────────────────────

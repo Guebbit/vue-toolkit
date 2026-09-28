@@ -11,7 +11,10 @@ import { makeComposable, clearAllInstances } from '../_helpers/harness';
 import { apiResolve } from '../_helpers/fakeApi';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
-afterEach(clearAllInstances);
+afterEach(() => {
+    clearAllInstances();
+    jest.restoreAllMocks(); // the console.warn spies, even when an assertion failed
+});
 
 describe('LIFECYCLE · the view follows the shared QueryClient directly', () => {
     it('setQueryData called directly on the client appears in itemDictionary/getRecord', async () => {
@@ -74,7 +77,6 @@ describe('LIFECYCLE · the view follows the shared QueryClient directly', () => 
 
         expect(warn).toHaveBeenCalled();
         expect(c.getRecord(1)?.name).toBe(USERS[0].name);
-        warn.mockRestore();
     });
 
     it('the dictionary itself is read-only: writing a new key directly is rejected', async () => {
@@ -86,6 +88,5 @@ describe('LIFECYCLE · the view follows the shared QueryClient directly', () => 
 
         expect(warn).toHaveBeenCalled();
         expect(c.getRecord(999)).toBeUndefined();
-        warn.mockRestore();
     });
 });

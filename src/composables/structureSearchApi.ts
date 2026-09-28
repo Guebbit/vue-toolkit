@@ -10,16 +10,7 @@
  * @module composables/structureSearchApi
  * @see docs/composables/structure-search-api.md
  */
-import {
-    computed,
-    nextTick,
-    ref,
-    shallowRef,
-    toValue,
-    watch,
-    type ComputedRef,
-    type WatchSource
-} from 'vue';
+import { computed, ref, shallowRef, toValue, watch, type ComputedRef, type WatchSource } from 'vue';
 import type { Query } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 import { detachedCopy, stableKey } from '../internal/plainData.js';
@@ -43,6 +34,26 @@ export interface ISearchResult<T> {
 
     /** How many items the whole search matches, across every page. */
     totalItems: number;
+}
+
+/**
+ * The context {@link IStructureSearchApi.fetchSearch}'s `apiCall` receives, as its last
+ * parameter: {@link IFetchContext} plus a FROZEN copy of the search this fetch belongs to. TanStack
+ * re-runs the last `apiCall` it was given on an unrelated invalidation (`invalidateQueries`, a
+ * mutation's own invalidation) — reading `filters`/`page`/`pageSize` from here instead of from
+ * live reactive state means that re-run asks the same question again, not whatever is in the form
+ * right now. An `apiCall` typed `(context: IFetchContext) => …` still compiles unchanged: it only
+ * has to ignore the extra fields.
+ */
+export interface ISearchFetchContext<F> extends IFetchContext {
+    /** The filters this fetch was asked for — a detached copy, immutable. */
+    filters: F;
+
+    /** The page this fetch was asked for. */
+    page: number;
+
+    /** The page size this fetch was asked for. */
+    pageSize: number;
 }
 
 /** watchSearch's settings: the fetch settings, `immediate`, and the settle callbacks. */
@@ -81,6 +92,20 @@ interface IAppliedSearch<F> {
 
     /** Its bucket key, if any. */
     key?: string[];
+}
+
+/**
+ * The last entry actually shown on screen, kept as a placeholder across ANY change (page, size or
+ * filters) while the next one loads — see `shownEntry`. Tagged with the scope it was shown under
+ * (`dependsOn` plus the reset generation), so a `dependsOn` change or a `resetAll()` starts the
+ * placeholder over instead of leaking a previous scope's rows onto a new one.
+ */
+interface IShownEntry<K> {
+    /** The scope this was shown under — see `placeholderScope`. */
+    scope: string;
+
+    /** The entry itself. */
+    entry: ISearchCacheEntry<K>;
 }
 
 /**
@@ -135,7 +160,7 @@ export interface IStructureSearchApi<
 
     /** Fetches one page of a filtered search and makes it the applied search. */
     fetchSearch: <FF = F>(
-        apiCall: (context: IFetchContext) => Promise<ISearchResult<T>>,
+        apiCall: (context: ISearchFetchContext<FF>) => Promise<ISearchResult<T>>,
         filters?: FF,
         page?: number,
         size?: number,
@@ -240,14 +265,24 @@ export const useStructureSearchApi = <
         return next.filters;
     };
 
+    /** The applied search's current page's query key — filters, size and page all folded in. */
+    const currentSearchQueryKey = computed<unknown[] | undefined>(() => {
+        const search = applied.value;
+        if (!search) return;
+        return searchQueryKey(
+            search.filters as object,
+            pageSize.value,
+            pageCurrent.value,
+            search.key
+        );
+    });
+
     /** The applied search's entry for the current page. */
     const currentSearchEntry = computed<ISearchCacheEntry<K> | undefined>(() => {
         void searchVersion.value;
-        const search = applied.value;
-        if (!search) return;
-        return queryClient.getQueryData<ISearchCacheEntry<K>>(
-            searchQueryKey(search.filters as object, pageSize.value, pageCurrent.value, search.key)
-        );
+        const queryKey = currentSearchQueryKey.value;
+        if (!queryKey) return;
+        return queryClient.getQueryData<ISearchCacheEntry<K>>(queryKey);
     });
 
     /**
@@ -287,9 +322,73 @@ export const useStructureSearchApi = <
         return latest?.state.data as ISearchCacheEntry<K> | undefined;
     });
 
-    /** "124 orders": the applied search's server-reported total. */
+    /**
+     * Bumped by `resetAll()` (see below) to start `shownEntry`'s placeholder over even when
+     * `dependsOn` itself did not change — a plain cache wipe on the SAME scope, which otherwise
+     * looks identical to `shownEntry` and would keep leaking the wiped rows onto the screen.
+     */
+    const resetGeneration = ref(0);
+
+    /**
+     * The scope a shown entry is tagged with: `dependsOn` plus the reset generation, folded into
+     * one string. Two entries tagged with a different one must never be shown as if they were the
+     * same search — see `IShownEntry`.
+     */
+    const placeholderScope = (): string => stableKey([dependsOn(), resetGeneration.value]);
+
+    /**
+     * The query key behind the last `currentSearchEntry` actually seen — a key, not the entry
+     * itself, so `shownEntry` below can tell "superseded by a different applied search, but still
+     * sitting in the cache" (show it) apart from "gone from the cache outright" (a `maxRecords`
+     * wipe: do not go on reporting a total the resource no longer has). Remembered EAGERLY by a
+     * watcher, not merely whatever `pageItemList` happened to be read while it was current, so the
+     * placeholder survives even when nothing read it in between. `sync` flush: updated in the same
+     * tick `currentSearchEntry` changes, so a synchronous read right after a key change (no
+     * `await` in between) sees the same thing a `flush: 'pre'`/next-render read would.
+     */
+    const lastShownKey = shallowRef<{ scope: string; queryKey: unknown[] }>();
+    watch(
+        currentSearchEntry,
+        (entry) => {
+            if (entry)
+                lastShownKey.value = {
+                    scope: placeholderScope(),
+                    queryKey: currentSearchQueryKey.value!
+                };
+        },
+        { immediate: true, flush: 'sync' }
+    );
+
+    /**
+     * The entry `pageItemList`/`isPlaceholder`/`totalItems`'s placeholder fallback shows: the
+     * current page when cached, else whatever was shown a moment ago and is STILL in the cache
+     * (any page, size OR filters — TanStack's own `keepPreviousData` idea, via `lastShownKey`),
+     * else any cached page of the applied search. `lastShownKey`'s scope tag keeps a `dependsOn`
+     * change or a `resetAll()` from leaking a previous scope's rows onto a new one; re-reading it
+     * through the cache (not the remembered entry) keeps a `maxRecords` wipe from doing the same.
+     */
+    const shownEntry = computed<IShownEntry<K> | undefined>(() => {
+        void searchVersion.value;
+        let remembered: ISearchCacheEntry<K> | undefined;
+        if (lastShownKey.value?.scope === placeholderScope())
+            remembered = queryClient.getQueryData<ISearchCacheEntry<K>>(
+                lastShownKey.value.queryKey
+            );
+        const entry = currentSearchEntry.value ?? remembered ?? latestKnownEntry.value;
+        return entry ? { scope: placeholderScope(), entry } : undefined;
+    });
+
+    /**
+     * "124 orders": the applied search's server-reported total. Falls back to `shownEntry` (not
+     * just `latestKnownEntry`) so the total does not blip to 0 when new, never-fetched filters are
+     * applied while the previous search's placeholder is still on screen.
+     */
     const totalItems = computed<number>(
-        () => currentSearchEntry.value?.totalItems ?? latestKnownEntry.value?.totalItems ?? 0
+        () =>
+            currentSearchEntry.value?.totalItems ??
+            latestKnownEntry.value?.totalItems ??
+            shownEntry.value?.entry.totalItems ??
+            0
     );
 
     /** Page count of the applied search. */
@@ -297,21 +396,21 @@ export const useStructureSearchApi = <
 
     /**
      * Items of the applied search's current page. While the current page has not landed yet (a
-     * page/size/filters change, mid-fetch), keeps showing the most recently cached page's items
+     * page, size OR filters change, mid-fetch), keeps showing whatever was shown a moment ago
      * instead of dropping to `[]` — see `isPlaceholder` to tell the two apart.
      */
     const pageItemList = computed<T[]>(() =>
-        getRecords(currentSearchEntry.value?.ids ?? latestKnownEntry.value?.ids ?? [])
+        getRecords(currentSearchEntry.value?.ids ?? shownEntry.value?.entry.ids ?? [])
     );
 
     /**
-     * True while `pageItemList` is showing a placeholder — a previously cached page, kept on
+     * True while `pageItemList` is showing a placeholder — something shown a moment ago, kept on
      * screen because the current page/size/filters combination has not landed yet. `false` once
      * the current page is cached (including an empty one), and `false` on a genuinely empty first
-     * load (nothing cached at all to show as a placeholder).
+     * load (nothing shown yet to fall back on).
      */
     const isPlaceholder = computed<boolean>(
-        () => currentSearchEntry.value === undefined && latestKnownEntry.value !== undefined
+        () => currentSearchEntry.value === undefined && shownEntry.value !== undefined
     );
 
     /** The applied search's current page, as a search result. */
@@ -342,16 +441,36 @@ export const useStructureSearchApi = <
 
     /**
      * Adapts a search call to the list protocol: its items become the list, and its total rides
-     * along in the cache entry.
+     * along in the cache entry. Builds the {@link ISearchFetchContext} `apiCall` receives from
+     * `filters`/`page`/`size` FROZEN at the call site — not read off `running.meta` or live
+     * state — so a later re-run of this same closure (TanStack re-running the last `queryFn` it
+     * was given, on an unrelated invalidation) asks the same question again.
      *
      * @param apiCall - resolves one search page
+     * @param filters - the search this call belongs to, frozen
+     * @param page - the page this call belongs to
+     * @param size - the page size this call belongs to
      * @returns the list call, and the extra data to store with its ids
      */
-    const asListCall = (apiCall: (context: IFetchContext) => Promise<ISearchResult<T>>) => {
+    const asListCall = <FF>(
+        apiCall: (context: ISearchFetchContext<FF>) => Promise<ISearchResult<T>>,
+        filters: FF,
+        page: number,
+        size: number
+    ) => {
         let reported = 0;
         return {
             call: (context: IFetchContext) =>
-                apiCall(context).then(({ items, totalItems: total }) => {
+                apiCall({
+                    // Kept a lazy getter, same reason as IFetchContext's own: reading it up front
+                    // would change how TanStack cancels a fetch whose watcher unmounts.
+                    get signal() {
+                        return context.signal;
+                    },
+                    filters,
+                    page,
+                    pageSize: size
+                }).then(({ items, totalItems: total }) => {
                     reported = total;
                     return items;
                 }),
@@ -372,37 +491,31 @@ export const useStructureSearchApi = <
      * @returns the page, with the search's total
      */
     const fetchSearch = <FF = F>(
-        apiCall: (context: IFetchContext) => Promise<ISearchResult<T>>,
+        apiCall: (context: ISearchFetchContext<FF>) => Promise<ISearchResult<T>>,
         filters: FF = {} as FF,
         page = 1,
         size = 10,
         settings: IFetchSettings = {}
     ): Promise<ISearchResult<T>> => {
         const snapshot = applySearch(filters as unknown as F, settings.key) as object;
-        // Applies the page it is about to fetch, so pageItemList (which reads pageCurrent/pageSize)
-        // shows the same page this call resolves. pageSize's own watcher resets pageCurrent to 1
-        // whenever pageSize changes; waiting a tick lets that run FIRST, so the explicit page below
-        // is what sticks, not overwritten by it.
+        // Built ONCE, from the scope at this exact moment: searchQueryKey reads dependsOn()
+        // internally, so a second call later — after a dependsOn change this fetch was cut short
+        // by — would silently rebuild it under the NEW scope and read (or miss) a sibling
+        // instance's entry instead of this call's own (see A4).
+        const pageKey = searchQueryKey(snapshot, size, page, settings.key);
+        // Both set synchronously, size before page: pageSize's own watcher (flush: 'sync') resets
+        // pageCurrent to 1 the instant pageSize changes — landing before vue-query's own (pre-flush)
+        // key watcher can react to either — so the explicit page assigned right after is what
+        // sticks, not the reset's page 1. No nextTick, no frame showing a stale page in between.
         pageSize.value = size;
-        return nextTick().then(() => {
-            pageCurrent.value = page;
-            const { call, extra } = asListCall(apiCall);
-            return engine
-                .runListQuery(
-                    searchQueryKey(snapshot, size, page, settings.key),
-                    call,
-                    settings,
-                    extra
-                )
-                .then((items) => ({
-                    items,
-                    // A cache hit never ran the call: read the total from the entry itself.
-                    totalItems:
-                        queryClient.getQueryData<ISearchCacheEntry<K>>(
-                            searchQueryKey(snapshot, size, page, settings.key)
-                        )?.totalItems ?? 0
-                }));
-        });
+        pageCurrent.value = page;
+        const { call, extra } = asListCall(apiCall, snapshot as unknown as FF, page, size);
+        return engine.runListQuery(pageKey, call, settings, extra).then((items) => ({
+            items,
+            // A cache hit never ran the call: read the total from the entry itself, off the SAME
+            // key the fetch above ran under.
+            totalItems: queryClient.getQueryData<ISearchCacheEntry<K>>(pageKey)?.totalItems ?? 0
+        }));
     };
 
     /**
@@ -495,8 +608,11 @@ export const useStructureSearchApi = <
                     page: number;
                     size: number;
                 };
-                const { call, extra } = asListCall((context) =>
-                    apiCall(filters, page, size, context)
+                const { call, extra } = asListCall(
+                    (context) => apiCall(filters, page, size, context),
+                    filters,
+                    page,
+                    size
                 );
                 return engine.listQueryFunction(call, searchSettings, running, extra) as Promise<
                     ISearchCacheEntry<K>
@@ -562,9 +678,28 @@ export const useStructureSearchApi = <
     };
 
     // A page number from the old page size rarely means anything under the new one.
-    watch(pageSize, () => {
-        pageCurrent.value = 1;
-    });
+    // Vue: `sync` flush, not the default `pre` — vue-query's own key watcher (built inside
+    // watchSearch/watchList) is also `pre`, and a `pre` watcher created with no current component
+    // can run before this one (see structure-search-api.md). `sync` guarantees the reset always
+    // lands before ANY `pre` watcher sees the new pageSize, so a query never fetches an out-of-
+    // range page at the new size before landing on page 1.
+    watch(
+        pageSize,
+        () => {
+            pageCurrent.value = 1;
+        },
+        { flush: 'sync' }
+    );
+
+    /**
+     * `resetAll`, wrapped: bumps `resetGeneration` first, so `shownEntry`'s placeholder never
+     * survives a full cache wipe on the SAME scope (the cross-user/cross-search leak class this
+     * composable otherwise guards against).
+     */
+    const resetAll = (): void => {
+        resetGeneration.value++;
+        api.resetAll();
+    };
 
     return {
         ...api,
@@ -573,6 +708,7 @@ export const useStructureSearchApi = <
         pageItemList,
         isPlaceholder,
         totalItems,
+        resetAll,
 
         searchGet,
         fetchSearch,

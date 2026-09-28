@@ -10,18 +10,18 @@ search layer and reuses these helpers.
 Folders classify by **subject**. A regression test lives with the feature it constrains: it
 states a contract, not the story of a bug.
 
-| Folder                 | What it proves                                                                                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `_helpers/`            | Factories, fakes and fixtures (below). Not `*.spec.ts`, so Jest never runs them.                                                                                                                                          |
-| `unit/`                | One method at a time: fetch*, watch*, mutations, check\*, `isLoading` / `loading`, setRecords.                                                                                                                            |
-| `staleTime/`           | Freshness over time on a **fake clock**: just under vs just past `staleTime`, per-call overrides, concurrency.                                                                                                            |
-| `pagination/`          | Client-side paging over the dictionary, server pages via `fetchAll` keys, and `fetchPaginate`.                                                                                                                            |
-| `modifiers/`           | Per-call settings: `forced`, `merge`, `partial`, and `isLoading` under rejection and concurrency.                                                                                                                         |
-| `effects/`             | `isLoading()` for every method, and one on/off cycle for a burst of overlapping calls.                                                                                                                                    |
-| `intention/`           | Multi-call scenarios: CRUD against a fake server, list invalidation, cross-method seeding, shared clients.                                                                                                                |
-| `lifecycle/`           | Scope teardown, `dependsOn` switches and late answers, `maxRecords`, and dropping queries a watcher observes.                                                                                                             |
-| `model/`               | Generated command sequences (`fast-check`), settled in a scheduler-picked order: generalises the lifecycle race specs above into thousands of them. See its file header for the invariants and the documented exceptions. |
-| `served-value.spec.ts` | Asserts the _value_ served on cache hits and refetches, not merely that the network was skipped.                                                                                                                          |
+| Folder                 | What it proves                                                                                                                                                                                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_helpers/`            | Factories, fakes and fixtures (below). Not `*.spec.ts`, so Jest never runs them.                                                                                                                                                                                  |
+| `unit/`                | One method at a time: fetch*, watch*, mutations, check\*, `isLoading` / `loading`, setRecords.                                                                                                                                                                    |
+| `staleTime/`           | Freshness over time on a **fake clock**: just under vs just past `staleTime`, per-call overrides, concurrency.                                                                                                                                                    |
+| `pagination/`          | Client-side paging over the dictionary, server pages via `fetchAll` keys, and `fetchPaginate`.                                                                                                                                                                    |
+| `modifiers/`           | Per-call settings: `forced`, `merge`, `partial`, and `isLoading` under rejection and concurrency.                                                                                                                                                                 |
+| `effects/`             | `isLoading()` for every method, and one on/off cycle for a burst of overlapping calls.                                                                                                                                                                            |
+| `intention/`           | Multi-call scenarios: CRUD against a fake server, list invalidation, cross-method seeding, shared clients.                                                                                                                                                        |
+| `lifecycle/`           | Scope teardown, `dependsOn` switches and late answers, `maxRecords`, and dropping queries a watcher observes.                                                                                                                                                     |
+| `model/`               | Generated command sequences (`fast-check`), settled in a scheduler-picked order: generalises the lifecycle race specs above into many of them (25 by default — `FC_NUM_RUNS` cranks it up). See its file header for the invariants and the documented exceptions. |
+| `served-value.spec.ts` | Asserts the _value_ served on cache hits and refetches, not merely that the network was skipped.                                                                                                                                                                  |
 
 ## Running
 
@@ -44,7 +44,8 @@ npx jest --config jest.config.cjs tests/structureRestApi/staleTime   # one folde
     - `newTestClient()` — no retries, always online. Never hand-roll a `QueryClient`.
     - `flush(rounds = 3)` — lets promises, Vue's scheduler and TanStack's batched notifications
       settle. Never hand-roll a flush.
-    - `clearAllInstances()` — the teardown every spec runs in `afterEach`.
+    - `clearAllInstances()` — the teardown every spec runs in `afterEach`; it also unmounts a
+      client `VueQueryPlugin` mounted (under jsdom).
 - **`fakeApi.ts`** — `apiResolve` / `apiReject` / `apiVersioned` (call-counting stubs), and
   `deferred()` / `deferredApi()` to decide when a call settles.
 - **`fakeServer.ts`** — `createServer(seed)`: a stateful in-memory REST server whose methods
@@ -56,7 +57,9 @@ npx jest --config jest.config.cjs tests/structureRestApi/staleTime   # one folde
 
 - **Every spec tears down what it builds**: `afterEach(clearAllInstances)`. It stops each tracked
   instance's scope — and every watcher a test started on it, since the harness runs `watch*`
-  inside that scope — then clears its client.
+  inside that scope — then clears its client. Any other teardown (a `jest.spyOn` spy, a scope
+  the test built itself) goes in `afterEach` too, never inline after the assertions: a failing
+  `expect` would skip it.
 - **Jest runs as a TanStack "server"** (Node): `gcTime` defaults to `Infinity` there, and the
   plugin never mounts the client. Browser-only behaviour (garbage collection, focus refetch) is
   asserted through explicit options, never assumed from defaults.

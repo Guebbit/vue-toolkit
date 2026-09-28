@@ -20,7 +20,7 @@ import {
     type WatchSource,
     type WatchStopHandle
 } from 'vue';
-import { detachedCopy } from '../internal/plainData.js';
+import { detachedCopy, stableKey } from '../internal/plainData.js';
 
 /**
  * In practice the form element, declared structurally so this composable never names a DOM type.
@@ -124,7 +124,8 @@ export interface IApplyServerErrorsOptions<
 
     /**
      * Receives messages that could not be attached to a field: the API's form-level errors, and
-     * any field the form does not have. Without it they are dropped, and the user sees nothing.
+     * any field the form does not have. Without it they go to {@link IStructureFormValidation.formLevelErrors}
+     * instead.
      */
     onUnmapped?: (messages: string[]) => void;
 }
@@ -317,7 +318,7 @@ export interface IStructureFormValidation<
      *
      * @param error   - the rejected value, exactly as caught
      * @param options - see {@link IApplyServerErrorsOptions}
-     * @returns true when at least one field or form-level error was attached
+     * @returns true when something was shown to the user, on the form or through `onUnmapped`
      */
     applyServerErrors: (error: unknown, options?: IApplyServerErrorsOptions<T>) => boolean;
 
@@ -443,11 +444,11 @@ export const useStructureFormValidation = <
     );
 
     /**
-     * True when the form data differs from the baseline (JSON comparison, key order included).
+     * True when the form data differs from the baseline. Compared by `stableKey` (canonical JSON:
+     * property order never counts as a change), not raw `JSON.stringify` — which also lets it see
+     * a Set/Map field's own content instead of comparing two `"{}"` strings.
      */
-    const isDirty = computed(
-        () => JSON.stringify(form.value) !== JSON.stringify(initialFormData.value)
-    );
+    const isDirty = computed(() => stableKey(form.value) !== stableKey(initialFormData.value));
 
     /**
      * Merges partial data into the form.
@@ -615,8 +616,9 @@ export const useStructureFormValidation = <
      *
      * @param error   - the rejected value, exactly as caught
      * @param options - see {@link IApplyServerErrorsOptions}
-     * @returns true when at least one field or form-level error was attached. false means the
-     *          rejection carried nothing displayable, i.e. the caller still owes the user a message
+     * @returns true when something was shown to the user, on the form or through `onUnmapped`.
+     *          false means the rejection carried nothing at all — the caller still owes the user
+     *          a message
      */
     const applyServerErrors = (
         error: unknown,
@@ -642,7 +644,6 @@ export const useStructureFormValidation = <
         if (unmapped.length > 0 && onUnmapped) onUnmapped(unmapped);
 
         const fields = Object.keys(applied) as (keyof T)[];
-        if (fields.length === 0 && !displayedUnmapped) return false;
 
         if (fields.length > 0) {
             formErrors.value = { ...formErrors.value, ...applied };
@@ -652,8 +653,10 @@ export const useStructureFormValidation = <
             formLevelErrors.value = [...formLevelErrors.value, ...unmapped];
             serverLevelErrors.value = [...serverLevelErrors.value, ...unmapped];
         }
-        showFormErrors.value = true;
-        return true;
+        // showFormErrors only turns on when the FORM itself displays something; onUnmapped owns
+        // its own display (e.g. a toast), so it does not also reveal the (empty) form errors.
+        if (fields.length > 0 || displayedUnmapped) showFormErrors.value = true;
+        return fields.length > 0 || unmapped.length > 0;
     };
 
     /**

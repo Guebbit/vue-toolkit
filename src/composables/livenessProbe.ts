@@ -10,6 +10,7 @@
  * @see docs/composables/liveness-probe.md
  */
 import { getCurrentScope, onScopeDispose, ref } from 'vue';
+import { promiseTry } from '../internal/promiseTry.js';
 
 /**
  * Settings for {@link useLivenessProbe}.
@@ -90,6 +91,13 @@ export const useLivenessProbe = (
     let _latest = 0;
 
     /**
+     * Set by `stop()`; final. Once true, `check()` resolves without probing, and the retry timer
+     * never schedules another one — `stop()` cancels any timer already pending, but a `check()`
+     * called directly (a late "Retry" click) has no timer for it to cancel.
+     */
+    let _stopped = false;
+
+    /**
      * Cancels the pending retry, if any.
      */
     const _cancelRetry = (): void => {
@@ -104,10 +112,12 @@ export const useLivenessProbe = (
      *          unreachable target is the state this reports, not a failure of the report.
      */
     const check = (): Promise<void> => {
+        if (_stopped) return Promise.resolve();
         _cancelRetry();
         const current = ++_latest;
 
-        return probe()
+        // promiseTry: a probe that throws synchronously is read as unreachable, like a rejection.
+        return promiseTry(probe)
             .then(() => {
                 // An overtaken probe may not write: its answer is older than the one on screen
                 if (current !== _latest) return;
@@ -136,6 +146,7 @@ export const useLivenessProbe = (
     const stop = (): void => {
         // Bumped so a probe still in flight cannot write to `down` after teardown
         _latest++;
+        _stopped = true;
         _cancelRetry();
         _eventTarget?.removeEventListener('online', _handleOnline);
     };

@@ -47,7 +47,7 @@ full table:
 | --- | --- | --- | --- |
 | `@tanstack/vue-query` | (not a peer) | `^5.103` | replaces `@tanstack/query-core` |
 | `vue` | `>=3.4` | `^3.4` | caret, not open-ended; no consumer on a current major is affected |
-| `pinia` | `>=2.0.0` | `^2.1 \|\| ^3` | a Pinia SETUP store's own setup function did not run inside Vue's injection context before 2.1, so `useQueryClient()` inside one silently found nothing — this never actually worked on `2.0.x` |
+| `pinia` | `>=2.0.0` | `^2.1 \|\| ^3` | a Pinia SETUP store built OUTSIDE a component (a router guard, `main.ts`) does not run inside Vue's injection context before 2.1, so `useQueryClient()` inside one THROWS — built inside a component's `setup()`, any Pinia version works. Pass `queryClient` explicitly to work on any Pinia version, or with no Pinia store at all |
 | `zod` (optional) | `>=4.4.3` | `^4.4.3` | caret, not open-ended |
 
 ## Renames

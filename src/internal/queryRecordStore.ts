@@ -7,13 +7,19 @@
  * is stamped "now"; any other write is a local guess (optimistic edit, partial data, manual
  * write) and keeps the previous stamp — or 0, stale, when the record is new.
  *
+ * `write`/`read`/`remove`/`snapshot`/`restore`/`resolve` address the current `dependsOn()` by
+ * default, or whatever scope `forScope` has active — a late answer's write belongs to the scope
+ * it was fetched for, not whatever is current by the time it lands (see restResource.ts's module
+ * header). The seam methods (`IRecordStore`) called through `records` — `editRecord`/`addRecord`/
+ * `deleteRecord` — route through `write`/`read`/`remove` and so respect it too.
+ *
  * @module internal/queryRecordStore
  */
 import { computed, readonly, type Ref } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
 import type { IRecordStore } from '../composables/structureDataManagement.js';
 import { LIST_KINDS, type IResourceKeys, type ITargetEntry } from './resourceKeys.js';
-import { dropQueries, dropQuery } from './queryRemoval.js';
+import { dropQueries } from './queryRemoval.js';
 import { isNil } from './plainData.js';
 
 /** What the record store needs from the resource that owns it. */
@@ -51,6 +57,14 @@ export interface IQueryRecordStore<
 > extends IRecordStore<T, K> {
     /** Runs `write` calls made inside `run` as server answers: they count as fresh. */
     asFetched: <R>(run: () => R) => R;
+
+    /**
+     * Runs `run` with every key this store builds (`write`, `read`, `remove`, `snapshot`,
+     * `restore`, `resolve`) addressing `scope` instead of the current `dependsOn()`. For a late
+     * answer whose fetch started under a scope `dependsOn` has since moved past, but that another
+     * instance (or the scope registry) still claims — see A4 in `restResource.ts`'s module header.
+     */
+    forScope: <R>(scope: unknown[], run: () => R) => R;
 
     /** True while `asFetched` runs (see IRecordStore.isFetching). */
     isFetching: () => boolean;
@@ -120,6 +134,52 @@ export const createQueryRecordStore = <
         }
     };
 
+    /** Active `forScope` override, if any. */
+    let scopeOverride: unknown[] | undefined;
+
+    /** The scope this store's key-building addresses right now (see `forScope`). */
+    const currentScope = (): unknown[] => scopeOverride ?? dependsOn();
+
+    /**
+     * Runs `run` addressing `scope` instead of the current `dependsOn()` (see IQueryRecordStore).
+     *
+     * @param scope - the scope to address
+     * @param run - the reads/writes to run under it
+     * @returns what `run` returns
+     */
+    const forScope = <R>(scope: unknown[], run: () => R): R => {
+        const outer = scopeOverride;
+        scopeOverride = scope;
+        try {
+            return run();
+        } finally {
+            scopeOverride = outer;
+        }
+    };
+
+    /**
+     * Follows `id` to the one its record actually lives under (see IQueryRecordStore.resolve): an
+     * alias entry (fetched by an alternate key — `targetQueryFunction` in restResource.ts) holds
+     * `aliasOf` instead of `data`. Any other id, including one with no entry at all, is its own.
+     * Reads the RAW (unresolved) key directly, never through `keyOf`: resolving what it is itself
+     * about to resolve would be circular.
+     */
+    const resolve = (id: K): K => {
+        const entry = queryClient.getQueryData<ITargetEntry<T>>(keys.target(id, currentScope()));
+        return (entry?.aliasOf as K | undefined) ?? id;
+    };
+
+    /**
+     * The key `id`'s record actually lives under — `id` resolved one hop, then keyed. Every
+     * read/write below goes through this, so an alias (`'my-slug'`) reaches the same entry its
+     * real id does, instead of writing (or reading) a second, divergent one under the alias
+     * itself — see A2 in restResource.ts's module header.
+     *
+     * @param id - the record id, an alias included
+     * @returns the real record's key
+     */
+    const keyOf = (id: K): unknown[] => keys.target(resolve(id), currentScope());
+
     /**
      * Marks one record stale without fetching it.
      *
@@ -128,7 +188,7 @@ export const createQueryRecordStore = <
     const invalidate = (id: K): void =>
         // refetchType 'none': settles at once and fetches nothing, so there is nothing to await.
         void queryClient.invalidateQueries({
-            queryKey: keys.target(id),
+            queryKey: keyOf(id),
             exact: true,
             refetchType: 'none'
         });
@@ -141,7 +201,7 @@ export const createQueryRecordStore = <
      * @returns the record, if cached
      */
     const read = (id: K): T | undefined =>
-        queryClient.getQueryData<ITargetEntry<T>>(keys.target(id))?.data;
+        queryClient.getQueryData<ITargetEntry<T>>(keyOf(id))?.data;
 
     /**
      * Stores one record under the current scope.
@@ -150,7 +210,7 @@ export const createQueryRecordStore = <
      * @param item - the record
      */
     const write = (id: K, item: T): void => {
-        const key = keys.target(id);
+        const key = keyOf(id);
         const previous = queryClient.getQueryState(key);
         queryClient.setQueryData<ITargetEntry<T>>(
             key,
@@ -163,11 +223,15 @@ export const createQueryRecordStore = <
     };
 
     /**
-     * Removes one record. A record a watcher observes is emptied in place (see queryRemoval).
+     * Removes one record AND every pointer to it (an alias fetched by an alternate key) — a
+     * pointer left behind, still cached and fresh, would otherwise go on serving "nothing" for
+     * its own key instead of asking the server again. A watcher on either the record or a pointer
+     * is emptied in place, not removed (see queryRemoval).
      *
-     * @param id - the record id
+     * @param id - the record id, an alias included
      */
-    const remove = (id: K): void => dropQuery(queryClient, keys.target(id));
+    const remove = (id: K): void =>
+        dropQueries(queryClient, keys.refersTo(resolve(id), currentScope()));
 
     /**
      * Drops every record of the current scope (observed ones emptied in place), and marks the
@@ -206,7 +270,7 @@ export const createQueryRecordStore = <
      * @returns its snapshot, if cached
      */
     const snapshot = (id: K): IRecordSnapshot<T> | undefined => {
-        const state = queryClient.getQueryState<ITargetEntry<T>>(keys.target(id));
+        const state = queryClient.getQueryState<ITargetEntry<T>>(keyOf(id));
         const item = state?.data?.data;
         if (state === undefined || isNil(item)) return undefined;
         return { item, updatedAt: state.dataUpdatedAt, isInvalidated: state.isInvalidated };
@@ -220,21 +284,11 @@ export const createQueryRecordStore = <
      */
     const restore = (id: K, saved: IRecordSnapshot<T>): void => {
         queryClient.setQueryData<ITargetEntry<T>>(
-            keys.target(id),
+            keyOf(id),
             { data: saved.item },
             { updatedAt: saved.updatedAt } // the freshness it had, not "now"
         );
         if (saved.isInvalidated) invalidate(id);
-    };
-
-    /**
-     * Follows `id` to the one its record actually lives under (see IQueryRecordStore.resolve): an
-     * alias entry (fetched by an alternate key — `targetQueryFunction` in restResource.ts) holds
-     * `aliasOf` instead of `data`. Any other id, including one with no entry at all, is its own.
-     */
-    const resolve = (id: K): K => {
-        const entry = queryClient.getQueryData<ITargetEntry<T>>(keys.target(id));
-        return (entry?.aliasOf as K | undefined) ?? id;
     };
 
     /** True while `asFetched` runs. */
@@ -247,6 +301,7 @@ export const createQueryRecordStore = <
         writeAll,
         clear,
         asFetched,
+        forScope,
         isFetching,
         snapshot,
         restore,

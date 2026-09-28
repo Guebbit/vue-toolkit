@@ -145,14 +145,24 @@ What they share:
 - A failure rejects. An entry that already held data keeps it (stale data still renders); an entry
   that failed before ever holding data is removed.
 - A read the toolkit cancels itself (a `dependsOn` change, or an update or delete of that same
-  record) resolves with what is cached instead of rejecting. Neither its answer, if it still
-  arrives, nor one that arrives after `dependsOn` moved on, is stored.
+  record) resolves with what is cached instead of rejecting. Its answer, if it still arrives, is
+  not stored.
+- **A late answer belongs to the scope it was fetched for, not whatever `dependsOn` reads by the
+  time it lands.** Two instances of the same `resourceKey` can share a client under different
+  scopes (see [dependsOn](#dependson)); if instance A moves its `dependsOn` on while its own fetch
+  for the old scope is still in flight, that fetch is not cancelled while instance B still shows
+  the old scope — and its answer, once it lands, is stored under that OLD scope, exactly as if
+  nothing had changed. Only once NOTHING shows a scope any more does a late answer for it go
+  unstored.
 - **A read never overwrites a record a newer mutation has touched.** Every write a `fetch*`/
   `watch*` call makes — a list read's items included — is dropped once an `updateTarget`/
-  `deleteTarget` on that same id has started since the read began, or is still running. This holds
-  even though a mutation only cancels its own record's in-flight read: a `fetchAll` or search page
-  in flight when an unrelated record is mutated is never cancelled, and still stores every id it
-  carries except the one being mutated.
+  `deleteTarget` on that same id, in the same scope, has started since the read began, or is still
+  running. This holds even though a mutation only cancels its own record's in-flight read: a
+  `fetchAll` or search page in flight when an unrelated record is mutated is never cancelled, and
+  still stores every id it carries except the one being mutated. The check itself is asked of
+  TanStack's own `MutationCache` — the exact question `isSaving` asks — so it holds across every
+  instance of a resource sharing a client, not just within the instance that started the mutation,
+  and `'1'`/`1` name the same record either way.
 
 Per method:
 
@@ -162,9 +172,22 @@ Per method:
   as "nothing" until it goes stale. `itemList` never holds `null`.
   - **Fetching by an alternate key** (`fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }`)
     stores the record once, under `7` — its own id — never twice. The `'my-slug'` entry becomes an
-    alias: `getRecord('my-slug')`, `selectedRecord` and everything else that reads through
-    `getRecord` follow it to `7`'s record, one hop, so it never goes stale as a separate copy.
-    `itemDictionary`/`itemList` only ever see the record once, under `7`.
+    alias — a pointer, `{ aliasOf: '7' }`, holding no record of its own — and EVERY operation
+    follows it, not just reads: `getRecord('my-slug')`, `selectedRecord` and everything that reads
+    through `getRecord` follow it to `7`'s record, one hop; so do `editRecord('my-slug', ...)`,
+    `updateTarget(..., 'my-slug')` and `deleteTarget(..., 'my-slug')` — they reach the record
+    itself, never a second, divergent copy under the alias. `itemDictionary`/`itemList` only ever
+    see the record once, under `7`. Removing, invalidating or updating record `7` by ANY of its
+    known aliases reaches all the others too: deleting `7` (by its own id or by `'my-slug'`) drops
+    the `'my-slug'` pointer along with it, so a later `fetchTarget(apiCall, 'my-slug')` asks the
+    server again instead of serving a stale "nothing" from the leftover pointer. `updateOne(id)`/
+    `deleteOne(id)` on [`useStructureCrudApi`](./structure-crud-api) follow the same rule: the API
+    still gets whatever id you pass (a slug, say), and the cache resolves it to the real record.
+    **Known limit:** an address never fetched cannot be resolved before the server answers it once
+    — the very first `updateTarget(..., 'my-slug')` with no prior `fetchTarget`/`watchTarget` by
+    that slug has no pointer to follow yet, so its optimistic patch lands under `'my-slug'` itself;
+    the update's own response then resolves it into a proper pointer to the real record (see the
+    update-response rule, below).
 - **`fetchMultiple`** asks the server only when some of `ids` are missing or stale, with one call of
   `apiCall(missingIds, context)` — `missingIds` is exactly `checkMultiple(ids).expiredIds`, so
   building `GET /users?ids=1,2` from it never re-asks for an id already fresh. Resolves one slot
@@ -331,55 +354,68 @@ Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'del
 - **`createTarget`**: `dummyData`, if given, renders at once under a temporary id and is removed
   when the call settles, whatever it resolved. On success the returned record is stored as freshly
   fetched (an empty answer stores nothing), and this resource's lists are marked stale.
-- **`updateTarget`** and **`deleteTarget`** are optimistic, and share one protocol:
-  1. Cancel the record's own in-flight read (a `fetchTarget` or `watchTarget` of that id) — its
-     answer is never stored, so it cannot undo the edit or bring a deleted record back. Nothing
-     else is cancelled: a list read of the scope keeps running (see the write guarantee above).
-  2. Snapshot the record, then apply the change locally: `updateTarget` merges `itemData` into it,
-     `deleteTarget` removes it. Both skipped if `dependsOn` changed in the meantime. The snapshot is
-     taken right here, not when the call started — a same-tick sibling mutation on the same id may
-     already have applied its own change by this point, and a later rollback returns to THAT, never
-     to a value from before either call ran.
-  3. Send the request. Once it settles, only touch the record if it still holds exactly this
-     call's own change: a newer mutation on the same id owns it otherwise, so neither a failed
-     older update nor a stale older success can undo what that newer one did. On failure the
-     record goes back to its snapshot (removed, if it did not exist). Either way — a rollback, or a
-     success skipped because a newer mutation now owns the record — the record is invalidated: the
-     value left in place is a local guess, not server-confirmed, so an active watcher reconciles it
-     on its own instead of trusting the guess as fresh.
-  4. Once the request settles, success or failure, mark this resource's lists stale.
+- **`updateTarget`** and **`deleteTarget`** are optimistic, built directly on TanStack's own
+  mutation lifecycle (`onMutate`/`onSuccess`/`onError`/`onSettled`), and share one protocol:
+  1. TanStack marks the mutation `pending` — visible to `isSaving`, and to every OTHER read or
+     mutation asking "is this id being changed?" — before anything below runs.
+  2. `onMutate` cancels the record's own in-flight read (a `fetchTarget` or `watchTarget` of that
+     id) — its answer is never stored, so it cannot undo the edit or bring a deleted record back.
+     Nothing else is cancelled: a list read of the scope keeps running (see the write guarantee
+     above). It then snapshots the record and applies the change locally: `updateTarget` merges
+     `itemData` into it, `deleteTarget` removes it. Both skipped if `dependsOn` changed in the
+     meantime. The snapshot is taken right here, not when the call started — a same-tick sibling
+     mutation on the same id may already have applied its own change by this point, and a later
+     rollback returns to THAT, never to a value from before either call ran.
+  3. The request runs. Once it settles, `onSuccess`/`onError` only touch the record if it still
+     holds exactly this call's own change: a newer mutation on the same id owns it otherwise, so
+     neither a failed older update nor a stale older success can undo what that newer one did. On
+     failure the record goes back to its snapshot (removed, if it did not exist). Either way — a
+     rollback, or a success skipped because a newer mutation now owns the record — the record is
+     invalidated: the value left in place is a local guess, not server-confirmed, so an active
+     watcher reconciles it on its own instead of trusting the guess as fresh.
+  4. `onSettled` marks this resource's lists stale, success or failure alike.
 
   ```mermaid
   sequenceDiagram
       participant Call as updateTarget/deleteTarget
-      participant Guard as write guard
+      participant TQ as TanStack MutationCache
       participant Cache as record cache
       participant Server
-      Call->>Guard: beginMutation(id) — id is now OWNED by this call
-      Call->>Cache: cancel the record's own in-flight read
-      Call->>Cache: snapshot(id), then apply the optimistic change
-      Call->>Server: send the request
+      Call->>TQ: mutate() — status: pending, from this line on
+      TQ->>Cache: onMutate — cancel the record's own in-flight read
+      TQ->>Cache: onMutate — snapshot(id), then apply the optimistic change
+      TQ->>Server: send the request
       alt still owns id when the response lands
-          Server-->>Call: success
-          Call->>Cache: store the result (or keep the optimistic patch — see below)
-          Call->>Cache: invalidate the record — a watcher reconciles with the server
+          Server-->>TQ: success
+          TQ->>Cache: onSuccess — store the result (or keep the optimistic patch — see below)
+          TQ->>Cache: onSuccess — invalidate the record, a watcher reconciles with the server
       else still owns id, request failed
-          Server-->>Call: failure
-          Call->>Cache: restore(id, snapshot)
-          Call->>Cache: invalidate the record
+          Server-->>TQ: failure
+          TQ->>Cache: onError — restore(id, snapshot)
+          TQ->>Cache: onError — invalidate the record
       else a NEWER mutation now owns id
-          Note over Call,Cache: this call's answer is stale either way — do nothing to the record
+          Note over TQ,Cache: this call's answer is stale either way — do nothing to the record
       end
-      Call->>Cache: mark this resource's lists stale (success or failure, regardless of ownership)
+      TQ->>Cache: onSettled — mark this resource's lists stale, regardless of ownership
   ```
+
+  A read blocked by an in-flight mutation on the same id cancels its OWN query instead of
+  resolving with its answer — TanStack then discards whatever it would have written and reverts
+  to what is already cached, with that entry's ORIGINAL timestamp: a background read landing
+  mid-mutation neither resurrects a record the mutation just removed, nor stamps an unconfirmed
+  optimistic patch fresh.
 
 - **`updateTarget`** on success stores the response as the record's new, full data (`merge: true`
   merges it in instead). A response that is not a record object (`undefined`, `null`, an array, a
   primitive), or `applyResponse: false`, keeps the optimistic patch as the record. The optimistic
-  patch, without an explicit `id`, is applied under the id inside `itemData`; the response is
-  then stored under **its own** id (the response's, not `itemData`'s) when `id` was omitted —
-  the normal case where both agree, since a real API echoes the id back. Pass `id` explicitly
-  when `itemData` might not carry one, so both steps agree on the same record.
+  patch, without an explicit `id`, is applied under the id inside `itemData`. The response is
+  stored under the id it was asked with (`id`, or `itemData`'s own) whenever the response itself
+  carries no usable id of its own — an ack-only or partial (`merge: true`) response — so it always
+  lands on the record actually being updated, never a fabricated one. When the response DOES carry
+  its own id and it differs from the one asked with (a slug endpoint that echoes back the full
+  record, say), the response is stored under **its own** id and the requested id becomes a pointer
+  to it — the same rule a `fetchTarget` by that same slug follows (see the alternate-key note
+  under [Reading](#reading), above).
 - **`mutateAny`**: a command with no record shape. Invalidates nothing; call
   `queryClient.invalidateQueries` yourself when it changes data.
 - Marking the lists stale reaches every list kind (`all`, `parent`, `page`, `search`): active list
@@ -409,8 +445,11 @@ const saving = computed(() => users.isLoading(['profile-form']))
 users.updateTarget(save, patch, id, { key: ['profile-form'] })
 ```
 
-`isSaving(id)` covers `updateTarget`/`deleteTarget` only — a record being *created* has no stable
-id of its own yet to key this by, and `mutateAny` carries no record id at all. Like `isLoading`,
+`isSaving(id)` resolves `id` first, so `isSaving('my-slug')` and `isSaving(7)` agree once
+`'my-slug'` is a known pointer to `7` — an `updateTarget`/`deleteTarget` call made by either
+resolves to the same mutation key. `isSaving(id)` covers `updateTarget`/`deleteTarget` only — a
+record being *created* has no stable id of its own yet to key this by, and `mutateAny` carries no
+record id at all. Like `isLoading`,
 call it inside a `computed` or straight in a template — both track it:
 
 ```vue
@@ -488,19 +527,21 @@ sequenceDiagram
     participant QC as QueryClient
     participant W as Active watcher
     App->>Res: dependsOn changes (logout, language)
-    Res->>QC: cancel + drop every entry under the old value
+    Res->>QC: cancel + drop the old value's entries — unless another instance still shows it
     W->>QC: its key now embeds the new value
     QC-->>W: served from cache, or fetched
     Note over Res,QC: an answer from the old value arrives
-    Res--xQC: not stored
+    Res--xQC: not stored — unless another instance still shows the old value
     App->>Res: updateTarget(...) succeeds
     Res->>QC: mark this resource's lists stale
     QC-->>W: active lists refetch
 ```
 
 - Under the old value, everything is cancelled and dropped (records included), not merely marked
-  stale: one user's data never shows for the next, and a language switch never mixes languages.
-- An answer or rollback that arrives after the change is discarded.
+  stale: one user's data never shows for the next, and a language switch never mixes languages —
+  unless another live instance still shows that value (see below), in which case it is left alone.
+- An answer or rollback for the old value that arrives after the change is stored under the OLD
+  value, same as always, as long as some instance still shows it; discarded only once nothing does.
 - Active watchers switch to the new value on their own.
 - When a resource is created, it drops every entry of its `resourceKey` cached under a
   `dependsOn` value **nothing still alive claims**: the scope changed while no instance was around
@@ -537,6 +578,13 @@ sequenceDiagram
   watcher fetches again on its next invalidation, window focus or key change. The `maxRecords`
   wipe is different again: an observed record is never even a candidate for eviction (see
   [maxRecords](#maxrecords)) — nothing is emptied, so there is nothing to refetch.
+- **A failed one-shot read** (`fetch*`, not `watch*`) that never held any data is only an error
+  marker, so it is removed once nothing else needs it — unless an active watcher shows that same
+  key. There it is left alone, not emptied: emptying it would reset the watcher back to its
+  initial (pending, no error) state and wipe the very error the watcher exists to display. The
+  watcher keeps showing that error and retries it on its own (window focus, reconnect, its own
+  `staleTime`); a one-shot entry that already held data before the failed refetch is never touched
+  either way.
 
 ## maxRecords
 
@@ -551,9 +599,15 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   nothing, so it never triggers the wipe.
 - The fetch that crosses the bound keeps its own entry: it resolves its items (or record) and
   caches it. Queries still fetching are spared too: their answers are on the way.
-- **A record something is actively watching is never dropped by the wipe** — it still counts
-  toward the bound, it is just never the one evicted. Dropping it would empty a detail view with
-  nothing telling it to refetch.
+- **What is on screen is never dropped by the wipe** — collected straight from the cache right
+  before it runs: a record something is actively watching; the records behind a watched LIST's own
+  rows, even though those individual records have no observer of their own; and the record a
+  watched ALTERNATE-KEY pointer resolves to, same reasoning. All still count toward the bound, they
+  are just never the ones evicted — dropping any of them would leave something on screen pointing
+  at ids that resolve to nothing (a list), or serving "nothing" for a record still shown elsewhere
+  (an alias), with nothing telling it to refetch. The bound can be exceeded by what is on screen —
+  already true for a directly-watched record, and this only extends the same rule to a watched
+  list's rows and a watched alias's target.
 - The mutations and `addRecord`/`editRecord` never trigger it: they write one record you already
   hold data for, not a batch of possibly-new ones.
 - Harmless for server-paginated screens. An infinite-scroll screen rendering `itemList` sees the
@@ -570,8 +624,8 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
 - **`partial: true`** for a list endpoint that omits detail-only fields: it merges, and does not
   make the fuller record look freshly fetched.
 - **Two *mutations* on the same record race by arrival order, not by which one you called first.**
-  The write guard (see the guarantee above) protects a mutation from a *read*'s stale answer, not
-  from another mutation on the same id: `updateTarget`'s success is guarded against a newer
+  The write guarantee (above) protects a mutation from a *read*'s stale answer, not from another
+  mutation on the same id: `updateTarget`'s success is guarded against a newer
   mutation (a concurrent `deleteTarget` can't be resurrected by a stale `updateTarget` success), but
   a `deleteTarget` that then itself *fails* still rolls back to whatever the record held right
   before it applied its own change — which, raced against another mutation, may be that mutation's

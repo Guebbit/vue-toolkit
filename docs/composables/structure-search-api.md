@@ -60,6 +60,12 @@ const { pageItemList, totalItems, pageCurrent, pageTotal } = storeToRefs(useProd
 Changing `pageCurrent` or `pageSize` fetches the new page on its own. Editing `filters` does
 nothing until `search()` runs.
 
+Changing `pageSize` resets `pageCurrent` to 1 synchronously, in the same tick — a page number from
+the old size rarely means anything under the new one. ⚠ Setting `pageCurrent` to something else
+right after, in that same tick, keeps that value instead of being forced back to 1: useful for
+restoring `?page=4&size=25` from a URL. Only one request ever goes out for a `pageSize` change: the
+reset always lands before any query can see the old page at the new size.
+
 ## The applied search
 
 ```mermaid
@@ -78,8 +84,8 @@ flowchart LR
   edits to the live filters never reach it.
 - `pageItemList`, `totalItems` and `pageTotal` read the applied search's entry for the current
   `pageCurrent` and `pageSize`. Before anything is applied they are `[]`, `0` and `0`. While a
-  page/size/filters change is in flight and the current combination has not landed yet,
-  `pageItemList` keeps showing the most recently cached page instead of dropping to `[]` — see
+  page, size OR filters change is in flight and the current combination has not landed yet,
+  `pageItemList` keeps showing whatever was shown a moment ago instead of dropping to `[]` — see
   [`isPlaceholder`](#totalitems-pagetotal-and-isplaceholder) below.
 - Editing the live filters never changes what is shown and never fetches. A page change does not
   apply them either: it fetches another page of the **applied** search.
@@ -153,16 +159,21 @@ Neither `search()`, `refetch()` nor `suspense()` rejects: a failure shows in `er
 served from cache still has it.
 
 - `totalItems` is the applied search's total for the current page. While a new page loads, it
-  shows the applied search's most recent total from any of its cached pages, so the pager does not
-  vanish on a page change.
+  shows the applied search's most recent total from any of its cached pages; failing that, the
+  last total actually shown on screen (see `isPlaceholder`) — so the pager does not vanish on a
+  page, size OR filters change.
 - `pageTotal` is `Math.ceil(totalItems / pageSize)`.
 - An API that reports no total can resolve `totalItems: 0` (or the item count).
-- `isPlaceholder` is `true` exactly while `pageItemList` is showing that same fallback — a
-  previously cached page, kept on screen because the current page/size/filters combination has
-  not landed yet — and `false` once the real current page is cached, including an empty one.
-  `false` also on a genuinely empty first load: there is no previous page to fall back to, so
-  `pageItemList` is `[]` for a different reason than a placeholder. Dim the list or hold off an
-  empty-state message while it is `true`:
+- `isPlaceholder` is `true` exactly while `pageItemList` is showing a placeholder — whatever was
+  shown a MOMENT AGO, kept on screen because the current page/size/filters combination has not
+  landed yet — and `false` once the real current page is cached, including an empty one. Unlike
+  TanStack's own `keepPreviousData`, the fallback is not limited to the applied filters' own pages:
+  applying filters that have never been fetched before still keeps the previous search on screen
+  instead of dropping to `[]`, exactly like a plain page change does. `false` also on a genuinely
+  empty first load: nothing has ever been shown yet to fall back to, so `pageItemList` is `[]` for
+  a different reason than a placeholder. The placeholder itself is cleared — never shown across —
+  a `dependsOn` change or a `resetAll()`, so one user's or one language's rows never flash onto
+  another's screen. Dim the list or hold off an empty-state message while it is `true`:
   ```vue
   <div :class="{ 'opacity-50': isPlaceholder }">
       <ProductRow v-for="item in pageItemList" :key="item.id" :item="item" />
@@ -172,26 +183,53 @@ served from cache still has it.
 ## fetchSearch
 
 `fetchSearch(apiCall, filters = {}, page = 1, pageSize = 10, settings?)`, with
-`apiCall: (context) => Promise<{ items, totalItems }>` and `settings`: `forced`, `merge`,
-`partial`, `staleTime`, `key`.
+`apiCall: (context: ISearchFetchContext<F>) => Promise<{ items, totalItems }>` and `settings`:
+`forced`, `merge`, `partial`, `staleTime`, `key`.
 
 - Makes `filters` (and `settings.key`) the applied search, replacing whatever was applied,
   `watchSearch`'s included: an active `watchSearch` then follows it.
 - Resolves `{ items, totalItems }` for the page it was asked for, from cache on a hit.
-- Also applies `page` and `pageSize` to `pageCurrent`/`pageSize`: `pageItemList`/`totalItems`
-  show the very page this call fetched, never a page left over from before it.
+- Also applies `page` and `pageSize` to `pageCurrent`/`pageSize`, synchronously: `pageItemList`/
+  `totalItems` show the very page this call fetched, never a page left over from before it, and no
+  frame in between shows the old page at the new size.
+
+`context` is `{ filters, page, pageSize, signal }` — the search this call was asked for, FROZEN at
+the moment it started, plus the `{ signal }` every read context has:
 
 ```ts
 api.fetchSearch(
     (context) =>
-        listProducts({ ...filters.value, page: 2, pageSize: 20 }, { signal: context.signal }).then(
-            (r) => ({ items: r.data.items, totalItems: r.data.total })
-        ),
+        listProducts(
+            { ...context.filters, page: context.page, pageSize: context.pageSize },
+            { signal: context.signal }
+        ).then((r) => ({ items: r.data.items, totalItems: r.data.total })),
     filters.value,
     2,
     20
 )
 // api.pageCurrent.value === 2, api.pageSize.value === 20, api.pageItemList shows that page
+```
+
+Read the search from `context`, not from live `filters`/`pageCurrent`/`pageSize` refs. TanStack
+keeps the last `apiCall` a query was given and re-runs THAT closure on an unrelated invalidation
+(another mutation on this resource, `invalidateQueries` from elsewhere) — not on a fresh call from
+you. A closure reading live state then asks the server with whatever is in the refs at that later
+moment, not the search it was originally asked to run, and the answer is still stored under the
+OLD key. `context` is immune to this: its fields are a snapshot, so a re-run asks the same
+question again. An `apiCall` typed on the plain `{ signal }` read context still compiles — it just
+has to ignore the extra fields.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Search as fetchSearch(apiCall)
+    participant TQ as TanStack query (applied search key)
+    User->>Search: fetchSearch reads live filters/pageSize
+    Search->>TQ: fetches, installs apiCall as the query's queryFn
+    Note over TQ: an unrelated invalidation re-runs THAT SAME closure later
+    User->>User: types "zzz" (not submitted), deletes a record elsewhere
+    TQ->>TQ: invalidateQueries re-runs apiCall — with live state, sends "zzz"
+    Note over Search: with context instead: the same frozen search runs again, harmlessly
 ```
 
 - Nothing observes a page fetched this way: in a browser it is dropped 5 minutes later (see
@@ -226,7 +264,7 @@ Returns everything `useStructureRestApi` returns, with these redefined or added:
 
 | Member                                                           | Meaning                                                              |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `pageItemList`                                                   | `ComputedRef<T[]>`: items of the applied search's current page, or the most recently cached page's items while the current one has not landed yet. |
+| `pageItemList`                                                   | `ComputedRef<T[]>`: items of the applied search's current page, or whatever was shown a moment ago while the current one has not landed yet. |
 | `isPlaceholder`                                                  | `ComputedRef<boolean>`: `true` exactly while `pageItemList` is showing that fallback. |
 | `pageTotal`                                                      | `ComputedRef<number>`: `Math.ceil(totalItems / pageSize)`.           |
 | `totalItems`                                                     | `ComputedRef<number>`: the applied search's server-reported total.   |
@@ -238,7 +276,10 @@ Returns everything `useStructureRestApi` returns, with these redefined or added:
 - **`pageSize` is part of the cache key.** Page 2 of 10 is not page 2 of 25. Changing `pageSize`
   also sets `pageCurrent` back to 1 (on this composable and `useStructureCrudApi`).
 - **Filters are plain data.** They are compared by content (canonical JSON), so keep them to
-  objects, arrays, primitives and Dates.
+  objects, arrays, primitives, Dates, Sets and Maps — two searches whose filters hold different
+  Sets (a multi-select's `Set<string>`, say) land in different cache entries, not one shared key.
 - **`resetAll()`** drops this resource's search pages with everything else; an active
-  `watchSearch` then fetches its page again.
+  `watchSearch` then fetches its page again. It also clears `isPlaceholder`'s fallback, exactly
+  like a `dependsOn` change does — neither ever leaks a wiped or previous-scope search onto the
+  screen as a placeholder.
 - **A watcher never rejects.** Read `error` or pass `onError`, or a failed search goes unnoticed.

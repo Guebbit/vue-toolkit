@@ -4,8 +4,9 @@
  *   - editing the live filters in place (a form's v-model) changes nothing until search();
  *   - the total belongs to the search, not to one page: it survives a page change while the
  *     next page loads, so the pager does not vanish;
- *   - pageItemList keeps the previous page's items while the next one loads too, flagged by
- *     isPlaceholder, instead of dropping to [] and back;
+ *   - pageItemList keeps the previous page's items while the next page or search loads too,
+ *     flagged by isPlaceholder, instead of dropping to [] and back; the fallback is the most
+ *     recently updated page;
  *   - a search's bucket `key` is part of what is applied;
  *   - search() on the page already shown, cached and fresh, still settles through onSuccess.
  */
@@ -120,6 +121,30 @@ describe('INTENTION · the applied search', () => {
         expect(searchApi.isPlaceholder.value).toBe(false);
     });
 
+    it('pageItemList keeps the previous search on screen while new filters load, flagged by isPlaceholder', async () => {
+        const { searchApi, filters } = makeSearchComposable<IItem, number, IFilters>(
+            {},
+            { name: 'first' }
+        );
+        const pages: ReturnType<typeof deferred<ISearchResult<IItem>>>[] = [];
+        const { search } = searchApi.watchSearch(() => {
+            pages.push(deferred<ISearchResult<IItem>>());
+            return pages.at(-1)!.promise;
+        });
+        await flush();
+        pages[0].resolve({ items: [{ id: 1, name: 'first' }], totalItems: 30 });
+        await flush();
+
+        filters.value.name = 'second';
+        void search();
+        await flush();
+
+        // The new search is still in flight: the previous one stays on screen, flagged.
+        expect(pages).toHaveLength(2);
+        expect(searchApi.pageItemList.value).toEqual([{ id: 1, name: 'first' }]);
+        expect(searchApi.isPlaceholder.value).toBe(true);
+    });
+
     it('isPlaceholder is false on a genuinely empty first load (nothing to show as a placeholder)', async () => {
         const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
         const first = deferred<ISearchResult<IItem>>();
@@ -128,32 +153,6 @@ describe('INTENTION · the applied search', () => {
 
         expect(searchApi.pageItemList.value).toEqual([]);
         expect(searchApi.isPlaceholder.value).toBe(false);
-    });
-
-    it('the total on an uncached page comes from the MOST RECENTLY cached page, not any cached one', async () => {
-        useFakeClock();
-        const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
-
-        await searchApi.fetchSearch(
-            () => Promise.resolve({ items: [{ id: 1, name: 'a' }], totalItems: 10 }),
-            {},
-            1,
-            10
-        );
-        await advance(1000);
-        await searchApi.fetchSearch(
-            () => Promise.resolve({ items: [{ id: 2, name: 'a' }], totalItems: 20 }),
-            {},
-            2,
-            10
-        );
-
-        // Page 3 has no cache entry of its own: totalItems falls back to the most recently cached
-        // page, which must be page 2 (fetched later) over page 1, not merely "some" cached page.
-        searchApi.pageCurrent.value = 3;
-        expect(searchApi.totalItems.value).toBe(20);
-
-        restoreClock();
     });
 
     it('a search with a key shows its own entry', async () => {
@@ -186,5 +185,49 @@ describe('INTENTION · the applied search', () => {
 
         expect(operation).toHaveBeenCalledTimes(1);
         expect(onSuccess).toHaveBeenCalledTimes(2);
+    });
+});
+
+/**
+ * A search page answering one item and a total.
+ *
+ * @param id - the item's id
+ * @param totalItems - the total it reports
+ * @returns the apiCall
+ */
+const pageOf = (id: number, totalItems: number) => () =>
+    Promise.resolve({ items: [{ id, name: 'a' }], totalItems });
+
+describe('INTENTION · the applied search, on a fake clock', () => {
+    beforeEach(() => useFakeClock());
+    afterEach(restoreClock);
+
+    it('the total on an uncached page comes from the MOST RECENTLY cached page, not any cached one', async () => {
+        const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
+
+        await searchApi.fetchSearch(pageOf(1, 10), {}, 1, 10);
+        await advance(1000);
+        await searchApi.fetchSearch(pageOf(2, 20), {}, 2, 10);
+
+        // Page 3 has no cache entry of its own: totalItems falls back to the most recently cached
+        // page, which must be page 2 (fetched later) over page 1, not merely "some" cached page.
+        searchApi.pageCurrent.value = 3;
+        expect(searchApi.totalItems.value).toBe(20);
+    });
+
+    it('the placeholder is the most recently UPDATED page, not the one cached last', async () => {
+        const { searchApi } = makeSearchComposable<IItem, number, IFilters>();
+        await searchApi.fetchSearch(pageOf(1, 10), {}, 1, 10);
+        await advance(1000);
+        await searchApi.fetchSearch(pageOf(2, 20), {}, 2, 10);
+        await advance(1000);
+        // Page 1 again, answered anew: now the freshest, though page 2 was cached after it.
+        await searchApi.fetchSearch(pageOf(11, 30), {}, 1, 10, { forced: true });
+
+        searchApi.pageCurrent.value = 3;
+
+        expect(searchApi.pageItemList.value).toEqual([{ id: 11, name: 'a' }]);
+        expect(searchApi.isPlaceholder.value).toBe(true);
+        expect(searchApi.totalItems.value).toBe(30);
     });
 });

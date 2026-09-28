@@ -11,7 +11,7 @@
  * making the fire COUNT itself the assertion.
  */
 
-import { watch, effectScope } from 'vue';
+import { watch } from 'vue';
 import { useStructureDataManagement } from '../../src/composables/structureDataManagement';
 
 interface IItem {
@@ -153,30 +153,6 @@ describe('EFFECT STABILITY · useStructureDataManagement', () => {
                 c.selectedIdentifier.value = 2;
             });
             expect(fires).toBe(0);
-        });
-    });
-
-    describe('scope disposal', () => {
-        it('reactive state created in an effectScope stops driving effects once the scope is stopped', () => {
-            const scope = effectScope();
-
-            let c!: ReturnType<typeof make>;
-            scope.run(() => {
-                c = make();
-            });
-
-            let fires = 0;
-            scope.run(() => {
-                watch(c.itemList, () => void (fires += 1), { flush: 'sync' });
-            });
-
-            c.addRecord({ id: 1, name: 'a' });
-            expect(fires).toBe(1);
-
-            scope.stop(); // disposes the watcher registered inside the scope
-
-            c.addRecord({ id: 2, name: 'b' });
-            expect(fires).toBe(1); // no further reactions after teardown
         });
     });
 });

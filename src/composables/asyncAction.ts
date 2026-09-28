@@ -10,6 +10,7 @@
  */
 import { ref, shallowRef, type Ref } from 'vue';
 import { extractErrorMessage } from '@guebbit/js-toolkit';
+import { promiseTry } from '../internal/promiseTry.js';
 
 /**
  * What an overtaken run resolves with.
@@ -100,7 +101,9 @@ export const useAsyncAction = <T, TArguments extends unknown[] = []>(
         loading.value = true;
         error.value = undefined;
 
-        return action(...parameters)
+        // promiseTry: a synchronous throw from `action` (before it returns a promise) rejects
+        // like any other failure instead of escaping this call.
+        return promiseTry(() => action(...parameters))
             .then((result): T | undefined => {
                 if (current !== latest) return OVERTAKEN;
                 data.value = result;

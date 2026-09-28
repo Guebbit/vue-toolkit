@@ -3,10 +3,17 @@
  * read that started before a mutation must not overwrite what the mutation leaves behind once it
  * lands late.
  *
- * Before the write guard (src/internal/writeGuard.ts), `updateTarget`/`deleteTarget` cancelled
- * every list read of the scope, not just the record's own — an unrelated in-flight `fetchAll`
- * would resolve `[]` and never retry. And nothing stopped a read's late answer (`fetchTarget`'s
- * id-less path, `fetchMultiple`) from overwriting a record a mutation had already moved past.
+ * `updateTarget`/`deleteTarget` cancel only the record's own in-flight read, never the whole
+ * scope's list reads — an unrelated in-flight `fetchAll` still resolves normally and stores every
+ * id it carries except the one being mutated. Whether a late answer for the mutated id may still
+ * write is asked of TanStack's own `MutationCache` (`src/internal/recordMutations.ts`'s
+ * `canWrite`) — the exact question `isSaving` asks — instead of a private, per-instance write
+ * guard: one cache per `QueryClient` means every instance sees every mutation, and ids are always
+ * compared as strings.
+ *
+ * The same guarantee holds for a by-id read of the record itself started after the mutation began
+ * (nothing cancels it: only `canWrite` stops it), for a string and a number spelling of one id,
+ * and across two instances of one resource sharing a client.
  *
  * The last describe block below covers a different race: two mutations on the SAME id, started in
  * the same tick. Before `resourceMutations.ts`'s snapshot moved to apply time, both captured
@@ -14,8 +21,9 @@
  * confirmed success and land the record back on data from before either call started.
  */
 
+import { ref } from 'vue';
 import { deferredApi, apiResolve } from '../_helpers/fakeApi';
-import { makeComposable, clearAllInstances } from '../_helpers/harness';
+import { makeComposable, makeShared, clearAllInstances, flush } from '../_helpers/harness';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
@@ -79,6 +87,99 @@ describe('LIFECYCLE · a mutation racing a read of the same scope', () => {
 
         expect(c.getRecord(1)?.name).toBe('Server Won');
         expect(c.getRecord(2)).toEqual(USERS[1]);
+    });
+
+    it("a string id and a number id guard the same record: updateTarget(…, '1') keeps a list read's stale copy of record 1 out", async () => {
+        const c = makeComposable<IUser, number | string>();
+        const list = deferredApi<IUser[]>();
+        const listPending = c.fetchAll(list.call);
+
+        // a route param: the id arrives as a string, the server's records carry a number
+        await c.updateTarget(
+            apiResolve({ ...USERS[0], name: 'Server Won' }),
+            { name: 'Optimistic' },
+            '1'
+        );
+
+        list.control.resolve([{ ...USERS[0], name: 'Stale' }, USERS[1]]);
+        await listPending;
+
+        expect(c.getRecord(1)?.name).toBe('Server Won');
+    });
+});
+
+describe('LIFECYCLE · a by-id read of the record a mutation is changing', () => {
+    it('a fetchTarget started while an updateTarget is in flight shows the edit, then the update response', async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        const save = deferredApi<IUser>();
+        const pendingUpdate = c.updateTarget(save.call, { name: 'Optimistic' }, 1);
+        await flush(); // the edit is applied
+
+        // started after the update began: nothing cancels it, only the write guard stops it
+        await c.fetchTarget(apiResolve({ ...USERS[0], name: 'Stale' }), 1, { forced: true });
+        expect(c.getRecord(1)?.name).toBe('Optimistic');
+
+        save.control.resolve({ ...USERS[0], name: 'Server Won' });
+        await pendingUpdate;
+        expect(c.getRecord(1)?.name).toBe('Server Won');
+    });
+
+    it('a watchTarget refetch while an updateTarget is in flight shows the edit, then the update response', async () => {
+        const c = makeComposable<IUser, number>();
+        const answers = [USERS[0], { ...USERS[0], name: 'Stale' }];
+        const get = jest.fn(() =>
+            Promise.resolve(answers.shift() ?? { ...USERS[0], name: 'Server Won' })
+        );
+        const handle = c.watchTarget(get, ref(1));
+        await flush();
+        const save = deferredApi<IUser>();
+        const pendingUpdate = c.updateTarget(save.call, { name: 'Optimistic' }, 1);
+        await flush();
+
+        await handle.refetch(); // answers with the copy from before the update
+        expect(c.getRecord(1)?.name).toBe('Optimistic');
+
+        save.control.resolve({ ...USERS[0], name: 'Server Won' });
+        await pendingUpdate;
+        await flush();
+        expect(c.getRecord(1)?.name).toBe('Server Won');
+    });
+
+    it('a fetchTarget landing while a deleteTarget is in flight does not bring the record back', async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        const remove = deferredApi<{ ok: boolean }>();
+        const pendingDelete = c.deleteTarget(remove.call, 1);
+        await flush(); // the record is removed locally
+
+        // started after the delete began: nothing cancels it, only the write guard stops it
+        await c.fetchTarget(apiResolve({ ...USERS[0], name: 'Stale' }), 1);
+
+        remove.control.resolve({ ok: true });
+        await pendingDelete;
+
+        expect(c.getRecord(1)).toBeUndefined();
+    });
+});
+
+describe('LIFECYCLE · two instances of one resource on one client', () => {
+    it("a mutation in one instance keeps the other instance's list read from overwriting the record", async () => {
+        const { a, b } = makeShared<IUser, number>();
+        const list = deferredApi<IUser[]>();
+        const listPending = b.fetchAll(list.call);
+
+        await a.updateTarget(
+            apiResolve({ ...USERS[0], name: 'Server Won' }),
+            { name: 'Optimistic' },
+            1
+        );
+
+        list.control.resolve([{ ...USERS[0], name: 'Stale' }, USERS[1]]);
+        await listPending;
+
+        // one cache: both instances show the same record
+        expect(a.getRecord(1)?.name).toBe('Server Won');
     });
 });
 

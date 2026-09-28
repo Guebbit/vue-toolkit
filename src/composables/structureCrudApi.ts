@@ -235,7 +235,10 @@ export const useStructureCrudApi = <
         api.pageCurrent.value = 1;
         return withOperation('search', (search) =>
             api.fetchSearch(
-                (context) => search(filters.value, 1, api.pageSize.value, context),
+                // Reads the search from the context, frozen when this call started — never from
+                // live `filters`/`pageSize` — so a later re-run (TanStack re-running the last
+                // queryFn it was given, on an unrelated invalidation) asks the same question again.
+                (context) => search(context.filters, context.page, context.pageSize, context),
                 filters.value,
                 1,
                 api.pageSize.value,

@@ -5,11 +5,12 @@
  *   - resolve with the call's result
  *   - cache ONLY when a key is given (opt-in), keyed per key
  *   - honour forced; a failed first call leaves no entry behind, so a retry runs
+ *   - a cancelled keyed call resolves what its entry already held
  *   - count toward isLoading() while in flight, key or no key
  */
 
-import { makeComposable, clearAllInstances } from '../_helpers/harness';
-import { apiReject } from '../_helpers/fakeApi';
+import { makeComposable, clearAllInstances, flush } from '../_helpers/harness';
+import { apiReject, apiResolve, deferredApi } from '../_helpers/fakeApi';
 import type { IUser } from '../_helpers/fixtures';
 
 afterEach(clearAllInstances);
@@ -81,6 +82,18 @@ describe('UNIT · fetchAny', () => {
         const retry = jest.fn(() => Promise.resolve('ok'));
         await expect(c.fetchAny(retry, { key: ['stats'] })).resolves.toBe('ok');
         expect(retry).toHaveBeenCalledTimes(1);
+    });
+
+    it('a cancelled keyed refresh resolves what the entry already held instead of rejecting', async () => {
+        const c = make();
+        await c.fetchAny(apiResolve('v1'), { key: ['stats'] });
+        const pending = c.fetchAny(deferredApi<string>().call, { key: ['stats'], forced: true });
+        await flush();
+
+        // TanStack: revert false fails the fetch with a CancelledError and keeps the entry's data
+        await c.queryClient.cancelQueries({ queryKey: ['resource', 'any'] }, { revert: false });
+
+        await expect(pending).resolves.toBe('v1');
     });
 
     it('counts toward isLoading() during the call, key or no key', async () => {
