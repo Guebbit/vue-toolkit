@@ -321,3 +321,63 @@ describe('useLivenessProbe', () => {
         });
     });
 });
+
+/** Placeholder for a rejecter that is assigned once the probe runs. */
+const noop = (): void => {};
+
+describe('useLivenessProbe · teardown boundaries', () => {
+    it('stop() cancels a pending retry: no further probe ever runs', async () => {
+        const { result } = inScope(() => useLivenessProbe(probe, { retryDelay: 1000, target }));
+        await settle();
+        expect(probe).toHaveBeenCalledTimes(1);
+        result.stop();
+        await jest.advanceTimersByTimeAsync(10_000);
+        expect(probe).toHaveBeenCalledTimes(1);
+    });
+
+    it('stop() removes the online listener, and check() after stop probes nothing', async () => {
+        const { result } = inScope(() => useLivenessProbe(probe, { immediate: false, target }));
+        result.stop();
+        target.dispatchEvent(new Event('online'));
+        await result.check();
+        await settle();
+        expect(probe).not.toHaveBeenCalled();
+    });
+
+    it('a probe still in flight at stop() cannot write down or schedule a retry', async () => {
+        let fail: (error: Error) => void = noop;
+        const slow = jest.fn(() => new Promise<unknown>((_, reject) => (fail = reject)));
+        const { result } = inScope(() => useLivenessProbe(slow, { retryDelay: 1000, target }));
+        result.stop();
+        fail(new Error('late'));
+        await settle();
+        await jest.advanceTimersByTimeAsync(5000);
+        expect(result.down.value).toBe(false);
+        expect(slow).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('useLivenessProbe · no event target', () => {
+    it('still probes with no target and no global addEventListener, registering nothing', async () => {
+        const original = Object.getOwnPropertyDescriptor(globalThis, 'addEventListener');
+        // Node has no global addEventListener; make that explicit whatever the runner provides.
+        Object.defineProperty(globalThis, 'addEventListener', {
+            value: undefined,
+            configurable: true,
+            writable: true
+        });
+        const spy = jest.spyOn(EventTarget.prototype, 'addEventListener');
+        try {
+            const { result } = inScope(() => useLivenessProbe(probe, { retryDelay: 1000 }));
+            await settle();
+            expect(probe).toHaveBeenCalledTimes(1);
+            expect(result.down.value).toBe(true);
+            expect(spy).not.toHaveBeenCalled();
+            expect(() => result.stop()).not.toThrow();
+        } finally {
+            spy.mockRestore();
+            if (original) Object.defineProperty(globalThis, 'addEventListener', original);
+            else Reflect.deleteProperty(globalThis, 'addEventListener');
+        }
+    });
+});

@@ -7,10 +7,10 @@
  */
 
 import { ref } from 'vue';
-import type { QueryClient } from '@tanstack/vue-query';
+import { QueryObserver, type QueryClient } from '@tanstack/vue-query';
 import { createQueryRecordStore } from '../../src/internal/queryRecordStore';
 import { createResourceKeys } from '../../src/internal/resourceKeys';
-import { newTestClient } from '../structureRestApi/_helpers/harness';
+import { flush, newTestClient } from '../structureRestApi/_helpers/harness';
 
 interface IItem {
     id: number;
@@ -56,6 +56,86 @@ describe('UNIT · queryRecordStore.asFetched', () => {
     });
 });
 
+/**
+ * Watches the `all` list of the store's resource, counting how often its query function runs.
+ *
+ * @param queryClient - the client to watch on
+ * @param keys - the resource's key layout
+ * @returns the fetch counter and the unsubscribe function
+ */
+const watchList = (queryClient: QueryClient, keys: ReturnType<typeof createResourceKeys>) => {
+    const counter = { fetches: 0 };
+    const observer = new QueryObserver(queryClient, {
+        queryKey: keys.entry('all', []),
+        queryFn: () => {
+            counter.fetches += 1;
+            return Promise.resolve({ ids: [] });
+        },
+        staleTime: Infinity
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    return { counter, unsubscribe };
+};
+
+describe('UNIT · queryRecordStore.clear / writeAll', () => {
+    it('clear() refetches an active list watcher', async () => {
+        const { queryClient, keys, store } = makeStore();
+        const { counter, unsubscribe } = watchList(queryClient, keys);
+        await flush();
+        expect(counter.fetches).toBe(1);
+
+        store.clear();
+        await flush();
+
+        expect(counter.fetches).toBe(2);
+        unsubscribe();
+    });
+
+    it('writeAll() marks the list stale but does not refetch it', async () => {
+        const { queryClient, keys, store } = makeStore();
+        const { counter, unsubscribe } = watchList(queryClient, keys);
+        await flush();
+
+        store.writeAll({ [1]: { id: 1, name: 'Alice' } });
+        await flush();
+
+        expect(counter.fetches).toBe(1);
+        expect(queryClient.getQueryState(keys.entry('all', []))?.isInvalidated).toBe(true);
+        unsubscribe();
+    });
+});
+
+describe('UNIT · queryRecordStore.snapshot', () => {
+    it('is undefined for a record cached as null', () => {
+        const { queryClient, keys, store } = makeStore();
+        // eslint-disable-next-line unicorn/no-null
+        queryClient.setQueryData(keys.target(1), { data: null });
+
+        expect(store.snapshot(1)).toBeUndefined();
+    });
+
+    it('is undefined for a record that is not cached at all', () => {
+        const { store } = makeStore();
+
+        expect(store.snapshot(1)).toBeUndefined();
+    });
+
+    it('carries the item, its stamp and its invalidated flag', () => {
+        const { queryClient, keys, store } = makeStore();
+        queryClient.setQueryData(
+            keys.target(1),
+            { data: { id: 1, name: 'Alice' } },
+            { updatedAt: 1000 }
+        );
+
+        expect(store.snapshot(1)).toEqual({
+            item: { id: 1, name: 'Alice' },
+            updatedAt: 1000,
+            isInvalidated: false
+        });
+    });
+});
+
 describe('UNIT · queryRecordStore.restore', () => {
     it('puts the record back with the freshness stamp it was snapshotted with, not "now"', () => {
         const { queryClient, keys, store } = makeStore();
@@ -73,6 +153,16 @@ describe('UNIT · queryRecordStore.restore', () => {
             data: { data: { id: 1, name: 'Alice' } },
             dataUpdatedAt: 1000
         });
+    });
+
+    it('leaves a record valid when its snapshot was not invalidated', () => {
+        const { queryClient, keys, store } = makeStore();
+        queryClient.setQueryData(keys.target(1), { data: { id: 1, name: 'Alice' } });
+        const saved = store.snapshot(1)!;
+
+        store.restore(1, saved);
+
+        expect(queryClient.getQueryState(keys.target(1))?.isInvalidated).toBe(false);
     });
 
     it('puts back the invalidated flag the record was snapshotted with', async () => {

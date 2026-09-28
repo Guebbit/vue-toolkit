@@ -118,6 +118,106 @@ describe('PROPERTY · stableKey', () => {
     });
 });
 
+describe('PROPERTY · stableKey · Map and collection expansion', () => {
+    /** Entries with distinct string keys, so a Map built from them never collapses a pair. */
+    const uniqueEntries = fc.uniqueArray(fc.tuple(fc.string(), fc.jsonValue()), {
+        selector: ([key]) => key
+    });
+
+    it("a Map's insertion order never changes its key", () => {
+        fc.assert(
+            fc.property(uniqueEntries, fc.nat(7), (entries, rotateBy) => {
+                expect(stableKey(new Map(rotate(entries, rotateBy)))).toBe(
+                    stableKey(new Map(entries))
+                );
+            })
+        );
+    });
+
+    it('two Maps that differ in one value key differently', () => {
+        fc.assert(
+            fc.property(uniqueEntries, fc.string(), fc.string(), (entries, tagA, tagB) => {
+                fc.pre(tagA !== tagB);
+                expect(stableKey(new Map([...entries, ['tagged-key', tagA]]))).not.toBe(
+                    stableKey(new Map([...entries, ['tagged-key', tagB]]))
+                );
+            })
+        );
+    });
+
+    it('two Maps that differ in one key differently', () => {
+        expect(stableKey(new Map([['a', 1]]))).not.toBe(stableKey(new Map([['b', 1]])));
+    });
+
+    it('a Map, a Set of its entries and an array of them key three different ways', () => {
+        fc.assert(
+            fc.property(uniqueEntries, (entries) => {
+                fc.pre(entries.length > 0);
+                const keys = [
+                    stableKey(new Map(entries)),
+                    stableKey(new Set(entries)),
+                    stableKey(entries)
+                ];
+                expect(new Set(keys).size).toBe(3);
+            })
+        );
+    });
+
+    it('a self-referencing object keys without hanging, and keys the same twice', () => {
+        const loop: Record<string, unknown> = { name: 'loop' };
+        loop.self = loop;
+        const first = stableKey(loop);
+        expect(typeof first).toBe('string');
+        expect(stableKey(loop)).toBe(first);
+    });
+
+    it('a self-referencing Map keys without hanging, and keys the same twice', () => {
+        const loop = new Map<string, unknown>();
+        loop.set('self', loop);
+        expect(stableKey(loop)).toBe(stableKey(loop));
+    });
+
+    // The guard is for cycles only: a reference met twice on different branches is expanded
+    // both times, so it keys exactly like two independent copies.
+    it('a shared non-cyclic reference keys like two separate copies', () => {
+        fc.assert(
+            fc.property(fc.uniqueArray(fc.string()), (items) => {
+                const shared = new Set(items);
+                expect(stableKey({ a: shared, b: shared })).toBe(
+                    stableKey({ a: new Set(items), b: new Set(items) })
+                );
+                expect(stableKey([shared, shared])).toBe(
+                    stableKey([new Set(items), new Set(items)])
+                );
+            })
+        );
+    });
+
+    it('a shared reference is expanded on both branches, not swallowed on the second', () => {
+        const shared = new Set(['x']);
+        const key = stableKey({ a: shared, b: shared });
+        expect(key).toBe(stableKey({ a: new Set(['x']), b: new Set(['x']) }));
+        expect(key).not.toBe(stableKey({ a: new Set(['x']), b: new Set(['y']) }));
+        expect(stableKey({ a: shared, b: shared })).not.toBe(stableKey({ a: shared, b: {} }));
+    });
+
+    // Only plain objects are rebuilt: a class instance is handed to `canonicalize` as is, so a
+    // Set held inside it is not expanded.
+    it('a class instance is not expanded like a plain object', () => {
+        class Holder {
+            constructor(public readonly items: Set<string>) {}
+        }
+        expect(stableKey(new Holder(new Set(['a'])))).toBe(stableKey(new Holder(new Set(['b']))));
+        expect(stableKey({ items: new Set(['a']) })).not.toBe(stableKey({ items: new Set(['b']) }));
+    });
+
+    it('expands an array nested inside a Map value', () => {
+        expect(stableKey(new Map([['k', [new Set(['a'])]]]))).not.toBe(
+            stableKey(new Map([['k', [new Set(['b'])]]]))
+        );
+    });
+});
+
 describe('PROPERTY · hasKeyPrefix', () => {
     it('a prefix is always a prefix of itself followed by anything', () => {
         fc.assert(

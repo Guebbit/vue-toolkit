@@ -22,7 +22,8 @@
  */
 
 import { ref } from 'vue';
-import { deferredApi, apiResolve } from '../_helpers/fakeApi';
+import type { QueryClient } from '@tanstack/vue-query';
+import { deferredApi, apiResolve, apiReject } from '../_helpers/fakeApi';
 import { makeComposable, makeShared, clearAllInstances, flush } from '../_helpers/harness';
 import { USERS, type IUser } from '../_helpers/fixtures';
 
@@ -209,5 +210,132 @@ describe('LIFECYCLE · two same-tick mutations on the same id', () => {
 
         // neither call's guess is server-confirmed any more: the next read must reconcile
         expect(c.checkTarget(1)).toBe(false);
+    });
+});
+
+/**
+ * Spies on the client's `invalidateQueries` and reports what asked for a record reconcile
+ * (`refetchType: 'active'`) versus the list invalidations (no `refetchType`).
+ *
+ * @param c - the composable whose client is watched
+ * @returns counters over the calls made since the spy was installed
+ */
+const watchInvalidations = (c: { queryClient: QueryClient }) => {
+    const spy = jest.spyOn(c.queryClient, 'invalidateQueries');
+    const filters = () => spy.mock.calls.map(([filter]) => filter);
+    return {
+        spy,
+        records: () => filters().filter((filter) => filter?.refetchType === 'active').length,
+        lists: () => filters().filter((filter) => filter?.refetchType === undefined).length
+    };
+};
+
+describe('LIFECYCLE · a newer mutation on the same id wins', () => {
+    it("an older update's success is not applied and the record is invalidated instead", async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        const a = deferredApi<IUser>();
+        const b = deferredApi<IUser>();
+        const invalidations = watchInvalidations(c);
+
+        const pendingA = c.updateTarget(a.call, { name: 'A' }, 1);
+        const pendingB = c.updateTarget(b.call, { name: 'B' }, 1);
+        await flush();
+
+        a.control.resolve({ ...USERS[0], name: 'A confirmed' });
+        await pendingA;
+
+        expect(c.getRecord(1)?.name).toBe('B');
+        expect(invalidations.records()).toBe(1);
+        expect(invalidations.lists()).toBe(1);
+
+        b.control.resolve({ ...USERS[0], name: 'B confirmed' });
+        await pendingB;
+        expect(c.getRecord(1)?.name).toBe('B confirmed');
+    });
+
+    it("an older update's failure skips the rollback and does not invalidate the record", async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        const a = deferredApi<IUser>();
+        const b = deferredApi<IUser>();
+        const invalidations = watchInvalidations(c);
+
+        const pendingA = c.updateTarget(a.call, { name: 'A' }, 1);
+        const pendingB = c.updateTarget(b.call, { name: 'B' }, 1);
+        await flush();
+
+        a.control.reject(new Error('fail'));
+        await expect(pendingA).rejects.toThrow('fail');
+
+        // B owns the record: neither restored to the pre-A snapshot nor marked for reconcile
+        expect(c.getRecord(1)?.name).toBe('B');
+        expect(invalidations.records()).toBe(0);
+        // the lists still learn that a mutation settled
+        expect(invalidations.lists()).toBe(1);
+
+        b.control.resolve({ ...USERS[0], name: 'B confirmed' });
+        await pendingB;
+    });
+
+    it('an update failing alone restores the pre-update snapshot and invalidates the record', async () => {
+        const c = makeComposable<IUser, number>();
+        await c.fetchTarget(apiResolve(USERS[0]), 1);
+        const invalidations = watchInvalidations(c);
+
+        await expect(c.updateTarget(apiReject(), { name: 'A' }, 1)).rejects.toThrow();
+
+        expect(c.getRecord(1)).toEqual(USERS[0]);
+        expect(invalidations.records()).toBe(1);
+        expect(invalidations.lists()).toBe(1);
+        expect(c.checkTarget(1)).toBe(false);
+    });
+
+    it('an update failing alone on an id it created optimistically removes the record again', async () => {
+        const c = makeComposable<IUser, number>();
+
+        await expect(c.updateTarget(apiReject(), USERS[1], 2)).rejects.toThrow();
+
+        expect(c.getRecord(2)).toBeUndefined();
+    });
+
+    it('a settled mutation invalidates the record with refetchType "active" (inactive readers are not refetched)', async () => {
+        const c = makeComposable<IUser, number>();
+        const seed = apiResolve(USERS[0]);
+        await c.fetchTarget(seed, 1);
+        const invalidations = watchInvalidations(c);
+
+        await expect(c.deleteTarget(apiReject(), 1)).rejects.toThrow();
+        await flush();
+
+        expect(invalidations.spy).toHaveBeenCalledWith(
+            expect.objectContaining({ refetchType: 'active' })
+        );
+        // nothing watches record 1: only active readers refetch, so the seed call is not repeated
+        expect(seed).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('LIFECYCLE · mutation keys', () => {
+    it('mutateAny and createTarget register under [resourceKey, "any"] / [resourceKey, "create"]', async () => {
+        const c = makeComposable<IUser, number>({ resourceKey: 'people' });
+        const any = deferredApi<string>();
+        const create = deferredApi<IUser>();
+        const keysInFlight = () =>
+            c.queryClient
+                .getMutationCache()
+                .getAll()
+                .filter((mutation) => mutation.state.status === 'pending')
+                .map((mutation) => mutation.options.mutationKey);
+
+        const pendingAny = c.mutateAny(any.call);
+        expect(keysInFlight()).toEqual([['people', 'any']]);
+        any.control.resolve('done');
+        await pendingAny;
+
+        const pendingCreate = c.createTarget(create.call);
+        expect(keysInFlight()).toEqual([['people', 'create']]);
+        create.control.resolve(USERS[0]);
+        await pendingCreate;
     });
 });
