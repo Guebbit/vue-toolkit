@@ -84,7 +84,7 @@ describe('PROPERTY · stableKey', () => {
 
     // A search's `filters` object is stableKey'd for its cache key: two searches whose filters
     // hold different Sets (a multi-select's `Set<string>`, say) must land in different cache
-    // entries, not collide on one shared `"{}"` — see A9.
+    // entries, not collide on one shared `"{}"`.
     it('produces different keys for two Sets that differ in content', () => {
         fc.assert(
             fc.property(

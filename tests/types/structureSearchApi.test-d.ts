@@ -21,7 +21,7 @@ const search = useStructureSearchApi<IUser, number, string | number, IUserFilter
     resourceKey: 'users'
 });
 
-// IStructureSearchApi (V2.8): an explicit, exported return interface, not inferred.
+// IStructureSearchApi: an explicit, exported return interface, not inferred.
 expectTypeOf(search).toEqualTypeOf<
     IStructureSearchApi<IUser, number, string | number, IUserFilters>
 >();
@@ -33,7 +33,7 @@ expectTypeOf(
 expectTypeOf(search.totalItems.value).toEqualTypeOf<number>();
 expectTypeOf(search.pageItemList.value).toEqualTypeOf<IUser[]>();
 
-// fetchSearch's apiCall receives the frozen search through its context (A3): filters/page/
+// fetchSearch's apiCall receives the frozen search through its context: filters/page/
 // pageSize, typed off the call's own filters argument, plus the { signal } every read context has.
 void search.fetchSearch((context: ISearchFetchContext<IUserFilters>) => {
     expectTypeOf(context.filters).toEqualTypeOf<IUserFilters>();
@@ -43,16 +43,16 @@ void search.fetchSearch((context: ISearchFetchContext<IUserFilters>) => {
     return Promise.resolve({ items: [], totalItems: 0 });
 }, { name: 'Ada' });
 
-// An old-style apiCall typed on the plain { signal } context (pre-A3) still compiles: it is
-// assignable wherever the richer ISearchFetchContext is expected — it just ignores the extras.
-const oldStyleApiCall = (context: IFetchContext) => {
+// An apiCall typed on the plain { signal } context also compiles: it is assignable wherever the
+// richer ISearchFetchContext is expected — it just ignores the extras.
+const plainContextApiCall = (context: IFetchContext) => {
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
     return Promise.resolve({ items: [], totalItems: 0 });
 };
-void search.fetchSearch(oldStyleApiCall, { name: 'Ada' });
+void search.fetchSearch(plainContextApiCall, { name: 'Ada' });
 
 // watchSearch's handle: stop/refetch/error plus search(). Its apiCall's last argument is the
-// { signal } read context (V2.1).
+// { signal } read context.
 const handle = search.watchSearch((watchedFilters, page, pageSize, context) => {
     expectTypeOf(watchedFilters).toEqualTypeOf<IUserFilters>();
     expectTypeOf(page).toEqualTypeOf<number>();

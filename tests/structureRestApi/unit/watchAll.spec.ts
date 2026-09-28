@@ -74,7 +74,7 @@ describe('UNIT · watchAll', () => {
         second.stop();
     });
 
-    // V2.3: enabled and key may be reactive.
+    // enabled and key may be reactive.
     it('accepts enabled: false, and starts fetching once it flips true', async () => {
         const c = make();
         const enabled = ref(false);

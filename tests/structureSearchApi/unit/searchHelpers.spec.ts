@@ -5,7 +5,7 @@
  * A search page's key embeds its filters as `stableKey(filters)` (order-independent,
  * value-sensitive) — the same canonicalization every other cache key in the toolkit uses; its own
  * properties are covered once, generally, in tests/internal/plainData.property.spec.ts. There is
- * no public `searchKeyGen` any more (V2.7): callers always have the filters object on hand, so
+ * no public key generator: callers always have the filters object on hand, so
  * `searchGet`/`checkSearch` accept it directly, with the pre-serialised form reachable here only
  * through the internal `stableKey` for the one test that needs it.
  *

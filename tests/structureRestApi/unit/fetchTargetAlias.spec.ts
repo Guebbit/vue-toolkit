@@ -1,11 +1,11 @@
 /**
- * UNIT — fetchTarget by an alternate key (VD3): the record is stored once, under its own id.
+ * UNIT — fetchTarget by an alternate key: the record is stored once, under its own id.
  *
- * `fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }` used to store the answer under BOTH
- * `'my-slug'` (what TanStack writes back under the key it fetched) and `7` (what `targetQueryFunction`
- * itself wrote) — two independent, divergent copies of the same record. The requested key now holds
- * an alias entry instead (`{ aliasOf: 7 }`); `getRecord`/`selectedRecord` follow it one hop, and
- * `itemDictionary`/`itemList` never see it as a second record.
+ * `fetchTarget(apiCall, 'my-slug')` resolving `{ id: 7 }` must not store the answer under BOTH
+ * `'my-slug'` (what TanStack writes back under the key it fetched) and `7` (what
+ * `targetQueryFunction` writes) — two independent, divergent copies of the same record. The
+ * requested key holds an alias entry instead (`{ aliasOf: 7 }`); `getRecord`/`selectedRecord`
+ * follow it one hop, and `itemDictionary`/`itemList` never see it as a second record.
  *
  * Writes by the alias (`updateTarget`, `deleteTarget`, `editRecord`, `deleteRecord`) reach the
  * record it points at, and an alias whose record is gone is no cache hit.

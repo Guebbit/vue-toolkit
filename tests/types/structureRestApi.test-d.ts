@@ -10,7 +10,7 @@ import type { IUser } from './_fixtures.js';
 
 const resource = useStructureRestApi<IUser, number>({ resourceKey: 'users' });
 
-// IStructureRestApi (V2.8) now names the RETURN type, as an explicit, exported interface.
+// IStructureRestApi names the RETURN type, as an explicit, exported interface.
 expectTypeOf(resource).toEqualTypeOf<IStructureRestApi<IUser, number>>();
 
 // getRecord/itemDictionary/itemList infer from T, keyed by the explicit K.
@@ -38,7 +38,7 @@ void resource.updateTarget(() => Promise.resolve<IUser>({} as IUser), { name: 'A
 // @ts-expect-error -- `nope` is not a field of IUser, so the patch isn't Partial<IUser>
 void resource.updateTarget(() => Promise.resolve<IUser>({} as IUser), { nope: true }, 1);
 
-// Every read apiCall's last parameter is a { signal } context (V2.1); ignoring it still compiles.
+// Every read apiCall's last parameter is a { signal } context; ignoring it still compiles.
 void resource.fetchTarget((context) => {
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
      
@@ -54,14 +54,14 @@ void resource.fetchAll((context) => {
     return Promise.resolve<IUser[]>([]);
 });
 
-// fetchMultiple's apiCall receives the missing ids first, the context last (V2.2).
+// fetchMultiple's apiCall receives the missing ids first, the context last.
 void resource.fetchMultiple((ids, context) => {
     expectTypeOf(ids).toEqualTypeOf<number[]>();
     expectTypeOf(context.signal).toEqualTypeOf<AbortSignal>();
     return Promise.resolve<IUser[]>([]);
 }, [1, 2]);
 
-// watchAll/watchByParent/watchAny accept enabled and a reactive key (V2.3).
+// watchAll/watchByParent/watchAny accept enabled and a reactive key.
 resource.watchAll(() => Promise.resolve<IUser[]>([]), { enabled: ref(true), key: ref(['a']) });
 resource.watchByParent(
     () => Promise.resolve<IUser[]>([]),
@@ -71,7 +71,7 @@ resource.watchByParent(
 resource.watchAny(() => Promise.resolve('x'), { key: ref(['stats']), enabled: ref(true) });
 // @ts-expect-error -- watchAny's key is required
 resource.watchAny(() => Promise.resolve('x'), {});
-// watchTarget takes apiCall first, idSource second — same order as fetchTarget/watchByParent (V2.4).
+// watchTarget takes apiCall first, idSource second — same order as fetchTarget/watchByParent.
 const watchHandle = resource.watchTarget(
     (id, context) => {
         expectTypeOf(id).toEqualTypeOf<number>();
@@ -82,5 +82,5 @@ const watchHandle = resource.watchTarget(
     () => 1
 );
 
-// IWatchHandle: every watch* returns exactly stop/refetch/suspense/error, never rejects (V5.2).
+// IWatchHandle: every watch* returns exactly stop/refetch/suspense/error, never rejects.
 expectTypeOf(watchHandle).toEqualTypeOf<IWatchHandle<IUser | undefined>>();

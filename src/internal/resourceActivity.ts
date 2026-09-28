@@ -164,7 +164,7 @@ export const useResourceActivity = (
      * function, like `isLoading`: call it inside a `computed` to track it. Create is deliberately
      * excluded: a record being created has no stable id of its own yet to key this by. `id` is
      * resolved first, so `isSaving('my-slug')` and `isSaving(7)` agree once 'my-slug' is a known
-     * pointer to 7 — mutation keys are always built from the resolved id (see A2 in
+     * pointer to 7 — mutation keys are always built from the resolved id (see the alias rule in
      * restResource.ts's module header).
      *
      * @param id - the record id, an alias included

@@ -20,7 +20,7 @@ const make = () => makeComposable<IUser, number>();
 
 const fakeApiCall = () => jest.fn((id: number) => Promise.resolve(USERS.find((u) => u.id === id)));
 
-/** Matches the trailing `{ signal }` context apiCall now receives (see V2.1). */
+/** Matches the trailing `{ signal }` context apiCall receives. */
 const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
 
 describe('UNIT · watchTarget', () => {

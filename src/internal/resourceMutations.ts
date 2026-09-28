@@ -92,7 +92,8 @@ export interface IResourceMutationsContext<
 
     /**
      * Stores a record the server returned (an update or create response) under its own id,
-     * pointing the requested id at it when different (see A2 in restResource.ts's module header).
+     * pointing the requested id at it when different (see the alias rule in restResource.ts's
+     * module header).
      */
     storeServerRecord: (
         item: T,
@@ -101,7 +102,7 @@ export interface IResourceMutationsContext<
         settings: Pick<IFetchSettings, 'merge' | 'partial'>
     ) => ITargetEntry<T>;
 
-    /** Whether a scope is still claimed by any live instance (see A4 in restResource.ts). */
+    /** Whether a scope is still claimed by any live instance (see restResource.ts's scope rule). */
     scopeRegistry: IScopeRegistry;
 }
 
@@ -192,7 +193,7 @@ export const createResourceMutations = <
      * The raw record stored under `id` right now. Reads through `store.read` (not the public
      * `getRecord`, which is scoped to the CURRENT `dependsOn()`): called from inside
      * `store.forScope`, it must see the scope the change ran under even once `dependsOn()` has
-     * since moved on (see A4 in restResource.ts).
+     * since moved on (see the scope rule in restResource.ts).
      *
      * @param id - the record id
      * @returns the raw record, if stored
@@ -378,7 +379,7 @@ export const createResourceMutations = <
      * the response is not a record (empty, an array, an acknowledgement): the optimistic patch
      * then stays. Goes through `storeServerRecord`: the response is stored under its OWN id, and
      * `requestedId` (a slug `updateTarget` was called with, say), if different, becomes a pointer
-     * to it (see A2 in restResource.ts's module header).
+     * to it (see the alias rule in restResource.ts's module header).
      *
      * @param data - the response
      * @param requestedId - the id `updateTarget` was called with, if any

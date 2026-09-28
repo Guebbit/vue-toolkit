@@ -15,11 +15,11 @@ import type { IUser } from './_fixtures.js';
 
 const c = useStructureDataManagement<IUser>();
 
-// IStructureDataManagementApi (V2.8): an explicit, exported return interface, not inferred.
+// IStructureDataManagementApi: an explicit, exported return interface, not inferred.
 expectTypeOf(c).toEqualTypeOf<IStructureDataManagementApi<IUser, number>>();
 
-// K defaults to TIdOf<T> (VD1): the type of T['id'] when there is one — number here, IUser's own
-// id type — not the union of field names `keyof T` used to produce.
+// K defaults to TIdOf<T>: the type of T['id'] when there is one — number here, IUser's own id
+// type — not the union of field names `keyof T`.
 expectTypeOf(c.selectedIdentifier.value).toEqualTypeOf<number | undefined>();
 expectTypeOf<TIdOf<IUser>>().toEqualTypeOf<number>();
 

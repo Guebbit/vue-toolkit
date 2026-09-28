@@ -1,5 +1,5 @@
 /**
- * UNIT — every read apiCall receives a `{ signal }` context as its last argument (V2.1).
+ * UNIT — every read apiCall receives a `{ signal }` context as its last argument.
  *
  * `signal` is a real `AbortSignal`, aborted once TanStack cancels the read it belongs to (an
  * update/delete of the same record, here) — a caller that forwards it to `fetch`/axios gets a

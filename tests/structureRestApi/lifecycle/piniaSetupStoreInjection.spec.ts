@@ -16,8 +16,8 @@
  *   `inject()` still finds what `app.provide()` registered.
  * - pinia <2.1 runs the setup function bare (just `pinia._e.run(...)`), with no injection
  *   context at all in that case, so `useQueryClient()` throws.
- * This is why the peer floor is `pinia ^2.1`, not `>=2.0.0` (see V4.4 / VD5's sibling decision in
- * package.json's `peerDependencies`).
+ * This is why the `pinia` peer floor in package.json's `peerDependencies` is `2.1`, not
+ * `2.0`.
  */
 import { createApp, h, type App } from 'vue';
 import { createPinia, defineStore } from 'pinia';

@@ -1,12 +1,11 @@
 /**
- * UNIT — asymptotics pin for a merge/partial list write over a large cache (repro N).
+ * UNIT — asymptotics pin for a merge/partial list write over a large cache.
  *
- * `editRecord` used to read through `dictionary`, which under the REST layer is a computed that
- * rebuilds its ENTIRE scope from the query cache (one `QueryCache.findAll` sweep) whenever it is
- * stale. Each write in a batch invalidated it for the next read, so merging or partially writing a
- * batch of N items over a cache of M records did one `findAll` sweep PER ITEM — O(N × M) work:
- * 1.7s for 1k items over 3k cached, measured before the fix. `IRecordStore.read` (a direct O(1)
- * `getQueryData` lookup) fixes the asymptotics.
+ * Under the REST layer, `dictionary` is a computed that rebuilds its ENTIRE scope from the query
+ * cache (one `QueryCache.findAll` sweep) whenever it is stale, and each write in a batch makes it
+ * stale for the next read. Reading through it, merging or partially writing a batch of N items
+ * over a cache of M records would cost one sweep PER ITEM — O(N × M) work. `editRecord` reads
+ * through `IRecordStore.read` instead: a direct O(1) `getQueryData` lookup.
  *
  * Pinned by counting `findAll` calls rather than wall-clock time: a count is exact and immune to
  * machine load, where a millisecond budget either flakes under CI/dev-machine CPU contention or,

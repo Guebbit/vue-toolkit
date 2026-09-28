@@ -44,7 +44,7 @@ describe('MODIFIER · merge', () => {
         it('a merged record not seen before does not mark lastInsertedIdentifier', async () => {
             const c = make();
             // Nothing cached yet: the merge write below is editRecord's isNew=true branch — the
-            // exact path that used to mistake a fetch for a create.
+            // path where a fetch could be mistaken for a create.
             await c.fetchTarget(apiResolve(FULL_USER), 1, { merge: true });
             expect(c.lastInsertedIdentifier.value).toBeUndefined();
         });

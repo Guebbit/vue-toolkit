@@ -60,21 +60,20 @@
  *    - `fetchTarget`/`fetchMultiple`/`fetchAny` racing a mutation on an id they also read
  *      (`looseReadTouches`). `fetchMultiple`/`fetchAny`'s 'any'-kind query isn't in `cancelReads`'s
  *      cancel set (only 'target' and the list kinds are) — an unambiguous reason. `fetchTarget` is
- *      tracked the same broad way even though its OWN root cause is fixed: blocked by
- *      `recordMutations.ts`'s `canWrite`, `restResource.ts`'s `targetQueryFunction` now cancels its
- *      OWN query and returns `{ data: undefined }` instead of falling back to
- *      `getQueryData(key) ?? { data: item }` — TanStack then discards the answer outright and
- *      reverts to whatever was already cached (`mutationRace.spec.ts`'s "a fetchTarget landing
- *      while a deleteTarget is in flight does not bring the record back", and
+ *      tracked the same broad way even though it is safe on its own: blocked by
+ *      `recordMutations.ts`'s `canWrite`, `restResource.ts`'s `targetQueryFunction` cancels its
+ *      OWN query and returns `{ data: undefined }`, so TanStack discards the answer outright and
+ *      reverts to whatever was already cached (pinned by `mutationRace.spec.ts`'s "a fetchTarget
+ *      landing while a deleteTarget is in flight does not bring the record back", and
  *      `updateTarget.spec.ts`'s "a read landing while the update is in flight does not stamp the
- *      unconfirmed patch fresh", both now plain `it`s, not `it.failing`). `fetchTarget` keeps the
+ *      unconfirmed patch fresh"). `fetchTarget` keeps the
  *      broad tracking anyway: proving every interleaving safe (a longer reset-heavy sequence in
  *      particular — see `mutatedInEpochs`, below, for why a reset doesn't make a stale mutation
  *      stop counting) is out of scope here, and the broad tracking only ever EXCLUDES an id from a
  *      strict check — it can widen what's left unverified, never produce a false failure.
  *    - a mutation from an ABANDONED epoch racing anything on the same id in a LATER one
- *      (`mutatedInEpochs`, keyed by `resetEpoch`, not generation). `canWrite` (the write guard's
- *      replacement, `src/internal/recordMutations.ts`) IS scope-aware: it only matches a mutation
+ *      (`mutatedInEpochs`, keyed by `resetEpoch`, not generation). `canWrite`
+ *      (`src/internal/recordMutations.ts`) IS scope-aware: it only matches a mutation
  *      whose own `meta.scope` equals the read's current one, so a mutation from a scope a
  *      `switchDependsOn` has actually moved away from can no longer block anything (doubly so:
  *      `scopeRegistry.isLive` also refuses to store for an abandoned scope at all — see

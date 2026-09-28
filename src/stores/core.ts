@@ -26,8 +26,8 @@ export const useCoreStore = defineStore('core', () => {
     const loadings = ref<Record<string, boolean>>({});
 
     /**
-     * Sets one loading flag. Both arguments are required: `setLoading(key)` alone used to quietly
-     * store `false`, silently turning a "started loading" call into its own opposite.
+     * Sets one loading flag. Both arguments are required: a `setLoading(key)` that stored `false`
+     * would silently turn a "started loading" call into its own opposite.
      *
      * @param key   - namespaced flag name, e.g. 'accountProfile:avatar-upload'
      * @param value - whether that work is in progress

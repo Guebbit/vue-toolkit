@@ -160,7 +160,7 @@ describe('useStructureFormValidation', () => {
         });
     });
 
-    // ─── nested-field detachment (V3.3, repro F) ─────────────────────────────
+    // ─── nested-field detachment ────────────────────────────────────────────
 
     describe('nested fields are never shared with the source (detached copy)', () => {
         it('setInitialData detaches: editing the source afterwards does not change the baseline', () => {
@@ -308,7 +308,7 @@ describe('useStructureFormValidation', () => {
         });
 
         // JSON.stringify(new Set(['a'])) is "{}" for any Set, so a plain JSON comparison can never
-        // see this edit — isDirty compares by stableKey instead (see A9).
+        // see this edit — isDirty compares by stableKey instead.
         it('is true after an in-place edit of a Set field', () => {
             const c = inScope(() => useStructureFormValidation<IScheduleForm>(schedule()));
             c.form.value.tags.add('b');
@@ -334,7 +334,7 @@ describe('useStructureFormValidation', () => {
             expect(composable.isValid.value).toBe(true);
         });
 
-        // V3.2: formLevelErrors counts too — a form-level-only failure must not read as valid.
+        // formLevelErrors counts too — a form-level-only failure must not read as valid.
         it('is false when only formLevelErrors is non-empty', () => {
             composable.applyServerErrors({ errors: ['Payment declined'] });
             expect(composable.formErrors.value).toEqual({});
@@ -420,7 +420,7 @@ describe('useStructureFormValidation', () => {
         });
     });
 
-    // ─── validate (root-level Zod issues, V3.2) ──────────────────────────────
+    // ─── validate (root-level Zod issues) ────────────────────────────────────
 
     describe('validate (root-level issues)', () => {
         // No `path` given, so Zod attaches this issue at the root (empty path) — a cross-field
@@ -1029,7 +1029,7 @@ describe('useStructureFormValidation', () => {
             expect(onUnmapped).toHaveBeenCalledWith(['Payment declined']);
         });
 
-        // V3.2: without onUnmapped, a form-level message is displayed instead of dropped.
+        // without onUnmapped, a form-level message is displayed instead of dropped.
         it('routes form-level messages to formLevelErrors when no onUnmapped is given', () => {
             const applied = composable.applyServerErrors({ errors: ['Payment declined'] });
 

@@ -150,8 +150,8 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
      * Predicate selecting `scope`'s `target` entry that IS `id`'s own record, or an alias entry
      * pointing at it — "does this entry refer to id, directly or through one alias hop". Reaches
      * every pointer to a record when it changes: an update/delete by an alternate key, a removal,
-     * or an invalidation must also touch the aliases that resolve to the same record (see A2 in
-     * `restResource.ts`'s module header).
+     * or an invalidation must also touch the aliases that resolve to the same record (see the
+     * alias rule in `restResource.ts`'s module header).
      *
      * @param id - the record's own (already resolved) id — never an alias itself
      * @param scope - the scope snapshot to match

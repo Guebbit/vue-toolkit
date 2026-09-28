@@ -372,8 +372,9 @@ export const createRestResource = <
      * Stores a record the server returned, under its own id — one rule for every record the
      * server reports, whether from a read, an update response or a create response: it always
      * lives under its own id, and the address it was requested by, if different, becomes a
-     * pointer instead of a second, divergent copy (see A2 in the module header). Called from
-     * inside `store.forScope(scope, ...)`, so `storeItem`'s own writes address `scope` too.
+     * pointer instead of a second, divergent copy (see the alias rule in the module header).
+     * Called from inside `store.forScope(scope, ...)`, so `storeItem`'s own writes address `scope`
+     * too.
      *
      * @param item - the record, as the server returned it
      * @param requestedId - the id this record was addressed by; omit when there is none (a create)
@@ -484,7 +485,7 @@ export const createRestResource = <
         // rows, and the record behind a watched alias. Neither query has its OWN observer, so
         // without this a wipe would still drop them — leaving a watched list pointing at ids that
         // resolve to nothing, or a watched alias serving "nothing" for a record no longer there,
-        // with nothing telling either to refetch (see A5 in the module header).
+        // with nothing telling either to refetch (see the `maxRecords` rule in the module header).
         const protectedIds = new Set<string>();
         for (const query of scoped) {
             if (query.getObserversCount() === 0) continue;
@@ -673,7 +674,7 @@ export const createRestResource = <
             // resolving with the answer. TanStack then discards whatever this function returns
             // and reverts the query to what is already cached, with its ORIGINAL timestamp —
             // never resurrecting a just-deleted record, never stamping an unconfirmed optimistic
-            // patch fresh (see A1 in the module header).
+            // patch fresh (see `recordMutations.ts`).
             if (!canWrite(queryClient, resourceKey, realId, scope, readAt)) {
                 void queryClient.cancelQueries({ queryKey: running.queryKey, exact: true });
                 return { data: undefined };
@@ -835,7 +836,8 @@ export const createRestResource = <
             return settleRead(
                 // Wrapped: TanStack refuses a query function that resolves undefined. The scope
                 // travels with the answer, taken from the running query's own key — not
-                // re-read from dependsOn() once the answer lands, which may be later (see A4).
+                // re-read from dependsOn() once the answer lands, which may be later (see the
+                // scope rule in the module header).
                 runThrowaway(scopeAtStart, (running) =>
                     apiCall(readContextOf(running)).then((item) => ({
                         data: item,

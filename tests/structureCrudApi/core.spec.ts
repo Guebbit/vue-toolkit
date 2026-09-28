@@ -37,7 +37,7 @@ interface IProductUpdate {
 const PRODUCT: IProduct = { id: 'p1', title: 'First', price: 10 };
 const OTHER: IProduct = { id: 'p2', title: 'Second', price: 20 };
 
-/** Matches the trailing `{ signal }` context every read operation now receives (see V2.1). */
+/** Matches the trailing `{ signal }` context every read operation receives. */
 const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
 
 /**
@@ -454,8 +454,7 @@ describe('useStructureCrudApi', () => {
             expect(operations.create).toHaveBeenCalledWith({ title: 'First' }, options);
         });
 
-        // V2.5: createOne exposes createTarget's dummyData/key settings, previously unreachable
-        // from the CRUD layer.
+        // createOne exposes createTarget's dummyData/key settings to the CRUD layer.
         it('renders dummyData at once under a temporary id while the request runs', async () => {
             const create = jest.fn(() => new Promise<IProduct>(() => {})); // never settles
             const { api } = makeCrud({ create });
@@ -514,8 +513,7 @@ describe('useStructureCrudApi', () => {
             expect(operations.update).toHaveBeenCalledWith('p1', { title: 'Updated' }, options);
         });
 
-        // V2.5: updateOne exposes updateTarget's merge/applyResponse/key settings, previously
-        // unreachable from the CRUD layer.
+        // updateOne exposes updateTarget's merge/applyResponse/key settings to the CRUD layer.
         it('merge: true merges the response instead of replacing the record', async () => {
             const update = jest.fn().mockResolvedValue({ title: 'Updated' }); // no id, no price
             const { api } = makeCrud({ update });

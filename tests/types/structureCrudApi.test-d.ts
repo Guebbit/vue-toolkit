@@ -1,6 +1,6 @@
 /**
  * TYPES — useStructureCrudApi: `operations` is required. Its read operations (`list`/`search`/
- * `get`) take a `{ signal }` context as their last argument (V2.1); `create`/`update`/`remove`
+ * `get`) take a `{ signal }` context as their last argument; `create`/`update`/`remove`
  * take an `options` argument instead — the two are not interchangeable.
  */
 import { expectTypeOf } from 'expect-type';
@@ -33,7 +33,7 @@ const crud = useStructureCrudApi<IUser, number>(
 
 expectTypeOf(crud.fetchOne).parameter(0).toEqualTypeOf<number>();
 
-// IStructureCrudApi is (still) an explicit, exported return interface, not inferred (V2.8).
+// IStructureCrudApi is an explicit, exported return interface, not inferred.
 expectTypeOf(crud).toEqualTypeOf<IStructureCrudApi<IUser, number>>();
 
 // An operation ignoring the context it doesn't need still compiles.
@@ -61,7 +61,7 @@ useStructureCrudApi<IUser, number>(undefined, { resourceKey: 'users' });
 useStructureCrudApi<IUser, number>({});
 
 // createOne/updateOne/deleteOne take one settings object: requestOptions instead of a bare
-// per-call options argument, plus dummyData/merge/applyResponse/key (V2.5).
+// per-call options argument, plus dummyData/merge/applyResponse/key.
 interface IRequestOptions {
     signal?: AbortSignal;
 }

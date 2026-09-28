@@ -214,8 +214,8 @@ describe('UNIT · updateTarget', () => {
 });
 
 describe('UNIT · updateTarget mutation key', () => {
-    // V2.10: a numeric id must produce the same string form a query key uses (resourceKeys.ts's
-    // target()), so a filter matching one by id matches the other — what V5.3's isSaving(id) needs.
+    // a numeric id must produce the same string form a query key uses (resourceKeys.ts's
+    // target()), so a filter matching one by id matches the other — what isSaving(id) needs.
     it('stringifies a numeric id, like query keys do', async () => {
         const c = makeComposable<IUser, number>();
         const { call, control } = deferredApi<IUser>();

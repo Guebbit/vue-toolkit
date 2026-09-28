@@ -6,7 +6,7 @@
  *   - handles an empty result set
  *   - re-throws on error without polluting the cache
  *   - a cache hit still reports the right totalItems (it travels with the cached page)
- *   - applies page/pageSize itself, so pageItemList shows what it just fetched (V2.6)
+ *   - applies page/pageSize itself, so pageItemList shows what it just fetched
  *   - applies the page together with the filters and size: no request, and no frame, for a page
  *     other than the one it was given
  */

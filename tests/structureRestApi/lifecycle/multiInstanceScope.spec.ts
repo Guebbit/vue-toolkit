@@ -1,13 +1,13 @@
 /**
- * LIFECYCLE — two instances of the same resourceKey under different dependsOn scopes coexist
- * (repro C): a "compare two shops side by side" screen, or a master/detail pair on the same
- * scope where only the detail pane's own dependsOn moves on.
+ * LIFECYCLE — two instances of the same resourceKey under different dependsOn scopes coexist:
+ * a "compare two shops side by side" screen, or a master/detail pair on the same scope where only
+ * the detail pane's own dependsOn moves on.
  *
- * Before the live-scope registry (src/internal/scopeRegistry.ts), a resource's start-up sweep
- * dropped every query of the resourceKey under any OTHER scope, on the assumption that nothing
- * still alive could be using it — true for a scope change with no other instance, false the
- * moment a second instance is alive under a different scope. The dependsOn switch's own drop made
- * the same assumption when an instance moved away from a scope a sibling was still showing.
+ * A resource's start-up sweep, and a dependsOn switch's own drop, remove queries under scopes
+ * other than their own. Assuming nothing still alive uses those holds for a scope change with no
+ * other instance, and fails the moment a second instance is alive under a different scope — so
+ * both ask the live-scope registry (src/internal/scopeRegistry.ts) first, and spare any scope a
+ * sibling still claims.
  */
 
 import { ref } from 'vue';

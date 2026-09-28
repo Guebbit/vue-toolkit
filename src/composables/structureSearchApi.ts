@@ -501,7 +501,7 @@ export const useStructureSearchApi = <
         // Built ONCE, from the scope at this exact moment: searchQueryKey reads dependsOn()
         // internally, so a second call later — after a dependsOn change this fetch was cut short
         // by — would silently rebuild it under the NEW scope and read (or miss) a sibling
-        // instance's entry instead of this call's own (see A4).
+        // instance's entry instead of this call's own (see the scope rule in `restResource.ts`).
         const pageKey = searchQueryKey(snapshot, size, page, settings.key);
         // Both set synchronously, size before page: pageSize's own watcher (flush: 'sync') resets
         // pageCurrent to 1 the instant pageSize changes — landing before vue-query's own (pre-flush)

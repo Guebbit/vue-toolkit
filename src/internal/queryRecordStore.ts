@@ -62,7 +62,8 @@ export interface IQueryRecordStore<
      * Runs `run` with every key this store builds (`write`, `read`, `remove`, `snapshot`,
      * `restore`, `resolve`) addressing `scope` instead of the current `dependsOn()`. For a late
      * answer whose fetch started under a scope `dependsOn` has since moved past, but that another
-     * instance (or the scope registry) still claims — see A4 in `restResource.ts`'s module header.
+     * instance (or the scope registry) still claims — see the scope rule in `restResource.ts`'s
+     * module header.
      */
     forScope: <R>(scope: unknown[], run: () => R) => R;
 
@@ -174,7 +175,7 @@ export const createQueryRecordStore = <
      * The key `id`'s record actually lives under — `id` resolved one hop, then keyed. Every
      * read/write below goes through this, so an alias (`'my-slug'`) reaches the same entry its
      * real id does, instead of writing (or reading) a second, divergent one under the alias
-     * itself — see A2 in restResource.ts's module header.
+     * itself — see the alias rule in restResource.ts's module header.
      *
      * @param id - the record id, an alias included
      * @returns the real record's key

@@ -23,7 +23,7 @@ interface IItem {
     name: string;
 }
 
-/** Matches the trailing `{ signal }` context every apiCall now receives (see V2.1). */
+/** Matches the trailing `{ signal }` context every apiCall receives. */
 const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
 
 interface IFilters {

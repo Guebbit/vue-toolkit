@@ -44,7 +44,7 @@ const fakeApiCall = (items: IArticle[] = TECH) =>
         Promise.resolve({ items, totalItems: items.length })
     );
 
-/** Matches the trailing `{ signal }` context every apiCall now receives (see V2.1). */
+/** Matches the trailing `{ signal }` context every apiCall receives. */
 const anyContext = expect.objectContaining({ signal: expect.any(AbortSignal) });
 
 describe('UNIT · watchSearch', () => {

@@ -3,7 +3,7 @@
  * to a belongsTo parent — updates parentHasMany/getListByParent the same way fetchByParent
  * does, and stays that way without an imperative fetch call.
  *   - a nullish parent id idles instead of calling apiCall(undefined), refetch() included
- *   - accepts enabled and a reactive key (V2.3)
+ *   - accepts enabled and a reactive key
  */
 
 import { ref } from 'vue';
@@ -66,7 +66,7 @@ describe('UNIT · watchByParent', () => {
         expect(apiCall).toHaveBeenCalledTimes(1);
     });
 
-    // V2.3, repro G: a nullish parent id must idle, never call apiCall(undefined).
+    // a nullish parent id must idle, never call apiCall(undefined).
     it('a nullish parent id idles: no fetch, no call, until it becomes a real id', async () => {
         const c = make();
         const parentId = ref<string | undefined>(undefined);

@@ -76,7 +76,7 @@ describe('useStructureSearchApi', () => {
             );
             expect(searchApi.pageItemList.value).toEqual(PAGE1);
 
-            // fetchSearch(..., 2, 10) applies page 2 itself (V2.6): pageItemList already shows it,
+            // fetchSearch(..., 2, 10) applies page 2 itself: pageItemList already shows it,
             // with no separate pageCurrent assignment needed.
             await searchApi.fetchSearch(
                 () => Promise.resolve({ items: PAGE2, totalItems: 20 }),
