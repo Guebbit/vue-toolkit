@@ -235,10 +235,14 @@ export const createRestResource = <
     /** What this resource has in flight, and when its data changes. */
     const activity = useResourceActivity(queryClient, resourceKey, (id) => store.resolve(id as K));
 
-    // TanStack defaults, by key prefix (every scope at once). gcTime Infinity: records and
-    // parent relations stay cached while nothing watches them — stale data still renders.
+    // TanStack defaults, by key prefix (every scope at once). gcTime Infinity: records, parent
+    // relations and search pages stay cached while nothing watches them — stale data still
+    // renders, and `getListByParent`/`pageItemList` read them straight from the cache. They leave
+    // through dependsOn, resetAll and maxRecords instead (records also through resetRecords and
+    // deletes).
     queryClient.setQueryDefaults([resourceKey, 'target'], { gcTime: Infinity });
     queryClient.setQueryDefaults([resourceKey, 'parent'], { gcTime: Infinity });
+    queryClient.setQueryDefaults([resourceKey, 'search'], { gcTime: Infinity });
 
     // Live-scope claims for this (queryClient, resourceKey): lets a second instance under a
     // different scope (two screens side by side) coexist with this one instead of either wiping

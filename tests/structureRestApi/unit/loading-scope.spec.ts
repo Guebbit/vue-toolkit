@@ -48,13 +48,15 @@ describe('UNIT · loading', () => {
 });
 
 describe('UNIT · cache lifetime defaults', () => {
-    it('records and parent lists never expire unobserved; other lists keep TanStack defaults', () => {
+    it('records, parent lists and search pages never expire unobserved; other lists keep TanStack defaults', () => {
         const c = makeComposable<IUser, number>();
         const gcTimeOf = (key: unknown[]) => c.queryClient.getQueryDefaults(key).gcTime;
 
         expect(gcTimeOf(['resource', 'target', [], '1'])).toBe(Infinity);
         expect(gcTimeOf(['resource', 'parent', [], 'team-1'])).toBe(Infinity);
+        expect(gcTimeOf(['resource', 'search', [], '{}', 10, 1])).toBe(Infinity);
         expect(gcTimeOf(['resource', 'all', []])).toBeUndefined();
-        expect(gcTimeOf(['resource', 'search', [], '{}', 10, 1])).toBeUndefined();
+        expect(gcTimeOf(['resource', 'page', [], 10, 1])).toBeUndefined();
+        expect(gcTimeOf(['resource', 'any', [], 'stats'])).toBeUndefined();
     });
 });

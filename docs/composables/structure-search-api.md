@@ -232,9 +232,10 @@ sequenceDiagram
     Note over Search: with context instead: the same frozen search runs again, harmlessly
 ```
 
-- Nothing observes a page fetched this way: in a browser it is dropped 5 minutes later (see
-  [cache lifetime](./structure-rest-api#cache-lifetime)), and `pageItemList`/`totalItems` empty
-  out with it. A screen should use `watchSearch`.
+- Nothing observes a page fetched this way, and nothing needs to: search pages are never
+  garbage-collected (see [cache lifetime](./structure-rest-api#cache-lifetime)), so
+  `pageItemList`/`totalItems` keep showing it. What `fetchSearch` does not do is follow
+  invalidations: use `watchSearch` for a screen that should refetch on its own.
 
 ## Reading the cache
 

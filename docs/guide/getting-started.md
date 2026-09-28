@@ -62,8 +62,8 @@ What the client's `defaultOptions` reach:
 
 - `staleTime`: only your own `useQuery` calls. A resource always sets its own (its `staleTime`
   option, 1 hour by default).
-- `gcTime`: a resource's list, page, search and `any` entries, once nothing observes them
-  (TanStack's default is 5 minutes in a browser). Records and parent lists never expire — see
+- `gcTime`: a resource's list, page and `any` entries, once nothing observes them (TanStack's
+  default is 5 minutes in a browser). Records, parent lists and search pages never expire — see
   [cache lifetime](/composables/structure-rest-api#cache-lifetime).
 - `retry`: every resource query. Unset, a `watch*` query retries a failure 3 times in a browser
   (so it reaches `error`/`onError` only after the retries) while a one-shot `fetch*` call does not

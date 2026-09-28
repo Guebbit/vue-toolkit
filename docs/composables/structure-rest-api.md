@@ -556,19 +556,19 @@ sequenceDiagram
 
 ## Cache lifetime
 
-- **Records and parent lists** (`target`, `parent`) are never garbage-collected: they stay cached
-  while nothing watches them, because stale data is what renders while fresh data downloads. They
-  leave only through `dependsOn` (a change, or the sweep when a resource is created),
-  `resetRecords`/`resetAll`, `deleteRecord`/`deleteTarget`, `maxRecords`, or your own
-  `queryClient` calls. `getListByParent` therefore keeps working after
-  `fetchByParent`, with no watcher.
-- **Everything else** (`all`, `page`, `search`, `any`) keeps your client's default `gcTime`:
-  TanStack's is 5 minutes in a browser (unlimited on a server), unless your `QueryClient` sets
-  another. So a search page or list fetched imperatively (`fetchSearch`, `fetchAll`,
-  `fetchPaginate`, keyed `fetchAny`) **disappears 5 minutes after nothing observes it**: a search's
-  `pageItemList` and `totalItems` empty out, and the next call asks the server again. A `watch*`
-  observes its entry and keeps it alive while it runs. (The records a list fetched stay either
-  way, so `itemList` is unaffected.)
+- **Records, parent lists and search pages** (`target`, `parent`, `search`) are never
+  garbage-collected: they stay cached while nothing watches them, because stale data is what
+  renders while fresh data downloads, and `getListByParent`/`pageItemList` read them straight
+  from the cache. Records leave only through `dependsOn` (a change, or the sweep when a resource
+  is created), `resetRecords`/`resetAll`, `deleteRecord`/`deleteTarget`, `maxRecords`, or your own
+  `queryClient` calls; parent lists and search pages through `dependsOn`, `resetAll`,
+  `maxRecords` or your own calls. `getListByParent` therefore keeps working after `fetchByParent`,
+  and `pageItemList` after `fetchSearch`, with no watcher.
+- **Everything else** (`all`, `page`, `any`) keeps your client's default `gcTime`: TanStack's is
+  5 minutes in a browser (unlimited on a server), unless your `QueryClient` sets another. Nothing
+  renders those entries directly, so an unwatched one leaving only means the next call asks the
+  server again; a `watch*` observes its entry and keeps it alive while it runs. (The records a
+  list fetched stay either way, so `itemList` is unaffected.)
 - Stopping a scope (unmount, store disposal, `stop()`) ends subscriptions and watchers. It never
   removes cache entries.
 - TanStack's own `hydrate()` (what `persistQueryClient` uses to restore a cache persisted on a

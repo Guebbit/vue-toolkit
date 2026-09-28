@@ -192,15 +192,13 @@ is an active TanStack observer that reacts to invalidation on its own.
   parent relations, and refetches what active watchers show: the views empty, then the watched
   data comes back. `resetRecords()` removes records only, and marks the lists stale (their ids may
   now point at nothing), so active list watchers refetch.
-- **BREAKING** — cache lifetime: records and parent lists (`getListByParent`) are never
-  garbage-collected, as the 4.x dictionary never was. The `all`/`page`/`search`/`any` entries
-  follow the client's `gcTime` (TanStack's default: 5 minutes in a browser once nothing observes
-  them) — 4.x kept its own search page index, and gave its private client a `gcTime` of at least
-  `TTL`. A search page fetched imperatively with `fetchSearch` (or the CRUD
-  `searchNow()`/`resetFilters()` with no `watchList()` running) therefore empties
-  `pageItemList`/`totalItems` 5 minutes after nothing observes it. Migration: keep a
-  `watchSearch`/`watchList` running on any screen that shows a search, or keep search pages cached
-  with `queryClient.setQueryDefaults([resourceKey, 'search'], { gcTime: Infinity })`.
+- Cache lifetime: records, parent lists (`getListByParent`) and search pages (`pageItemList`) are
+  never garbage-collected, as the 4.x dictionary and search index never were — a search fetched
+  imperatively (`fetchSearch`, the CRUD `searchNow()` with no `watchList()`) keeps showing with no
+  watcher. They leave through `dependsOn`, `resetAll` and `maxRecords` (records also through
+  `resetRecords` and deletes). The `all`/`page`/`any` entries follow the client's `gcTime`
+  (TanStack's default: 5 minutes in a browser once nothing observes them); nothing renders them
+  directly, so one leaving only means the next call asks the server again.
 - **BREAKING** — `maxRecords`' default drops from `100_000` to `10_000` — a record costs more as a
   TanStack query than as a plain object (measured for 10 000 records: ~2.2 MB as plain objects,
   ~10.5 MB as queries, i.e. ~0.8–1 KB more per record), so the same backstop now sits at a tighter

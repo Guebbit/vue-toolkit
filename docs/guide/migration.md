@@ -140,11 +140,6 @@ These aren't renames — the name is the same, but what happens under it changed
   `QueryClient`, so two resources under one key share cache entries (user `1` and product `1`
   collide); a combined spinner reads `useIsLoading(['users', 'products'])`. `resource.queryClient`
   is that shared client: `clear()` on it wipes every resource — use `resetAll()` for one.
-- **A search fetched imperatively expires.** A page from `fetchSearch` (or CRUD `searchNow()` /
-  `resetFilters()` with no `watchList()` running) leaves `pageItemList` 5 minutes after nothing
-  observes it — see [Cache lifetime](/composables/structure-rest-api#cache-lifetime). Keep a
-  `watchSearch`/`watchList` running, or set
-  `queryClient.setQueryDefaults([resourceKey, 'search'], { gcTime: Infinity })`.
 - **`maxRecords` defaults to `10_000`** (4.x: `100_000`), and crossing it drops unobserved lists and
   searches too. Set it explicitly above 10 000 records per scope.
 - **Records are not Pinia state.** Inside a setup store, `itemDictionary`/`parentHasMany` are

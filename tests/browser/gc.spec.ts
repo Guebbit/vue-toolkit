@@ -10,15 +10,18 @@
  * `Infinity`) or "browser" (`gcTime` defaults to 5 minutes, TanStack's own default). Node has no
  * `window`, so every query there behaves as if `gcTime: Infinity` were already the default —
  * dropping the resource's own explicit `Infinity` from `src/internal/restResource.ts`
- * (`queryClient.setQueryDefaults([resourceKey, 'target'|'parent'], { gcTime: Infinity })`) would
- * change nothing under Node. Only under jsdom does a real 5-minute default exist to fall back to.
+ * (`queryClient.setQueryDefaults([resourceKey, 'target'|'parent'|'search'], { gcTime: Infinity })`)
+ * would change nothing under Node. Only under jsdom does a real 5-minute default exist to fall back
+ * to.
  *
  * Per-kind expectation, from the source (`src/internal/restResource.ts`,
  * `src/internal/queryRecordStore.ts`, `src/internal/parentRelations.ts`):
- *   - `target` (records) and `parent` (belongsTo lists) — explicit `gcTime: Infinity`: survive.
- *   - `all`/`page`/`search`/`any` — no override: TanStack's own default (5 min unwatched) applies.
+ *   - `target` (records), `parent` (belongsTo lists) and `search` (pages `pageItemList` shows) —
+ *     explicit `gcTime: Infinity`: survive.
+ *   - `all`/`page`/`any` — no override: TanStack's own default (5 min unwatched) applies.
  */
 import { makeComposable, clearAllInstances } from '../structureRestApi/_helpers/harness';
+import { makeSearchComposable } from '../structureSearchApi/_helpers/harness';
 import { apiResolve } from '../structureRestApi/_helpers/fakeApi';
 import { useFakeClock, advance, restoreClock } from '../structureRestApi/_helpers/time';
 import { USERS, type IUser } from '../structureRestApi/_helpers/fixtures';
@@ -57,6 +60,19 @@ describe('BROWSER · garbage collection', () => {
 
         expect(c.queryClient.getQueryCache().find({ queryKey: key })).toBeDefined();
         expect(c.getListByParent(1)).toEqual([USERS[0]]);
+    });
+
+    // pageItemList reads the applied page straight from the cache: a search fetched imperatively
+    // (fetchSearch, CRUD searchNow with no watchList) must not blank the screen once unwatched.
+    it('a search page survives 5 minutes unwatched: pageItemList and totalItems stay', async () => {
+        const { searchApi } = makeSearchComposable<IUser, number>();
+        await searchApi.fetchSearch(apiResolve({ items: [...USERS], totalItems: 7 }), {}, 1, 10);
+        expect(searchApi.pageItemList.value).toEqual(USERS);
+
+        await advance(FIVE_MINUTES + 1);
+
+        expect(searchApi.pageItemList.value).toEqual(USERS);
+        expect(searchApi.totalItems.value).toBe(7);
     });
 
     it('an unwatched fetchAll entry ("all") is collected once its gcTime elapses', async () => {
