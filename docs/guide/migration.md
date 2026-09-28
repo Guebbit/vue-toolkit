@@ -46,9 +46,12 @@ full table:
 | Peer | 4.x | 5.0 | Why |
 | --- | --- | --- | --- |
 | `@tanstack/vue-query` | (not a peer) | `^5.103` | replaces `@tanstack/query-core` |
-| `vue` | `>=3.4` | `^3.4` | caret, not open-ended; no consumer on a current major is affected |
+| `vue` | `>=3.0.0` | `^3.4` | Vue 3.3's watcher scheduler could refetch the old page at a new `pageSize`; 3.4 orders them correctly. On 3.0–3.3, upgrade Vue first |
 | `pinia` | `>=2.0.0` | `^2.1 \|\| ^3 \|\| ^4` | a Pinia SETUP store built OUTSIDE a component (a router guard, `main.ts`) does not run inside Vue's injection context before 2.1, so `useQueryClient()` inside one THROWS — built inside a component's `setup()`, any Pinia version works. Pass `queryClient` explicitly to work on any Pinia version, or with no Pinia store at all |
 | `zod` (optional) | `>=4.4.3` | `^4.4.3` | caret, not open-ended |
+
+Node itself: `engines.node` is `>=22` (4.x declared none). Node 20 reached end-of-life on
+2026-04-30; Yarn 1 and `engine-strict` installs refuse an older Node.
 
 ## Renames
 

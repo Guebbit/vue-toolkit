@@ -49,8 +49,9 @@ is an active TanStack observer that reacts to invalidation on its own.
   `useStructureSearchApi`/`useStructureCrudApi` call either takes one explicitly via its
   `queryClient` option or finds it through this injection (which also works inside a Pinia setup
   store, on `pinia >=2.1` — see below). One shared client per app is what makes cross-resource
-  cache invalidation possible at all. `vue` peer moves to `^3.4` — one minor past `vue-query`'s
-  own floor (`3.3`): see Fixed, below, for why.
+  cache invalidation possible at all. The `vue` peer moves from `>=3.0.0` to `^3.4` — one minor
+  past `vue-query`'s own floor (`3.3`): see Fixed, below, for why. On Vue 3.0–3.3, upgrade Vue to
+  3.4 or later first.
 - **BREAKING** — `pinia` peer floor moves from `>=2.0.0` to `^2.1 || ^3 || ^4`. Inside a
   component's `setup()`, a Pinia SETUP store finds the injection context on any Pinia version.
   Built outside a component instead (a router guard, `main.ts`: `useStore(pinia)`) it needed
@@ -58,9 +59,8 @@ is an active TanStack observer that reacts to invalidation on its own.
   before that, `useQueryClient()` inside one **threw**, since there was no injection context at
   all. This never worked outside a component on `2.0.x`, so the new floor states the real
   requirement rather than removing support. Pass the `queryClient` option instead to work on any
-  Pinia version — it needs no injection at all. `vue` and `zod` peers also move from
-  `>=3.4`/`>=4.4.3` to `^3.4`/`^4.4.3` (caret, not open-ended) — no consumer on a current major is
-  affected.
+  Pinia version — it needs no injection at all. The `zod` peer also moves from `>=4.4.3` to
+  `^4.4.3` (caret, not open-ended) — no consumer on a current major is affected.
 - **BREAKING** — `loadingKey` → **`resourceKey`**, and it is now **required**, with no random
   fallback. It's the key every query and mutation a resource makes starts with — what
   `queryClient.invalidateQueries({queryKey:[resourceKey]})` addresses from another store, and what
@@ -233,6 +233,9 @@ is an active TanStack observer that reacts to invalidation on its own.
   not. Migration: to submit again, wait for the running submit to settle (`await` it, or watch
   `isSubmitting` turn `false`); a flow that deliberately ran two handlers concurrently calls the
   second one directly instead of through `handleSubmit`.
+- **BREAKING** — `package.json` declares `engines.node: ">=22"`; 4.x declared no engine at all.
+  Node 20 reached end-of-life on 2026-04-30. npm only warns on a mismatch, but Yarn 1 and
+  `engine-strict` installs refuse it. Migration: run your build, SSR and tests on Node 22 or later.
 
 ## Added
 
@@ -267,9 +270,8 @@ is an active TanStack observer that reacts to invalidation on its own.
   instead of the plain `{ signal }` read context. An `apiCall` typed on the old, plain context
   still compiles; it just ignores the new fields.
 - **`package.json` metadata**: `description`, `keywords`, `homepage`, `bugs`, `repository`
-  (needed for npm provenance), `author` and `engines.node` (`>=20`). Previously all unset.
-  `license` is intentionally left as-is here (`"AGPLv3.0"` is not a valid SPDX id) pending a
-  separate decision on the correct identifier.
+  (needed for npm provenance) and `author`. Previously all unset. `engines.node` is new too — see
+  its own entry under Changed.
 - **`watchAll`/`watchByParent`/`watchAny`** accept `enabled` and a reactive `key` (a Ref,
   ComputedRef or getter for either). `watchByParent` also idles automatically — no fetch, `apiCall`
   never called — while its `parentId` is nullish, instead of calling `apiCall(undefined)`.
@@ -542,7 +544,7 @@ is an active TanStack observer that reacts to invalidation on its own.
 - Under Vue 3.3, changing `pageSize` on `useStructureSearchApi`/`useStructureCrudApi` could refetch
   the *old* page number at the *new* page size before resetting to page 1, firing one extra
   request: Vue 3.3's watcher scheduler could flush the active query's key before the
-  `pageSize`→`pageCurrent` reset watcher runs. `vue` peer floor moves to `>=3.4`, which orders them
+  `pageSize`→`pageCurrent` reset watcher runs. `vue` peer floor moves to `^3.4`, which orders them
   correctly.
 - `dist` couldn't be loaded by plain Node or by `moduleResolution: node16`/`nodenext`:
   `tsc` emitted extensionless relative imports (`'./stores/core'`), which Node's own ESM loader
