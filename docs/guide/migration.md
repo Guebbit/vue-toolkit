@@ -128,6 +128,41 @@ These aren't renames — the name is the same, but what happens under it changed
   `setLoading('x')` used to quietly store `false`.
 - **`useStructureCrudApi`'s `createOne`/`updateOne`/`deleteOne` take one settings object**, not a
   bare per-call argument — see the before/after below.
+- **Watcher callbacks run on every fetch that lands**, not once per id or page change:
+  `onSuccess`/`onError`/`onSettled` also fire for background refetches (after an invalidation —
+  every create/update/delete refetches an active list or search — on window focus or reconnect
+  once stale, or when anything else fetches the same key). Make them safe to repeat; never reset a
+  form being edited from `onSuccess`.
+- **`loading` covers the whole `resourceKey`**: every instance sharing it, and the background
+  refetches of active watchers. Tag the calls a spinner should follow with `key` and read
+  `isLoading(key)`.
+- **`resourceKey` must be unique per record type.** Every resource shares the app's one
+  `QueryClient`, so two resources under one key share cache entries (user `1` and product `1`
+  collide); a combined spinner reads `useIsLoading(['users', 'products'])`. `resource.queryClient`
+  is that shared client: `clear()` on it wipes every resource — use `resetAll()` for one.
+- **A search fetched imperatively expires.** A page from `fetchSearch` (or CRUD `searchNow()` /
+  `resetFilters()` with no `watchList()` running) leaves `pageItemList` 5 minutes after nothing
+  observes it — see [Cache lifetime](/composables/structure-rest-api#cache-lifetime). Keep a
+  `watchSearch`/`watchList` running, or set
+  `queryClient.setQueryDefaults([resourceKey, 'search'], { gcTime: Infinity })`.
+- **`maxRecords` defaults to `10_000`** (4.x: `100_000`), and crossing it drops unobserved lists and
+  searches too. Set it explicitly above 10 000 records per scope.
+- **Records are not Pinia state.** Inside a setup store, `itemDictionary`/`parentHasMany` are
+  computeds (Pinia getters): `$state`, `$patch`, `$subscribe`, SSR state serialization and
+  persistence plugins no longer carry records. Persist or transfer them through the `QueryClient`
+  (`persistQueryClient`, `dehydrate`/`hydrate`).
+- **`fetchSearch` moves the screen** to the page it fetched (`pageCurrent`/`pageSize`); `pageSize`
+  defaults to the current one. Don't use it to prefetch a page the screen shouldn't show yet.
+- **`watchSearch({ immediate: false })` waits for the first `search()`**: page or page-size changes
+  before it fetch nothing.
+- **`applyServerErrors` keeps form-level and unmapped messages** in `formLevelErrors` (which
+  `isValid` includes) and returns `true` once anything was shown, `onUnmapped` included. Render
+  `formLevelErrors`, or pass `onUnmapped`.
+- **Child ids are typed `K`**, the id's own type, not `string`: drop `as never` casts, and read
+  `parentHasMany` as `K[]`.
+- **Every read `apiCall` receives a `{ signal }` context as its last argument.** A function passed
+  by name whose own optional parameter sits in that slot gets the context instead of its default:
+  wrap it, `fetchAny(() => api.stats())`.
 
 ## Before / after
 

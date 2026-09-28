@@ -49,7 +49,9 @@ is an active TanStack observer that reacts to invalidation on its own.
   `useStructureSearchApi`/`useStructureCrudApi` call either takes one explicitly via its
   `queryClient` option or finds it through this injection (which also works inside a Pinia setup
   store, on `pinia >=2.1` — see below). One shared client per app is what makes cross-resource
-  cache invalidation possible at all. The `vue` peer moves from `>=3.0.0` to `^3.4` — one minor
+  cache invalidation possible at all. The `queryClient` a resource returns is that shared client,
+  so `resource.queryClient.clear()` now wipes every resource in the app: use `resetAll()` to drop
+  one resource's data. The `vue` peer moves from `>=3.0.0` to `^3.4` — one minor
   past `vue-query`'s own floor (`3.3`): see Fixed, below, for why. On Vue 3.0–3.3, upgrade Vue to
   3.4 or later first.
 - **BREAKING** — `pinia` peer floor moves from `>=2.0.0` to `^2.1 || ^3 || ^4`. Inside a
@@ -66,7 +68,10 @@ is an active TanStack observer that reacts to invalidation on its own.
   `queryClient.invalidateQueries({queryKey:[resourceKey]})` addresses from another store, and what
   `setQueryDefaults` uses to keep records cached. A random default would silently defeat both for
   any resource that forgot to set one. The returned `loadingKey` field is renamed the same way:
-  read `resourceKey`.
+  read `resourceKey`. It must also be unique per record type: every resource now shares one
+  `QueryClient` (4.x gave each its own), so two resources under the same key share cache entries —
+  user `1` and product `1` collide. Resources that shared a `loadingKey` for one combined spinner
+  take distinct `resourceKey`s, read together with `useIsLoading(['users', 'products'])`.
 - **BREAKING** — `TTL` → **`staleTime`**, both as a composable option and a per-call setting. "Time
   to live" implied the data gets removed once it expires; it doesn't — stale data keeps rendering
   while a fresh copy downloads, same as always. Only the name changed.
@@ -95,8 +100,12 @@ is an active TanStack observer that reacts to invalidation on its own.
   refs, so writing into a record read back (`getRecord(1).name = 'x'`) or into the dictionary
   changed the store. On `useStructureRestApi` they are now computed views over the cache: a write
   into `getRecord(x)` or `itemDictionary` is ignored with a Vue warning, and `parentHasMany` is
-  rebuilt from the cache on every change, so an in-place edit of it is lost. Migration: write
-  through `addRecord`/`editRecord`/`updateTarget`, and link children with `addToParent`.
+  rebuilt from the cache on every change, so an in-place edit of it is lost. Being computeds, a
+  Pinia setup store treats them as getters, not state: records are no longer in `$state`, so
+  `$patch`, `$subscribe`, SSR state serialization and persistence plugins no longer carry them.
+  Migration: write through `addRecord`/`editRecord`/`updateTarget`, and link children with
+  `addToParent`; persist or transfer records through the `QueryClient` (`persistQueryClient`, or
+  TanStack's `dehydrate`/`hydrate`), not through Pinia state.
 - **BREAKING** — `IToastType` → **`EToastType`** (`useNotificationsStore`). The `I` prefix names an
   interface; an enum gets no such prefix. Update the import and every reference.
 - **BREAKING** — `fetchMultiple` resolves the requested ids: one slot per id, the fetched ones
@@ -128,8 +137,11 @@ is an active TanStack observer that reacts to invalidation on its own.
   `searchNow()`/`resetFilters()` apply the live filters (and `watchSearch` once at creation, with
   `immediate`); a page or page-size change fetches another page of the applied search without
   re-reading them. Fixes a real bug: binding a filter form's inputs straight to the live `filters`
-  blanked the list while the user typed, before Search was pressed. Migration: call `search()` (or
-  `searchNow()`) wherever an edit of the filters should take effect.
+  blanked the list while the user typed, before Search was pressed. With `immediate: false`,
+  nothing is applied, so nothing is fetched, until the first `search()`: a page or page-size
+  change before it does nothing, where 4.x fetched on any page change from creation. Migration:
+  call `search()` (or `searchNow()`) wherever an edit of the filters should take effect, and once
+  before relying on page changes of an `immediate: false` watcher.
 - **BREAKING** — on `useStructureSearchApi`/`useStructureCrudApi`, changing `pageSize` now also
   resets `pageCurrent` to `1`, synchronously, in the same tick — a page number from the old page
   size rarely means anything under the new one. The reset watcher runs with `flush: 'sync'`
@@ -156,27 +168,45 @@ is an active TanStack observer that reacts to invalidation on its own.
   stopping a scope ends the resource's cache subscriptions and its watchers, and every entry stays
   in the shared `QueryClient`. Call `resetAll()` first, or let a `dependsOn` change drop it, when
   data must leave memory.
-- `watchTarget`/`watchSearch` (and the CRUD `watchOne`/`watchList`) are now **active**: built on
-  TanStack's `useQuery`, so an `invalidateQueries` call from anywhere, or a `dependsOn` change,
-  re-runs them on their own — no imperative refetch needed.
+- **BREAKING** — `watchTarget`/`watchSearch` (and the CRUD `watchOne`/`watchList`) are now
+  **active**: built on TanStack's `useQuery`, so an `invalidateQueries` call from anywhere, or a
+  `dependsOn` change, re-runs them on their own — no imperative refetch needed. Their
+  `onSuccess`/`onError`/`onSettled` follow: 4.x ran them once per id change, page change or
+  `search()`; they now run once for every fetch of the watched query that lands, background ones
+  included — after an invalidation (every create/update/delete refetches an active list or
+  search), on window focus or reconnect once the data is stale, or when anything else fetches the
+  same key. Migration: make the callbacks safe to repeat — never reset a form being edited from
+  `onSuccess`, say — or compare against the last id/filters handled;
+  `queryOptions: { refetchOnWindowFocus: false, refetchOnReconnect: false }` drops the
+  focus/reconnect ones.
 - `watchOne(idSource, settings?)` forwards `settings` (`forced`, `merge`, `staleTime`, and the
   `onSuccess`/`onError`/`onSettled` callbacks) to `watchTarget`.
-- `loading` stays on every resource, now derived from TanStack: true while any query or mutation
-  under the resource's `resourceKey` is in flight (the same as `isLoading()`).
+- **BREAKING** — `loading` stays on every resource, now derived from TanStack: true while any
+  query or mutation under the resource's `resourceKey` is in flight (the same as `isLoading()`) —
+  every instance sharing that `resourceKey`, and the background refetches of active watchers,
+  included. 4.x counted this instance's own calls (or its `loadingKey` in the core store).
+  Migration: a spinner that should follow only some calls tags them with `key` and reads
+  `isLoading(key)`.
 - `resetAll()` now drops every kind of a resource's entries under the current `dependsOn`
   (records, lists, searches) in one call, rather than only resetting the local dictionary and
   parent relations, and refetches what active watchers show: the views empty, then the watched
   data comes back. `resetRecords()` removes records only, and marks the lists stale (their ids may
   now point at nothing), so active list watchers refetch.
-- Cache lifetime: records and parent lists (`getListByParent`) are never garbage-collected, as the
-  4.x dictionary never was. The `all`/`page`/`search`/`any` entries follow the client's `gcTime`
-  (TanStack's default: 5 minutes in a browser once nothing observes them) — 4.x kept its own
-  search page index, and gave its private client a `gcTime` of at least `TTL`. A search page
-  fetched imperatively with `fetchSearch` therefore empties `pageItemList`/`totalItems` 5 minutes
-  after nothing observes it; `watchSearch` keeps it alive.
-- `maxRecords`' default drops from `100_000` to `10_000` — a record costs more as a TanStack query
-  than as a plain object (measured for 10 000 records: ~2.2 MB as plain objects, ~10.5 MB as
-  queries, i.e. ~0.8–1 KB more per record), so the same backstop now sits at a tighter bound.
+- **BREAKING** — cache lifetime: records and parent lists (`getListByParent`) are never
+  garbage-collected, as the 4.x dictionary never was. The `all`/`page`/`search`/`any` entries
+  follow the client's `gcTime` (TanStack's default: 5 minutes in a browser once nothing observes
+  them) — 4.x kept its own search page index, and gave its private client a `gcTime` of at least
+  `TTL`. A search page fetched imperatively with `fetchSearch` (or the CRUD
+  `searchNow()`/`resetFilters()` with no `watchList()` running) therefore empties
+  `pageItemList`/`totalItems` 5 minutes after nothing observes it. Migration: keep a
+  `watchSearch`/`watchList` running on any screen that shows a search, or keep search pages cached
+  with `queryClient.setQueryDefaults([resourceKey, 'search'], { gcTime: Infinity })`.
+- **BREAKING** — `maxRecords`' default drops from `100_000` to `10_000` — a record costs more as a
+  TanStack query than as a plain object (measured for 10 000 records: ~2.2 MB as plain objects,
+  ~10.5 MB as queries, i.e. ~0.8–1 KB more per record), so the same backstop now sits at a tighter
+  bound, and crossing it drops more (next entry). Migration: an app holding more than 10 000
+  records per scope (infinite scroll over `itemList`, a big lookup table) sets `maxRecords`
+  explicitly — `100_000` keeps the 4.x bound.
 - Crossing `maxRecords` now drops every other entry of the current scope — lists and searches too,
   not only records — while the list fetch that crossed it keeps its own entry, resolving its items
   and caching its list. Only records not cached yet count towards the bound (4.x counted the whole
@@ -236,6 +266,38 @@ is an active TanStack observer that reacts to invalidation on its own.
 - **BREAKING** — `package.json` declares `engines.node: ">=22"`; 4.x declared no engine at all.
   Node 20 reached end-of-life on 2026-04-30. npm only warns on a mismatch, but Yarn 1 and
   `engine-strict` installs refuse it. Migration: run your build, SSR and tests on Node 22 or later.
+- **BREAKING** — every read `apiCall` — `fetch*`/`watch*`, `fetchAny`/`watchSearch`, and CRUD's
+  `list`/`search`/`get` — receives an `IFetchContext` (`{ signal }`) as its last argument, where
+  4.x passed nothing (`fetchTarget`, keyless `fetchAny`, CRUD `list`/`get`/`search`) or only the
+  id (`watchTarget`); `fetchMultiple`'s receives `(missingIds, context)` (see Added). `signal` is a
+  lazy getter: reading it is what asks TanStack to abort the underlying fetch once nothing needs
+  it any more (an unmounted watcher, a mutation cancelling that same record's read). Forward it to
+  `fetch`/axios for a request that is genuinely cancelled, not just an answer later discarded. An
+  `apiCall` that ignores its arguments keeps working, but a function passed by name whose own
+  optional parameter sits in that slot now receives the context instead of its default:
+  `fetchAny(api.stats)` with `stats(range = '7d')` gets `{ signal }` as `range`. Migration: wrap
+  such a function in an arrow, `fetchAny(() => api.stats())`.
+- **BREAKING** — `fetchSearch(apiCall, filters, page, pageSize)` applies `page` and `pageSize` to
+  the live `pageCurrent`/`pageSize`, so `pageItemList`/`totalItems` show the page it just fetched.
+  4.x only fetched and cached it, leaving the screen on whatever page was current before, until
+  something else moved `pageCurrent`. `pageSize` defaults to the current one, so leaving it out
+  keeps the size on screen. Migration: `fetchSearch` moves the screen to the page it fetches, so do
+  not call it to prefetch a page the screen should not show yet.
+- **BREAKING** — `applyServerErrors` no longer drops form-level and unmapped server messages.
+  Without `onUnmapped`, 4.x discarded them and returned `false`; they now go to `formLevelErrors`
+  (which `isValid` includes, so it stays `false` until `clearErrors`/`resetForm`),
+  `showFormErrors` turns on, and the call returns `true`. It also returns `true` after handing
+  every message to `onUnmapped`, where 4.x returned `false` whenever nothing reached `formErrors` —
+  the docs' own snippet then showed a second, generic message on top of the one `onUnmapped`
+  already displayed. `false` now means only that the rejection carried nothing at all. Migration:
+  render `formLevelErrors` (a banner above the form, say) or pass `onUnmapped` to display them
+  yourself, and drop any fallback message shown on `false` after `onUnmapped` displayed one.
+- **BREAKING** (types) — `useStructureDataManagement`'s `parentHasMany`/`addToParent`/
+  `removeFromParent`/`removeDuplicateChildren` type a child id as `K`, the id's own value type,
+  where 4.x typed it as `typeof identifier` — the identifier FIELD NAME, always `string`, so a
+  numeric id needed an `as never` cast. Code passing string ids to a numeric-id resource, or
+  reading `parentHasMany` as `string[]`, no longer compiles. Migration: pass child ids in the id's
+  own type, drop the casts, and read `parentHasMany` as `K[]`.
 
 ## Added
 
@@ -282,12 +344,6 @@ is an active TanStack observer that reacts to invalidation on its own.
   `(missingIds, context) => …`, exactly `checkMultiple(ids).expiredIds` — instead of no arguments
   at all. Building `GET /users?ids=1,2` from `missingIds` means an id already fresh in the cache is
   never re-requested; previously this required calling `checkMultiple` yourself first.
-- **Every read `apiCall`** — `fetch*`/`watch*`, `fetchAny`/`watchSearch`, and CRUD's `list`/
-  `search`/`get` — now receives an `IFetchContext` (`{ signal }`) as its last argument. `signal` is
-  a lazy getter: reading it is what asks TanStack to abort the underlying fetch once nothing needs
-  it any more (an unmounted watcher, a mutation cancelling that same record's read). Forward it to
-  `fetch`/axios for a request that is genuinely cancelled, not just an answer later discarded.
-  Non-breaking: an `apiCall` that ignores the new argument keeps working exactly as before.
 - **`dependsOn`** — a getter returning the values a resource's data depends on (whose data, which
   language): `dependsOn: () => [session.viewer?.id ?? 'guest', locale.value]`. Read fresh at the
   start of every call; when it changes, the resource's entries under the old value — records
@@ -385,11 +441,6 @@ is an active TanStack observer that reacts to invalidation on its own.
   every REST-mode resource. Relations now go through an `IRelationStore` seam, the same pattern
   `IRecordStore` already uses for records: a local dictionary by default, and the TanStack-backed
   one `useStructureRestApi` passes, so nothing local is built when the REST store supplies it.
-- `useStructureDataManagement`'s `parentHasMany`/`addToParent`/`removeFromParent`/
-  `removeDuplicateChildren` typed a child id as `typeof identifier` — the identifier FIELD NAME
-  (always `string`) — instead of `K`, the id's actual value type. Passing a numeric id needed an
-  `as never` cast, papered over in the test suite rather than fixed. Child ids are now typed `K`,
-  and the casts are removed.
 - `useStructureDataManagement`'s `lastInsertedIdentifier`/`lastInsertedIdentifiers` are documented
   as tracking newly CREATED records, but `addRecord`/`editRecord` moved them on every write,
   including one storing a record the server merely reported (a list fetch, a `GET` by id) —
@@ -406,9 +457,8 @@ is an active TanStack observer that reacts to invalidation on its own.
 - `useStructureFormValidation`'s root-level Zod issues (an empty `path` — a cross-field
   `.refine()` with no `path` option, say) were silently dropped: `validate()` could return `false`
   while `isValid` stayed `true` and nothing showed on screen. A new `formLevelErrors: Ref<string[]>`
-  now holds them, and `isValid` includes it. `applyServerErrors` routes its own unmapped messages
-  there too, when no `onUnmapped` catches them — previously dropped the same way. `clearErrors`/
-  `resetForm` clear `formLevelErrors` along with `formErrors`.
+  now holds them, and `isValid` includes it (`applyServerErrors` fills it too — see Changed).
+  `clearErrors`/`resetForm` clear `formLevelErrors` along with `formErrors`.
 - `useStructureFormValidation`'s `revalidateOn` re-ran the public `validate()`, which replaces
   `formErrors`/`formLevelErrors` wholesale from a fresh schema parse — wiping out any error set by
   `setFieldError`/`applyServerErrors` (a "this email is already taken" from the server, say) the
@@ -424,11 +474,6 @@ is an active TanStack observer that reacts to invalidation on its own.
   form. `resetForm` also handed the live form and the baseline the same nested object, so editing
   one edited the other. All four now use a detached (deep) copy, sharing no plain object or array
   with the source (Set, Map and Date fields also detached now — see Fixed, below).
-- `fetchSearch(apiCall, filters, page, pageSize)` fetched and cached the requested page, but never
-  applied `page`/`pageSize` to the live `pageCurrent`/`pageSize` refs — `pageItemList`/`totalItems`
-  kept showing whatever page was current *before* the call, not the one it just fetched, until
-  something else moved `pageCurrent`. It now applies both itself, so the screen shows the page it
-  asked for.
 - `watchByParent` called `apiCall(undefined)` when its `parentId` was nullish, instead of idling:
   a screen whose parent id starts out unknown (still loading from a route param, say) fired a
   request for `undefined` on mount. It now idles — no fetch, `apiCall` never called — exactly like
@@ -560,11 +605,6 @@ is an active TanStack observer that reacts to invalidation on its own.
 - `editRecord` checked `id` with `!id`, so a falsy-but-real id (`0`, `''`) was treated as "no id
   given" and silently fell back to inferring the id from `data` instead of editing the record it
   was actually asked for. Checks `id === undefined` instead — `0` and `''` are real ids.
-- `applyServerErrors` returned `false` whenever nothing was written to `formErrors`/
-  `formLevelErrors`, even after handing every message to `onUnmapped` — the docs' own snippet then
-  showed a second, generic message on top of the one `onUnmapped` already displayed. It now returns
-  `true` whenever something was shown, on the form or through `onUnmapped`; `false` only when the
-  rejection carried nothing at all.
 - `useAsyncAction`'s `run`, `useUploadProgress`'s `track` and `useLivenessProbe`'s `check` all
   called the caller's function directly, before any promise existed, so a SYNCHRONOUS throw (a
   throwing `buildOptions`, a null dereference before the first `await`) escaped instead of
