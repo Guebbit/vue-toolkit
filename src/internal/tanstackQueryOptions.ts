@@ -11,6 +11,7 @@
 import type { ITanStackQueryOptions } from '../composables/structureRestApi.js';
 
 /** Every `ITanStackQueryOptions` key; a `Record` so the compiler checks none is missing. */
+// Stryker disable all: the values are type-only; the lookup reads keys, never values.
 const ALLOWED_KEYS: Record<keyof ITanStackQueryOptions, true> = {
     retry: true,
     retryDelay: true,
@@ -18,6 +19,7 @@ const ALLOWED_KEYS: Record<keyof ITanStackQueryOptions, true> = {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true
 };
+// Stryker restore all
 
 /**
  * The documented options of `options`, and only those. A key the caller set to `undefined` is

@@ -95,6 +95,7 @@ export const useUploadProgress = <TOptions>(buildOptions: TUploadOptionsBuilder<
 
         // This call's own identity: two overlapping track() calls must not let the first to
         // settle (or report) clobber the bar the other still owns.
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         const token = ++currentTrackToken;
 
         // 0 from the moment the request is in flight: a bar that waits for the first progress

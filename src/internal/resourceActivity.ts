@@ -101,7 +101,9 @@ export const useResourceActivity = (
     /** Ends the query-cache subscription. */
     const stopQueries = queryClient.getQueryCache().subscribe((event) => {
         if (!STATUS_EVENTS.has(event.type) || event.query.queryKey[0] !== resourceKey) return;
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         queryStatus.value++;
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         if (changesData(event)) counterOf(String(event.query.queryKey[1])).value++;
     });
 
@@ -111,6 +113,7 @@ export const useResourceActivity = (
             STATUS_EVENTS.has(event.type) &&
             event.mutation?.options.mutationKey?.[0] === resourceKey
         )
+            // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
             mutationStatus.value++;
     });
 

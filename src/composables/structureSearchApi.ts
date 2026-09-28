@@ -705,6 +705,7 @@ export const useStructureSearchApi = <
      * composable otherwise guards against).
      */
     const resetAll = (): void => {
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         resetGeneration.value++;
         api.resetAll();
     };

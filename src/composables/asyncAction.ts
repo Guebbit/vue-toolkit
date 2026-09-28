@@ -97,6 +97,7 @@ export const useAsyncAction = <T, TArguments extends unknown[] = []>(
      *          overtaken by a newer run
      */
     const run = (...parameters: TArguments): Promise<T | undefined> => {
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         const current = ++latest;
         loading.value = true;
         error.value = undefined;
@@ -125,6 +126,7 @@ export const useAsyncAction = <T, TArguments extends unknown[] = []>(
      */
     const reset = () => {
         // Bumped so a run still in flight cannot write to the state just cleared
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         latest++;
         data.value = initialData;
         error.value = undefined;

@@ -8,7 +8,7 @@
  *
  * @module internal/queryRemoval
  */
-import type { Query, QueryClient, QueryKey } from '@tanstack/vue-query';
+import type { Query, QueryClient } from '@tanstack/vue-query';
 
 /**
  * Drops the queries matching `predicate`: unobserved ones are removed, observed ones are reset
@@ -34,15 +34,4 @@ export const dropQueries = (
         const matches = queryClient.getQueryCache().findAll({ predicate: observed });
         for (const query of matches) query.reset();
     }
-};
-
-/**
- * Drops the one query under `queryKey`, if cached (see dropQueries).
- *
- * @param queryClient - the client the query lives on
- * @param queryKey - its exact key
- */
-export const dropQuery = (queryClient: QueryClient, queryKey: QueryKey): void => {
-    const target = queryClient.getQueryCache().find({ queryKey, exact: true });
-    if (target) dropQueries(queryClient, (query) => query === target);
 };

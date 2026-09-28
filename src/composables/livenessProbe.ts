@@ -114,6 +114,7 @@ export const useLivenessProbe = (
     const check = (): Promise<void> => {
         if (_stopped) return Promise.resolve();
         _cancelRetry();
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         const current = ++_latest;
 
         // promiseTry: a probe that throws synchronously is read as unreachable, like a rejection.
@@ -145,6 +146,7 @@ export const useLivenessProbe = (
      */
     const stop = (): void => {
         // Bumped so a probe still in flight cannot write to `down` after teardown
+        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         _latest++;
         _stopped = true;
         _cancelRetry();
