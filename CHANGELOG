@@ -697,6 +697,12 @@ is an active TanStack observer that reacts to invalidation on its own.
   `IRelationStore` promises a no-op for a child already linked. Both stores now compare child ids
   the way the record dictionary keys them — `1` and `'1'` are the same child, a symbol only matches
   itself — for linking, unlinking and `removeDuplicateChildren` alike.
+- `useStructureFormValidation` read its error records through the prototype chain: a field named
+  like an `Object.prototype` member (`constructor`, `toString`, `valueOf`) looked present before
+  anything was stored under it. `validate()` threw on a failing field named `constructor`, and
+  `applyServerErrors` threw on a server message for any such name — for a field the form does not
+  have (which belongs in `formLevelErrors`) as well as for one it does. Both now read own keys
+  only.
 - `package.json`'s `license` field was `"AGPLv3.0"`, which is not a valid SPDX expression: npm
   warns on it and license scanners cannot identify it. It is now `"AGPL-3.0-only"`, matching
   the bundled `LICENSE`.

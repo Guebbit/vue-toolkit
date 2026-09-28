@@ -141,6 +141,19 @@ interface IServerErrorEntry {
 }
 
 /**
+ * `record[key]`, own keys only: a plain object also answers for `constructor` or `toString`
+ * through its prototype, and a field of that name must not read as one already there.
+ *
+ * @param record - the object to read, if any
+ * @param key - the key to read
+ * @returns the own value, or undefined
+ */
+const ownValue = <V>(record: object | undefined, key: PropertyKey): V | undefined =>
+    record !== undefined && Object.hasOwn(record, key)
+        ? (record as Record<PropertyKey, V>)[key]
+        : undefined;
+
+/**
  * Narrows any value to a plain keyed object.
  *
  * @param value - anything read off a rejection
@@ -548,8 +561,7 @@ export const useStructureFormValidation = <
                 levelErrors.push(issue.message);
                 continue;
             }
-            if (!fieldErrors[field]) fieldErrors[field] = [];
-            fieldErrors[field]!.push(issue.message);
+            fieldErrors[field] = [...(ownValue<string[]>(fieldErrors, field) ?? []), issue.message];
         }
         return { success: false, fieldErrors, levelErrors };
     };
@@ -633,13 +645,14 @@ export const useStructureFormValidation = <
         const unmapped: string[] = [];
 
         for (const { field, messages } of entries) {
-            const target = field === undefined ? undefined : ((map?.[field] ?? field) as keyof T);
+            const target =
+                field === undefined ? undefined : (ownValue<keyof T>(map, field) ?? field);
             // A field the form does not have cannot be highlighted, so it is form-level copy
-            if (target === undefined || !(target in form.value)) {
+            if (target === undefined || !Object.hasOwn(form.value, target)) {
                 unmapped.push(...messages);
                 continue;
             }
-            applied[target] = [...(applied[target] ?? []), ...messages];
+            applied[target] = [...(ownValue<string[]>(applied, target) ?? []), ...messages];
         }
 
         // onUnmapped, when given, owns displaying these; without it they go to formLevelErrors

@@ -455,6 +455,42 @@ describe('useStructureFormValidation', () => {
         });
     });
 
+    // ─── field names Object.prototype also answers for ──────────────────────
+    // A plain object "has" `constructor` and `toString` through its prototype: an existence check
+    // must look at own keys only, or those names are mistaken for fields already there.
+
+    describe('field names Object.prototype also has', () => {
+        it('validate files an issue under a field named constructor', () => {
+            const c = inScope(() =>
+                useStructureFormValidation<{ constructor: string }>(
+                    { constructor: '' },
+                    z.object({ constructor: z.string().min(1, 'Required') })
+                )
+            );
+
+            expect(c.validate()).toBe(false);
+            expect(c.formErrors.value.constructor).toEqual(['Required']);
+        });
+
+        it('applyServerErrors sends a toString message, a field the form lacks, to formLevelErrors', () => {
+            composable.applyServerErrors({ errors: { toString: 'Rejected' } });
+
+            expect(composable.formLevelErrors.value).toEqual(['Rejected']);
+            expect(Object.hasOwn(composable.formErrors.value, 'toString')).toBe(false);
+        });
+
+        it('applyServerErrors attaches a message to a field named constructor', () => {
+            const c = inScope(() =>
+                useStructureFormValidation<{ constructor: string }>({ constructor: '' })
+            );
+
+            c.applyServerErrors({ errors: { constructor: 'Rejected' } });
+
+            expect(c.formErrors.value.constructor).toEqual(['Rejected']);
+            expect(c.formLevelErrors.value).toEqual([]);
+        });
+    });
+
     // ─── validate (without schema) ───────────────────────────────────────────
 
     describe('validate (without schema)', () => {
