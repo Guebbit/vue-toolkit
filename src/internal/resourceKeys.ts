@@ -18,8 +18,11 @@
 import type { Query } from '@tanstack/vue-query';
 import { stableKey } from './plainData.js';
 
-/** What a query entry holds: one record (`target`), a list of ids, or anything else (`any`). */
-export type TResourceKind = 'target' | 'all' | 'parent' | 'page' | 'search' | 'any';
+/**
+ * What a query entry holds: one record (`target`), a list of ids, anything else (`any`), or
+ * nothing at all (`idle`: the placeholder a watcher sits on while it has no id to watch).
+ */
+export type TResourceKind = 'target' | 'all' | 'parent' | 'page' | 'search' | 'any' | 'idle';
 
 /** The kinds that hold a list of ids: what a successful mutation marks stale. */
 export const LIST_KINDS: readonly TResourceKind[] = ['all', 'parent', 'page', 'search'];
@@ -104,6 +107,14 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
     ): unknown[] => [resourceKey, 'parent', scope, String(parentId), ...key];
 
     /**
+     * `[resourceKey, 'idle', scope]`: the disabled placeholder a watcher sits on while it has no
+     * id. Never fetched, and a kind of its own, so no caller-chosen key can ever land on it.
+     *
+     * @returns the query key, under the current scope
+     */
+    const idle = (): unknown[] => [resourceKey, 'idle', dependsOn()];
+
+    /**
      * `[resourceKey, kind, scope, ...parts, ...key]`: any entry other than a record.
      *
      * @param kind - what the entry holds
@@ -155,7 +166,7 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
                 (query.state.data as ITargetEntry<unknown> | undefined)?.aliasOf === key);
     };
 
-    return { target, parent, entry, inScope, refersTo, scopeOf };
+    return { target, parent, idle, entry, inScope, refersTo, scopeOf };
 };
 
 /** Key builders and scope predicates of one resource (what `createResourceKeys` returns). */

@@ -76,6 +76,7 @@ flowchart LR
 | `page`   | `[resourceKey, 'page', dependsOn, pageSize, page, ...key]`            | ids                     | `fetchPaginate`                                                  |
 | `search` | `[resourceKey, 'search', dependsOn, filters, pageSize, page, ...key]` | ids + `totalItems`      | [`useStructureSearchApi`](./structure-search-api)                |
 | `any`    | `[resourceKey, 'any', dependsOn, ...key]`                             | whatever `apiCall` resolves | `fetchAny` with a `key`, `watchAny`                          |
+| `idle`   | `[resourceKey, 'idle', dependsOn]`                                    | nothing: never fetched  | the placeholder `watchTarget`/`watchByParent` sit on with no id |
 
 - A list holds ids, never records: a record fetched by a list and by `fetchTarget` is one entry.
 - Record and parent ids are keyed as strings: `5` and `'5'` (a route param) address the same
@@ -206,7 +207,7 @@ component or store that created it, or with `stop()`.
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `watchTarget(apiCall, idSource, settings?)`    | `apiCall: (id, context) => Promise<T \| undefined>`. `idSource`: Ref or getter of `K \| undefined \| null`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `queryOptions`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
 | `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled`, `queryOptions` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles). `settings: IWatchListSettings` | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles, and `refetch()` then resolves `[]` without calling `apiCall`). `settings: IWatchListSettings` | `IWatchHandle<(T \| undefined)[]>`          |
 | `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled?, queryOptions? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
 
 Each fetch sends what its own query was built from: `watchTarget`'s `apiCall` receives the id,
@@ -318,7 +319,9 @@ users.watchAll(fetchUsers, {
 ```
 
 `queryFn`/`queryKey`/`gcTime` are never part of this: they encode the cache layout every
-fetch/watch method relies on, and letting a caller override them would break it. `queryOptions`
+fetch/watch method relies on, and letting a caller override them would break it. Only the five
+keys above are read — anything else on the object (a JS caller's, or a widened object's) is
+dropped, never passed on to `useQuery`. `queryOptions`
 only reaches ACTIVE queries (`watch*`) — a one-shot `fetch*` read has no observer for
 `refetchInterval`/`refetchOnWindowFocus`/`refetchOnReconnect` to mean anything on, and its own
 `forced`/`staleTime` settings already cover `retry`-adjacent freshness concerns.

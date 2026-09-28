@@ -24,7 +24,7 @@
         "type": "git",
         "url": "git+https://github.com/Guebbit/vue-toolkit.git"
     },
-    "license": "AGPLv3.0",
+    "license": "AGPL-3.0-only",
     "author": "Guebbit",
     "type": "module",
     "main": "dist/index.js",

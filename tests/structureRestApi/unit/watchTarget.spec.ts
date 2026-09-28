@@ -79,26 +79,23 @@ describe('UNIT · watchTarget', () => {
         stop();
     });
 
-    // Known bug: restResource.ts's idle placeholder key `[rk, 'any', scope, 'idle']` is exactly the
-    // key fetchAny/watchAny build for `key: ['idle']`, so their fetch settles the idle watcher.
-    it.failing(
-        "a watcher idle for lack of an id settles nothing, even when a keyed fetchAny uses key ['idle']",
-        async () => {
-            const c = make();
-            const onSuccess = jest.fn();
-            const { stop } = c.watchTarget(fakeApiCall(), ref<number | undefined>(undefined), {
-                onSuccess
-            });
-            await flush();
+    // The idle placeholder is a kind of its own (`[rk, 'idle', scope]`): no `fetchAny`/`watchAny`
+    // key can land on it, not even one spelled `['idle']`.
+    it("a watcher idle for lack of an id settles nothing, even when a keyed fetchAny uses key ['idle']", async () => {
+        const c = make();
+        const onSuccess = jest.fn();
+        const { stop } = c.watchTarget(fakeApiCall(), ref<number | undefined>(undefined), {
+            onSuccess
+        });
+        await flush();
 
-            // any caller-chosen key: the idle watcher must not share its cache entry
-            await c.fetchAny(() => Promise.resolve('stats'), { key: ['idle'] });
-            await flush();
+        // any caller-chosen key: the idle watcher must not share its cache entry
+        await c.fetchAny(() => Promise.resolve('stats'), { key: ['idle'] });
+        await flush();
 
-            expect(onSuccess).not.toHaveBeenCalled();
-            stop();
-        }
-    );
+        expect(onSuccess).not.toHaveBeenCalled();
+        stop();
+    });
 
     it('calls onSuccess/onSettled with the fetched item and id', async () => {
         const c = make();

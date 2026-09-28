@@ -6,7 +6,7 @@
  * entries — every bucket `fetchByParent` filled for it — merged in first-seen order. There is no
  * second, separately-tracked copy to keep in sync. Local edits write those entries and mark them
  * stale: adding goes to the plain (keyless) entry, while unlinking and de-duplicating edit every
- * bucket, so the child leaves the merged view. Ids compare as strings, like the cache keys.
+ * bucket, so the child leaves the merged view. Ids compare as object keys (`./idEquality`).
  *
  * @module internal/parentRelations
  */
@@ -14,6 +14,7 @@ import { computed, type Ref } from 'vue';
 import type { Query, QueryClient, QueryKey } from '@tanstack/vue-query';
 import type { IRelationStore } from '../composables/structureDataManagement.js';
 import type { IListCacheEntry, IResourceKeys } from './resourceKeys.js';
+import { sameId, uniqueIds } from './idEquality.js';
 
 /** What the relation store needs from the resource that owns it. */
 export interface IParentRelationsContext {
@@ -29,22 +30,6 @@ export interface IParentRelationsContext {
     /** Moves when a parent list gets new data or leaves the cache. */
     version: Readonly<Ref<number>>;
 }
-
-/**
- * Ids without repeats, compared as strings, in first-seen order.
- *
- * @param ids - the ids
- * @returns the unique ids
- */
-const uniqueIds = <K>(ids: readonly K[]): K[] => {
-    const seen = new Set<string>();
-    return ids.filter((id) => {
-        const key = String(id);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-};
 
 /**
  * Relation store over a `QueryClient`.
@@ -110,7 +95,7 @@ export const createQueryRelationStore = <K extends string | number, P extends st
      * @param childId - the child record id
      */
     const addToParent = (parentId: P, childId: K): void => {
-        if ((dictionary.value[parentId] ?? []).some((id) => String(id) === String(childId))) return;
+        if ((dictionary.value[parentId] ?? []).some((id) => sameId(id, childId))) return;
         const plainKey = keys.parent(parentId);
         const ids = queryClient.getQueryData<IListCacheEntry<K>>(plainKey)?.ids ?? [];
         writeIds(plainKey, [...ids, childId]);
@@ -126,7 +111,7 @@ export const createQueryRelationStore = <K extends string | number, P extends st
         for (const query of bucketsOf(parentId))
             writeIds(
                 query.queryKey,
-                idsOf(query).filter((id) => String(id) !== String(childId))
+                idsOf(query).filter((id) => !sameId(id, childId))
             );
     };
 

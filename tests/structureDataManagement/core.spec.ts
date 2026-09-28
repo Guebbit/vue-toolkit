@@ -112,6 +112,18 @@ describe('useStructureDataManagement', () => {
             composable.pageCurrent.value = 3;
             expect(composable.pageItemList.value).toHaveLength(5);
         });
+
+        // Infinity has no whole page size: taken as written, its first page reads NaN (Infinity * 0)
+        // as an offset and shows nothing, with a pageTotal of 0.
+        it.each([Infinity, -Infinity])(
+            'ignores a pageSize of %p, keeping the current one',
+            (size) => {
+                composable.pageSize.value = size;
+
+                expect(composable.pageSize.value).toBe(10);
+                expect(composable.pageItemList.value).toHaveLength(10);
+            }
+        );
     });
 
     describe('parent-child relationships', () => {
@@ -130,20 +142,16 @@ describe('useStructureDataManagement', () => {
             expect(list).toHaveLength(0);
         });
 
-        // Known bug: the local relation store's removeFromParent
-        // (src/composables/structureDataManagement.ts) compares ids with `!==`, where the REST
-        // store compares String(id): `'1'` (a route param) never matches a linked `1`.
-        it.failing(
-            'removeFromParent unlinks a child whether its id comes as a number or a string',
-            () => {
-                const store = useStructureDataManagement<ITestItem, number | string, string>();
-                store.addToParent('parent-1', 1);
+        // Child ids compare as object keys, same as the REST store: `'1'` (a route param) is the
+        // linked `1`.
+        it('removeFromParent unlinks a child whether its id comes as a number or a string', () => {
+            const store = useStructureDataManagement<ITestItem, number | string, string>();
+            store.addToParent('parent-1', 1);
 
-                store.removeFromParent('parent-1', '1');
+            store.removeFromParent('parent-1', '1');
 
-                expect(store.parentHasMany.value['parent-1']).toEqual([]);
-            }
-        );
+            expect(store.parentHasMany.value['parent-1']).toEqual([]);
+        });
     });
 });
 

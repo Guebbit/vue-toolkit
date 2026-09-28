@@ -84,22 +84,19 @@ describe('UNIT · watchByParent', () => {
         stop();
     });
 
-    // Known bug: restResource.ts's watchList refetch() calls TanStack's refetch, which runs the
-    // query function even while `enabled` is false; watchTarget guards this, watchByParent does not.
-    it.failing(
-        'refetch() while the parent id is nullish resolves [] without calling apiCall',
-        async () => {
-            const c = make();
-            const apiCall = jest.fn(() => Promise.resolve(buildUsers(1, 1)));
-            const { refetch } = c.watchByParent(apiCall, ref<string | undefined>(undefined));
-            await flush();
+    // TanStack's refetch() runs the query even while `enabled` is false; with no parent id there
+    // is nothing to ask for, so watchByParent's refetch() must not reach apiCall at all.
+    it('refetch() while the parent id is nullish resolves [] without calling apiCall', async () => {
+        const c = make();
+        const apiCall = jest.fn(() => Promise.resolve(buildUsers(1, 1)));
+        const { refetch } = c.watchByParent(apiCall, ref<string | undefined>(undefined));
+        await flush();
 
-            const result = await refetch();
+        const result = await refetch();
 
-            expect(apiCall).not.toHaveBeenCalled();
-            expect(result).toEqual([]);
-        }
-    );
+        expect(apiCall).not.toHaveBeenCalled();
+        expect(result).toEqual([]);
+    });
 
     it('accepts enabled: false, and starts fetching once it flips true', async () => {
         const c = make();

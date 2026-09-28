@@ -75,24 +75,35 @@ describe('UNIT · queryOptions passthrough', () => {
         expect(apiCall).toHaveBeenCalledTimes(1); // no retry: the option never reached it
     });
 
-    // Known bug: restResource.ts's watchQuery spreads queryOptions into useQuery as-is, so any key
-    // outside the five it documents (gcTime here) overrides the engine's own setting.
-    it.failing(
-        'an engine-owned option smuggled into queryOptions (gcTime) is ignored: the record outlives its stopped watcher',
-        async () => {
-            const c = makeComposable<IUser, number>();
-            // outside ITanStackQueryOptions: only a JS caller or a widened object can pass it
-            const widened: Record<string, unknown> = { gcTime: 0 };
-            const handle = c.watchTarget(() => Promise.resolve(USERS[0]), ref(1), {
-                queryOptions: widened as ITanStackQueryOptions
-            });
-            await flush();
-            expect(c.getRecord(1)).toEqual(USERS[0]);
+    // Only the five documented keys reach useQuery: anything else a caller's object carries
+    // (gcTime here) would override the engine's own setting and break the cache layout.
+    it('an engine-owned option smuggled into queryOptions (gcTime) is ignored: the record outlives its stopped watcher', async () => {
+        const c = makeComposable<IUser, number>();
+        // outside ITanStackQueryOptions: only a JS caller or a widened object can pass it
+        const widened: Record<string, unknown> = { gcTime: 0 };
+        const handle = c.watchTarget(() => Promise.resolve(USERS[0]), ref(1), {
+            queryOptions: widened as ITanStackQueryOptions
+        });
+        await flush();
+        expect(c.getRecord(1)).toEqual(USERS[0]);
 
-            handle.stop();
-            await flush();
+        handle.stop();
+        await flush();
 
-            expect(c.getRecord(1)).toEqual(USERS[0]);
-        }
-    );
+        expect(c.getRecord(1)).toEqual(USERS[0]);
+    });
+
+    it('an engine-owned option smuggled into the resource-level queryOptions is ignored too', async () => {
+        const widened: Record<string, unknown> = { gcTime: 0 };
+        const c = makeComposable<IUser, number>({
+            queryOptions: widened as ITanStackQueryOptions
+        });
+        const handle = c.watchTarget(() => Promise.resolve(USERS[0]), ref(1));
+        await flush();
+
+        handle.stop();
+        await flush();
+
+        expect(c.getRecord(1)).toEqual(USERS[0]);
+    });
 });

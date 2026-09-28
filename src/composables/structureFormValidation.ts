@@ -260,7 +260,7 @@ export interface IStructureFormValidation<
     /** Whether errors should be displayed. */
     showFormErrors: Ref<boolean>;
 
-    /** Whether a handleSubmit handler is currently running. */
+    /** Whether a handleSubmit handler is currently running; while it is, no other one starts. */
     isSubmitting: Ref<boolean>;
 
     /** True when there are no validation errors, field-level or form-level. */
@@ -338,11 +338,14 @@ export interface IStructureFormValidation<
     revealErrors: () => Promise<void>;
 
     /**
-     * Validates (optionally) and then calls the provided submit handler.
+     * Validates (optionally) and then calls the provided submit handler. One submit at a time:
+     * called while another is still running, it resolves false without validating or calling
+     * its handler.
      *
      * @param onSubmit       - handler called with the current form value
      * @param withValidation - when true (default) the form is validated first
-     * @returns true on success, false when validation failed; a handler failure rejects
+     * @returns true on success; false when the handler did not run (validation failed, or another
+     *   submit was still running); a handler failure rejects
      */
     handleSubmit: (
         onSubmit: (data: T) => Promise<void> | void,
@@ -432,7 +435,8 @@ export const useStructureFormValidation = <
     const showFormErrors = ref(false);
 
     /**
-     * Whether a handleSubmit handler is currently running.
+     * Whether a handleSubmit handler is currently running. Also handleSubmit's lock: while it is
+     * true, no other submit starts.
      */
     const isSubmitting = ref(false);
 
@@ -663,18 +667,23 @@ export const useStructureFormValidation = <
      * Validates (optionally) and then calls the provided submit handler.
      * Sets {@link isSubmitting} for the duration of the async operation.
      *
+     * Single-flight: a submit arriving while one runs (a double click, Enter plus a click) would
+     * repeat the handler's side effects, a duplicate POST — so it resolves false untouched.
+     *
      * Owns showFormErrors across the whole flow: a rejected submit reveals (see revealErrors),
      * an accepted one hides. A handler that THROWS leaves it off — an API failure is not a
      * statement about any field; catch it and call applyServerErrors when it is.
      *
      * @param onSubmit       - handler called with the current form value
      * @param withValidation - when true (default) the form is validated first
-     * @returns true on success, false when validation failed; a handler failure rejects
+     * @returns true on success; false when the handler did not run (validation failed, or another
+     *   submit was still running); a handler failure rejects
      */
     const handleSubmit = (
         onSubmit: (data: T) => Promise<void> | void,
         withValidation = true
     ): Promise<boolean> => {
+        if (isSubmitting.value) return Promise.resolve(false);
         if (withValidation && !validate()) return revealErrors().then(() => false);
 
         showFormErrors.value = false;

@@ -707,24 +707,64 @@ describe('useStructureFormValidation', () => {
             expect(composable.isSubmitting.value).toBe(false);
         });
 
-        // Known bug: handleSubmit (src/composables/structureFormValidation.ts) clears the one
-        // isSubmitting flag in each call's `finally`, with no count of the submits still running.
-        it.failing('stays submitting until every overlapping submit has settled', async () => {
+        // ─── one submit at a time ─────────────────────────────────────────────
+        // A second submit while one runs (a double click, Enter plus a click) would repeat the
+        // handler's side effects — a duplicate POST — so it resolves false without running.
+
+        it('resolves false without calling its handler while another submit runs', async () => {
             composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
             const first = pendingHandler();
-            const second = pendingHandler();
+            const second = jest.fn();
 
             const firstSubmit = composable.handleSubmit(first.handler);
-            const secondSubmit = composable.handleSubmit(second.handler);
+            const secondResult = await composable.handleSubmit(second);
 
-            first.finish();
-            await firstSubmit;
-            // the second handler is still running
+            expect(secondResult).toBe(false);
+            expect(second).not.toHaveBeenCalled();
+            // the first is still running, and alone decides when submitting ends
             expect(composable.isSubmitting.value).toBe(true);
 
-            second.finish();
-            await secondSubmit;
+            first.finish();
+            await expect(firstSubmit).resolves.toBe(true);
             expect(composable.isSubmitting.value).toBe(false);
+        });
+
+        it('a skipped submit neither validates nor reveals errors', async () => {
+            composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            const first = pendingHandler();
+            const firstSubmit = composable.handleSubmit(first.handler);
+            // invalid now: a submit that did validate would reveal errors
+            composable.setForm({ email: 'not-an-email', password: '' });
+
+            await composable.handleSubmit(jest.fn());
+
+            expect(composable.showFormErrors.value).toBe(false);
+            expect(composable.formErrors.value).toEqual({});
+            first.finish();
+            await firstSubmit;
+        });
+
+        it('takes the next submit once the running one has resolved', async () => {
+            composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            const first = pendingHandler();
+            const firstSubmit = composable.handleSubmit(first.handler);
+            first.finish();
+            await firstSubmit;
+
+            const next = jest.fn();
+            await expect(composable.handleSubmit(next)).resolves.toBe(true);
+            expect(next).toHaveBeenCalledTimes(1);
+        });
+
+        it('takes the next submit once the running one has rejected', async () => {
+            composable.setForm({ email: 'valid@test.com', password: 'validPassword' });
+            await expect(
+                composable.handleSubmit(jest.fn().mockRejectedValue(new Error('network error')))
+            ).rejects.toThrow('network error');
+
+            const next = jest.fn();
+            await expect(composable.handleSubmit(next)).resolves.toBe(true);
+            expect(next).toHaveBeenCalledTimes(1);
         });
 
         it('skips validation when withValidation is false', async () => {

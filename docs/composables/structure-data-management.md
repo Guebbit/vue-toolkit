@@ -39,10 +39,13 @@ returns `IStructureDataManagementApi<T, K, P>` — an exported, explicit interfa
   default `identifiers` is `'id'`. Pass `K` explicitly for a composite id, or one under a
   different field name.
 - `identifiers` is a single field name, or an array of fields for composite keys (order matters);
-  `delimiter` joins composite key parts into one dictionary key. With two or more identifiers, a
-  part containing `delimiter` itself (or a backslash) is escaped before joining, so `['a|b', 'c']`
-  and `['a', 'b|c']` never collide into the same joined key. A single identifier is never escaped
-  (there is nothing to collide with), so the common case stays a plain, readable id.
+  `delimiter` joins composite key parts into one dictionary key. With two or more identifiers,
+  each part is escaped before joining: every character of `delimiter`, and the escape character
+  itself, gets the escape character in front. So `['a|b', 'c']` and `['a', 'b|c']` never collide
+  into the same joined key, whatever the delimiter (`'::'` or `'--'` included). The escape
+  character is a backslash, unless `delimiter` contains one — then the next character code it
+  does not use. A single identifier is never escaped (there is nothing to collide with), so the
+  common case stays a plain, readable id.
 - `recordStore` (type `IRecordStore<T, K>`) is the write surface `addRecord`/`editRecord`/
   `deleteRecord`/`setRecords`/`resetRecords` go through. You will not normally pass one: the
   default is a local, in-memory dictionary.
@@ -91,6 +94,9 @@ sits behind the seam changes: a plain object under a local ref, or a computed vi
 | `removeFromParent(parentId, childId)`  | Unlinks a child from a parent.                                                 |
 | `removeDuplicateChildren(parentId)`    | Drops repeated child ids of a parent.                                          |
 
+Both built-in stores compare child ids the way the record dictionary keys them: `1` and `'1'` (a
+route param) are the same child, while a symbol only matches itself.
+
 ### CRUD
 
 | Method / property                     | Purpose                                                                                          |
@@ -127,7 +133,7 @@ Operates on `itemList` — for offline/already-fetched data. For server-side pag
 | Property        | Purpose                                          |
 | ------------------ | --------------------------------------------------- |
 | `pageCurrent`     | Ref — current page, 1-based.                       |
-| `pageSize`        | Ref — items per page (default `10`). Writing a value under `1` clamps it to `1` — a `pageSize` of `0` or negative would otherwise make `pageTotal` read as `Infinity`. |
+| `pageSize`        | Ref — items per page (default `10`), always a whole number of at least `1`. A write is rounded down, and a value under `1` becomes `1` (`0` or negative would make `pageTotal` read `Infinity`). A non-finite write (`NaN`, `Infinity`) is ignored: the current size stays. |
 | `pageTotal`       | Computed — total page count.                       |
 | `pageOffset`      | Computed — index of the first item on the current page. |
 | `pageItemList`    | Computed — `itemList` slice for the current page.  |
@@ -141,9 +147,9 @@ over the same query cache the records live in, not a second copy this composable
 | Method / property                     | Purpose                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------------- |
 | `parentHasMany`                        | Ref — `Record<P, id[]>` mapping a parent id to its child ids.       |
-| `addToParent(parentId, childId)`       | Appends a child id under a parent (lazily creates the list).        |
-| `removeFromParent(parentId, childId)`  | Removes a child id from a parent's list.                            |
-| `removeDuplicateChildren(parentId)`    | Dedupes a parent's child-id list.                                    |
+| `addToParent(parentId, childId)`       | Appends a child id under a parent (lazily creates the list); a no-op if it is already there. |
+| `removeFromParent(parentId, childId)`  | Removes a child id from a parent's list. `'1'` removes a linked `1`. |
+| `removeDuplicateChildren(parentId)`    | Dedupes a parent's child-id list (`1` and `'1'` count as one).       |
 | `getRecordsByParent(parentId?)`        | Resolves a parent's child ids into a `Record<K, T>` of full records. `0` and `''` are real parent ids; only an omitted (`undefined`) one returns `{}`. |
 | `getListByParent(parentId?)`           | Same, as an array in the relation's order.                            |
 

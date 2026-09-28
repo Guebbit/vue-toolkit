@@ -74,7 +74,8 @@ export interface IWatchSearchSettings<
 export interface IWatchSearchHandle<T> extends IWatchHandle<ISearchResult<T> | undefined> {
     /**
      * Applies the live filters and fetches the current page. Resolves undefined on failure: the
-     * failure shows in `error` and `onError`.
+     * failure shows in `error` and `onError`. `forced` forces this one search; on a watcher
+     * created with `forced`, every search is forced whatever is passed here.
      */
     search: (forced?: boolean) => Promise<ISearchResult<T> | undefined>;
 }
@@ -626,13 +627,17 @@ export const useStructureSearchApi = <
         });
 
         /**
-         * True when the current page is cached and fresh.
+         * True when the current page is cached and fresh. A forced watcher never is: `forced`
+         * here can only add to the watcher's own setting, never lift it.
          *
-         * @param forced - count nothing as fresh
+         * @param forced - count nothing as fresh, for this one check
          * @returns whether it is
          */
         const isCurrentFresh = (forced = false) =>
-            engine.isFresh(queryKey(), engine.staleTimeOf({ ...searchSettings, forced }));
+            engine.isFresh(
+                queryKey(),
+                engine.staleTimeOf({ ...searchSettings, forced: forced || searchSettings.forced })
+            );
 
         const { settleIfUnchanged } = scope.run(() =>
             watchSettled(

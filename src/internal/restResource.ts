@@ -73,6 +73,7 @@ import type {
     TMultipleCall
 } from '../composables/structureRestApi.js';
 import { isNil, stableKey } from './plainData.js';
+import { pickQueryOptions } from './tanstackQueryOptions.js';
 import { joinIdentifiers } from './identifierJoin.js';
 import {
     createResourceKeys,
@@ -745,11 +746,10 @@ export const createRestResource = <
         const query = scope.run(() =>
             useQuery<E>(
                 {
-                    // Caller options passed through as-is (retry, retryDelay, refetchInterval,
-                    // refetchOnWindowFocus, refetchOnReconnect — see ITanStackQueryOptions); a
-                    // per-call setting overrides the resource's own default, never the reverse.
-                    ...resourceQueryOptions,
-                    ...callQueryOptions,
+                    // Only the documented caller options (see ITanStackQueryOptions), never an
+                    // engine-owned one; a per-call setting overrides the resource's own default.
+                    ...pickQueryOptions(resourceQueryOptions),
+                    ...pickQueryOptions(callQueryOptions),
                     queryKey: computed(queryKey),
                     queryFn: (context) => fetch(runningQueryOf(context)),
                     enabled: computed(() => toValue(enabled)),
@@ -891,7 +891,7 @@ export const createRestResource = <
         /** The record's entry, or a disabled placeholder while there is no id. */
         const queryKey = (): unknown[] => {
             const id = currentId();
-            return id === undefined ? keys.entry('any', dependsOn(), ['idle']) : keys.target(id);
+            return id === undefined ? keys.idle() : keys.target(id);
         };
 
         const { query, scope, refetch, suspense } = watchQuery<ITargetEntry<T>>({
@@ -1014,7 +1014,7 @@ export const createRestResource = <
     /**
      * fetchByParent's active counterpart: also re-runs when the parent id changes. apiCall
      * receives the parent id the running query is for. A nullish parent id idles instead of
-     * calling apiCall — there is nothing to ask for yet.
+     * calling apiCall — there is nothing to ask for yet, `refetch()` included.
      *
      * @param apiCall - resolves a parent's children
      * @param parentId - the parent id, or a Ref/getter producing it; nullish idles
@@ -1025,14 +1025,14 @@ export const createRestResource = <
         apiCall: (parentId: P, context: IFetchContext) => Promise<(T | undefined)[]>,
         parentId: MaybeRefOrGetter<P | undefined | null>,
         settings: IWatchListSettings = {}
-    ) => {
+    ): IWatchHandle<(T | undefined)[]> => {
         /** The watched parent id; nullish reads as undefined. */
         const currentParentId = (): P | undefined => toValue(parentId) ?? undefined;
-        return watchList(
+        const handle = watchList(
             () => {
                 const parent = currentParentId();
                 return parent === undefined
-                    ? keys.entry('any', dependsOn(), ['idle'])
+                    ? keys.idle()
                     : keys.parent(parent, dependsOn(), toValue(settings.key));
             },
             () => ({ parentId: currentParentId() }),
@@ -1042,6 +1042,13 @@ export const createRestResource = <
                 enabled: () => currentParentId() !== undefined && toValue(settings.enabled ?? true)
             }
         );
+        return {
+            ...handle,
+            // TanStack: refetch() runs the query even while `enabled` is false. That is how a
+            // caller's own `enabled: false` fetches on demand, but no parent id has nothing to ask.
+            refetch: () =>
+                currentParentId() === undefined ? Promise.resolve([]) : handle.refetch()
+        };
     };
 
     /**

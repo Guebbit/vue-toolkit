@@ -88,9 +88,9 @@ describe('PROPERTY · createIdentifier — composite identifiers', () => {
         );
     });
 
-    // Known bug: escapeSegment (src/internal/identifierJoin.ts) escapes whole occurrences of the
-    // delimiter, which only disambiguates a single character other than the escape character.
-    it.failing('different tuples never collide, whatever the delimiter', () => {
+    // Any delimiter, not only a single character: escaping works per delimiter character, with an
+    // escape character the delimiter does not use.
+    it('different tuples never collide, whatever the delimiter', () => {
         // Two characters, one of them the escape character: the delimiter then often overlaps
         // itself or the values around it, which is where a join can turn ambiguous.
         const piece = (minLength: number) =>
@@ -214,9 +214,9 @@ describe('PROPERTY · client-side pagination', () => {
         );
     });
 
-    // Known bug: the pageSize customRef (src/composables/structureDataManagement.ts) clamps with
-    // Math.max(1, value), which lets NaN through (pageTotal NaN) and keeps a fraction as written.
-    it.failing('pageSize stays a whole number of at least 1 when written NaN or a fraction', () => {
+    // A fraction rounds down and NaN is ignored: a clamp to 1 alone would let NaN through (pageTotal
+    // NaN) and keep a fraction as written.
+    it('pageSize stays a whole number of at least 1 when written NaN or a fraction', () => {
         fc.assert(
             fc.property(
                 pageItemsArbitrary,
@@ -292,9 +292,8 @@ describe('PROPERTY · addToParent / removeFromParent / removeDuplicateChildren',
         );
     });
 
-    // Known bug: the local relation store's addToParent (src/composables/structureDataManagement.ts)
-    // pushes unconditionally, where IRelationStore promises a no-op for a child already linked.
-    it.failing('addToParent links a child once, however often it is added', () => {
+    // IRelationStore promises a no-op for a child already linked, in the local store too.
+    it('addToParent links a child once, however often it is added', () => {
         fc.assert(
             fc.property(
                 fc.array(fc.integer({ min: 0, max: 5 }), { minLength: 1, maxLength: 10 }),

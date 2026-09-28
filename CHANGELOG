@@ -224,6 +224,14 @@ is an active TanStack observer that reacts to invalidation on its own.
   the operation the same way — `createOne(data, opts)` → `createOne(data, { requestOptions: opts })`.
   `createOne` and `updateOne` also newly expose `createTarget`'s `dummyData` and `updateTarget`'s
   `merge`/`applyResponse`, previously unreachable from the CRUD layer; all three take `key`.
+- **BREAKING** — `useStructureFormValidation`'s `handleSubmit` runs one submit at a time. 4.x ran
+  every call, so a double click (or Enter plus a click) ran the handler twice — two POSTs — and the
+  first to finish cleared `isSubmitting` while the other was still running. A `handleSubmit` called
+  while another is still running now resolves `false` at once: no validation, no handler call,
+  `showFormErrors` untouched. `false` now means "the handler did not run", validation failure or
+  not. Migration: to submit again, wait for the running submit to settle (`await` it, or watch
+  `isSubmitting` turn `false`); a flow that deliberately ran two handlers concurrently calls the
+  second one directly instead of through `handleSubmit`.
 
 ## Added
 
@@ -500,8 +508,11 @@ is an active TanStack observer that reacts to invalidation on its own.
   'b']`) collided whenever a value contained the delimiter: `{ a: 'x|y', b: 'z' }` and
   `{ a: 'x', b: 'y|z' }` both joined to `'x|y|z'`, so adding the second silently overwrote the
   first. `createIdentifier`, `getRecord`'s multi-argument form and `editRecord`'s array `id` now
-  escape the delimiter (and a literal backslash) inside each value before joining, so different
-  tuples never produce the same id. An id whose values contain neither character is unchanged.
+  escape each value before joining: every character of the delimiter, and the escape character
+  itself, gets the escape character in front. That holds for any delimiter, multi-character and
+  self-overlapping ones (`'::'`, `'--'`) included. The escape character is a backslash unless the
+  delimiter contains one, then the next character code the delimiter does not use. Different
+  tuples never produce the same id; an id whose values use none of those characters is unchanged.
 - `updateTarget`'s success handler applied the server response unconditionally once its scope was
   still current, with no check for a newer mutation on the same id: a `deleteTarget` removing a
   record while an older `updateTarget` for it was still in flight could be undone by that update's
@@ -539,8 +550,10 @@ is an active TanStack observer that reacts to invalidation on its own.
   extension, and `tsconfig.json` builds with `module`/`moduleResolution: NodeNext`, so the compiler
   refuses a missing one from now on.
 - `useStructureDataManagement`'s `pageSize` accepted any written value, including `0` or negative
-  — `pageTotal` (`Math.ceil(totalItems / pageSize)`) then read as `Infinity`. `pageSize` is now a
-  `customRef` that clamps a write to a minimum of 1.
+  — `pageTotal` (`Math.ceil(totalItems / pageSize)`) then read as `Infinity`, while `NaN` made it
+  `NaN`, a fraction a fractional page, and `Infinity` an empty first page. `pageSize` is now a
+  `customRef` that keeps it a whole number of at least 1: a write is rounded down and clamped to
+  1, and a non-finite write (`NaN`, `Infinity`) is ignored, keeping the current size.
 - `editRecord` checked `id` with `!id`, so a falsy-but-real id (`0`, `''`) was treated as "no id
   given" and silently fell back to inferring the id from `data` instead of editing the record it
   was actually asked for. Checks `id === undefined` instead — `0` and `''` are real ids.
@@ -661,6 +674,32 @@ is an active TanStack observer that reacts to invalidation on its own.
   (sorted by each item's own `stableKey`, so insertion order is never a difference, and a Set
   never collides with a plain array of the same items) — a local pre-pass ahead of
   `@guebbit/js-toolkit`'s own `canonicalize` handling this natively.
+- `watchTarget` with no id and `watchByParent` with no parent id sat on the placeholder key
+  `[resourceKey, 'any', dependsOn, 'idle']` — exactly the key `fetchAny`/`watchAny` build for
+  `key: ['idle']`, so such a fetch settled the idle watcher (`onSuccess` with nothing to show).
+  The placeholder is now a kind of its own, `[resourceKey, 'idle', dependsOn]`, which no caller key
+  can reach.
+- `watchByParent`'s `refetch()` with a nullish parent id called `apiCall` with that nullish id:
+  TanStack's `refetch()` runs a query even while it is disabled. It now resolves `[]` without
+  fetching, like `watchTarget`'s already did with no id. A watcher disabled through its own
+  `enabled: false` still fetches on `refetch()`, as TanStack's on-demand pattern expects.
+- `queryOptions` (on the resource, or on a watcher) was spread into `useQuery` as-is, so any key it
+  carried beyond the five documented ones — from a JS caller, or a widened object — overrode the
+  engine's own setting: `gcTime: 0` dropped a watched record the moment its watcher stopped. Only
+  `retry`, `retryDelay`, `refetchInterval`, `refetchOnWindowFocus` and `refetchOnReconnect` are
+  passed on now; anything else is ignored.
+- `watchSearch(apiCall, { forced: true })`'s `search()` counted a cached page as fresh anyway:
+  `search()`'s own `forced` argument defaults to `false`, and that default replaced the watcher's
+  setting. The argument now only adds forcing to one search; it never lifts the watcher's.
+- `useStructureDataManagement`'s default (local) relation store compared child ids with `===`,
+  while the REST store compares them as strings: `removeFromParent('p', '1')` (a route param)
+  never unlinked a linked `1`, and `addToParent` linked the same child again on every call, though
+  `IRelationStore` promises a no-op for a child already linked. Both stores now compare child ids
+  the way the record dictionary keys them — `1` and `'1'` are the same child, a symbol only matches
+  itself — for linking, unlinking and `removeDuplicateChildren` alike.
+- `package.json`'s `license` field was `"AGPLv3.0"`, which is not a valid SPDX expression: npm
+  warns on it and license scanners cannot identify it. It is now `"AGPL-3.0-only"`, matching
+  the bundled `LICENSE`.
 
 # 4.0.0
 

@@ -22,38 +22,32 @@ describe('MODIFIER · forced', () => {
         expect(second).toHaveBeenCalledTimes(1);
     });
 
-    // Known bug: structureSearchApi.ts isCurrentFresh: spreads `{ ...searchSettings, forced }`, so
-    // search()'s own `forced = false` overrides the watcher's `forced` and the stale cache counts
-    // as fresh.
-    it.failing(
-        "watchSearch: forced, search() back to a cached search resolves the server's new answer",
-        async () => {
-            const { searchApi, filters } = makeSearchComposable<
-                IArticle,
-                number,
-                { category?: string }
-            >({}, { category: 'tech' });
-            let answers = 0;
-            /** Every answer is a distinct article, titled by its order. */
-            const operation = jest.fn((current: { category?: string }) => {
-                answers += 1;
-                return Promise.resolve({
-                    items: [
-                        { id: answers, title: `answer ${answers}`, category: current.category! }
-                    ],
-                    totalItems: 1
-                });
+    // search()'s own `forced` defaults to false: it may add forcing to one search, but must never
+    // lift the watcher's, or a cached search would count as fresh again.
+    it("watchSearch: forced, search() back to a cached search resolves the server's new answer", async () => {
+        const { searchApi, filters } = makeSearchComposable<
+            IArticle,
+            number,
+            { category?: string }
+        >({}, { category: 'tech' });
+        let answers = 0;
+        /** Every answer is a distinct article, titled by its order. */
+        const operation = jest.fn((current: { category?: string }) => {
+            answers += 1;
+            return Promise.resolve({
+                items: [{ id: answers, title: `answer ${answers}`, category: current.category! }],
+                totalItems: 1
             });
-            const { search } = searchApi.watchSearch(operation, { forced: true });
-            await flush();
-            filters.value = { category: 'design' };
-            await search();
-            filters.value = { category: 'tech' }; // cached, from the first answer
+        });
+        const { search } = searchApi.watchSearch(operation, { forced: true });
+        await flush();
+        filters.value = { category: 'design' };
+        await search();
+        filters.value = { category: 'tech' }; // cached, from the first answer
 
-            const result = await search();
+        const result = await search();
 
-            expect(operation).toHaveBeenCalledTimes(3);
-            expect(result?.items.map((item) => item?.title)).toEqual(['answer 3']);
-        }
-    );
+        expect(operation).toHaveBeenCalledTimes(3);
+        expect(result?.items.map((item) => item?.title)).toEqual(['answer 3']);
+    });
 });

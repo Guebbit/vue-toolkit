@@ -42,9 +42,9 @@ describe('UNIT · joinIdentifiers', () => {
         expect(joinIdentifiers(['a|b', 'c'], '|')).toBe(String.raw`a\|b|c`);
     });
 
-    // Known bug: escapeSegment (src/internal/identifierJoin.ts) escapes whole occurrences of the
-    // delimiter, which only disambiguates a single character other than the escape character.
-    it.failing.each([
+    // Multi-character delimiters, and one that is the escape character itself: escaping only whole
+    // delimiter occurrences, or with a backslash the delimiter also uses, would let these collide.
+    it.each([
         ['--', ['x', -1], ['x-', 1]],
         ['::', ['x:', 'y'], ['x', ':y']],
         ['\\', ['a\\', 'b'], ['a', String.raw`\b`]]

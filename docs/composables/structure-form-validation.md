@@ -31,7 +31,8 @@ await login.handleSubmit(async (data) => {
 
 `handleSubmit` validates first and skips calling your handler if validation fails — check the
 return value (`true`/`false`) or read `login.formErrors.value` / `login.isValid.value` to drive
-the UI.
+the UI. It also runs one submit at a time: called while another is still running, it resolves
+`false` straight away (see [the submit flow](#the-submit-flow)).
 
 ## Translated messages, and errors already on screen
 
@@ -221,7 +222,9 @@ stopHydrating() // the form keeps whatever it last hydrated to
 
 ```mermaid
 flowchart TD
-    A["handleSubmit(onSubmit, withValidation)"] --> B{"withValidation?"}
+    A["handleSubmit(onSubmit, withValidation)"] --> S{"isSubmitting?"}
+    S -- "yes" --> R0["resolve false — no validation, handler not called"]
+    S -- "no" --> B{"withValidation?"}
     B -- "false" --> D
     B -- "true (default)" --> C{"validate() passes?"}
     C -- "no" --> RE["revealErrors(): showFormErrors = true, focus first invalid field, onInvalid"]
@@ -259,7 +262,7 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | `formErrors`                             | Ref — `Partial<Record<keyof T, string[]>>`, per-field error messages.                          |
 | `formLevelErrors`                        | Ref — `string[]`, errors that belong to no single field: a root-level Zod issue (an empty `path` — a cross-field `.refine()` with no `path` option, say), or an `applyServerErrors` message naming no field the form has, when no `onUnmapped` catches it. |
 | `showFormErrors`                         | Ref — whether errors should be rendered. Owned by `handleSubmit` / `revealErrors` / `applyServerErrors`. |
-| `isSubmitting`                           | Ref — `true` while `handleSubmit`'s handler is running.                                         |
+| `isSubmitting`                           | Ref — `true` while `handleSubmit`'s handler is running. While it is, another `handleSubmit` resolves `false` without running. |
 | `isValid`                                | Computed — `true` when `formErrors` has no keys **and** `formLevelErrors` is empty.             |
 | `isDirty`                                | Computed — `true` when `form` differs from the baseline (compared via `stableKey`: canonical JSON, so property order is never a difference, and it sees into a Set/Map's own content). The baseline starts as `initialData`; `setInitialData`/`activateAutoHydrate` can replace it. |
 | `setForm(data)`                          | Shallow-merges partial data into `form` (top-level keys only); the result is detached (nested fields, Sets, Maps and Dates included), sharing no such object with `data`. |
@@ -272,7 +275,7 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | `applyServerErrors(error, options?)`     | Attaches a rejection's errors to the fields they belong to (and unmapped ones to `formLevelErrors`, unless `onUnmapped` is given) and reveals them. Returns `true` whenever something was shown, on the form or through `onUnmapped`; `false` only when the rejection carried nothing at all. See above. |
 | `validate()`                             | Runs `schema.safeParse(form.value)`, populates `formErrors` (and `formLevelErrors`, for root-level issues) on failure, returns a boolean. |
 | `revealErrors()`                         | Turns `showFormErrors` on, waits for the render, focuses the first invalid field, calls `onInvalid`. |
-| `handleSubmit(onSubmit, withValidation?)`| Validates (unless `withValidation` is `false`), then awaits `onSubmit(form.value)` with `isSubmitting` set around it. Owns `showFormErrors` throughout. Returns `true` on success, `false` on validation failure. |
+| `handleSubmit(onSubmit, withValidation?)`| Validates (unless `withValidation` is `false`), then awaits `onSubmit(form.value)` with `isSubmitting` set around it. Owns `showFormErrors` throughout. One submit at a time: called while another runs, it resolves `false` without validating or calling `onSubmit`. Returns `true` on success, `false` when `onSubmit` did not run (validation failed, or a submit was already running). |
 
 ## Types
 
@@ -287,6 +290,11 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 
 ## Gotchas
 
+- **A second submit while one runs is dropped, not queued.** A double click, or Enter plus a
+  click, would otherwise run `onSubmit` twice — two POSTs, two created records. The second call
+  resolves `false` and never calls its handler, even when it is a different handler (a "Save &
+  publish" clicked while "Save" runs). To submit again, wait for the running submit to settle
+  (`await` it, or watch `isSubmitting` turn `false`).
 - **`handleSubmit` doesn't catch errors from your handler.** Only `isSubmitting` is guaranteed to
   be reset (in a `finally`) — if `onSubmit` throws or rejects, the promise from `handleSubmit`
   rejects too. Chain `.catch(...)` on the call (as in [Errors the server

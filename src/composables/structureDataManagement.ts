@@ -14,6 +14,7 @@ import { computed, customRef, ref, toRaw, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
 import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
 import { joinIdentifiers } from '../internal/identifierJoin.js';
+import { sameId, uniqueIds } from '../internal/idEquality.js';
 
 /**
  * The type of `T`'s own `id` field, when it has one shaped like a record identifier; `string |
@@ -104,7 +105,8 @@ const createLocalRecordStore = <
 
 /**
  * The write surface `useStructureDataManagement` stores parent/child links through: a local
- * reactive dictionary by default, a TanStack-backed one under `useStructureRestApi`.
+ * reactive dictionary by default, a TanStack-backed one under `useStructureRestApi`. Child ids
+ * compare as object keys: `1` and `'1'` are the same child.
  */
 export interface IRelationStore<
     P extends string | number | symbol = string | number | symbol,
@@ -137,15 +139,16 @@ const createLocalRelationStore = <
     return {
         dictionary,
         addToParent: (parentId: P, childId: K) => {
-            (dictionary.value[parentId] ??= []).push(childId);
+            const children = (dictionary.value[parentId] ??= []);
+            if (!children.some((id) => sameId(id, childId))) children.push(childId);
         },
         removeFromParent: (parentId: P, childId: K) => {
             dictionary.value[parentId] = (dictionary.value[parentId] ?? []).filter(
-                (id) => id !== childId
+                (id) => !sameId(id, childId)
             );
         },
         removeDuplicateChildren: (parentId: P) => {
-            dictionary.value[parentId] = [...new Set(dictionary.value[parentId])];
+            dictionary.value[parentId] = uniqueIds(dictionary.value[parentId] ?? []);
         }
     };
 };
@@ -515,8 +518,9 @@ export const useStructureDataManagement = <
     const pageCurrent = ref(1);
 
     /**
-     * Records per page. Clamped to a minimum of 1 on write: a `pageSize` under 1 would turn
-     * `pageTotal` into `Infinity`, which is never what a pager showing it wants.
+     * Records per page: always a whole number, at least 1. A write is rounded down and clamped
+     * (under 1 would make `pageTotal` read `Infinity`); a non-finite write (NaN from a bad parse,
+     * `Infinity`) has no page size to round to, so it is ignored and the current size stays.
      */
     const pageSize = customRef<number>((track, trigger) => {
         let stored = 10;
@@ -526,7 +530,9 @@ export const useStructureDataManagement = <
                 return stored;
             },
             set: (value: number) => {
-                const clamped = Math.max(1, value);
+                const whole = Math.floor(value);
+                if (!Number.isFinite(whole)) return;
+                const clamped = Math.max(1, whole);
                 if (clamped === stored) return;
                 stored = clamped;
                 trigger();
