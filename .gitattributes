@@ -1,2 +1,6 @@
 * text=auto
 *.lockb binary diff=lockb
+
+# 2brain:start — regenerate with: 2brain <repo-path>
+.2brain/** linguist-generated=true
+# 2brain:end
