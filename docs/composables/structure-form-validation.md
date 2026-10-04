@@ -146,8 +146,10 @@ const submit = () =>
     handleSubmit(async (data) => {
         await api.post('/signup', data)
     }).catch((error) => {
-        if (!applyServerErrors(error, { onUnmapped: (messages) => addMessage(messages[0]) }))
-            addMessage(t('form.unexpected-error'))
+        applyServerErrors(error, {
+            // [] when the rejection said nothing usable (network failure, bare 500)
+            onUnmapped: (messages) => addMessage(messages[0] ?? t('form.unexpected-error'))
+        })
     })
 ```
 
@@ -165,10 +167,20 @@ issue lists work unchanged; nested paths collapse to their root field, exactly a
 already does. Use `map` when the API spells a field differently from the form
 (`{ map: { user_email: 'email' } }`).
 
-The return value is the part worth wiring up: `true` whenever something was shown, on the form or
-through `onUnmapped`; `false` only when the rejection carried nothing at all, so the caller still
-owes the user a message. Anything with no field of its own — form-level errors, and fields this
-form does not have — goes to `onUnmapped` when given, `formLevelErrors` otherwise, never dropped.
+Where a rejection ends up:
+
+| Rejection carries   | `onUnmapped` given            | Result                                        |
+| ------------------- | ----------------------------- | --------------------------------------------- |
+| field errors only   | either                        | fields set, `true`                            |
+| unmapped messages   | yes                           | `onUnmapped(messages)`, `true`                |
+| unmapped messages   | no                            | `formLevelErrors`, `true`                     |
+| **nothing**         | **yes**                       | **`onUnmapped([])`, `true`**                  |
+| nothing             | no                            | nothing, `false` (no i18n here, no text to show) |
+
+So `onUnmapped` owns every rejection the form itself cannot show, the empty one included: a network
+failure or a bare 500 arrives as `[]` — "the rejection said nothing usable; show your generic
+error". `showFormErrors` stays off in that case. Without `onUnmapped`, the `false` return is the
+only signal, so the caller still owes the user a message.
 
 It merges onto what is already showing rather than replacing it. An API that answered about one
 field has said nothing about the others, and clearing them would be inventing an all-clear it
@@ -272,7 +284,7 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | `clearErrors()`                          | Clears all `formErrors` and `formLevelErrors`.                                                   |
 | `setFieldError(field, errors)`           | Sets error message(s) for one field — accepts a string or a string array.                       |
 | `clearFieldError(field)`                 | Removes errors for one field.                                                                    |
-| `applyServerErrors(error, options?)`     | Attaches a rejection's errors to the fields they belong to (and unmapped ones to `formLevelErrors`, unless `onUnmapped` is given) and reveals them. Returns `true` whenever something was shown, on the form or through `onUnmapped`; `false` only when the rejection carried nothing at all. See above. |
+| `applyServerErrors(error, options?)`     | Attaches a rejection's errors to the fields they belong to (and unmapped ones to `formLevelErrors`, unless `onUnmapped` is given) and reveals them. Returns `true` whenever something was shown, on the form or through `onUnmapped` (which also receives `[]` for an empty rejection); `false` only when there is no `onUnmapped` and the rejection carried nothing. See above. |
 | `validate()`                             | Runs `schema.safeParse(form.value)`, populates `formErrors` (and `formLevelErrors`, for root-level issues) on failure, returns a boolean. |
 | `revealErrors()`                         | Turns `showFormErrors` on, waits for the render, focuses the first invalid field, calls `onInvalid`. |
 | `handleSubmit(onSubmit, withValidation?)`| Validates (unless `withValidation` is `false`), then awaits `onSubmit(form.value)` with `isSubmitting` set around it. Owns `showFormErrors` throughout. One submit at a time: called while another runs, it resolves `false` without validating or calling `onSubmit`. Returns `true` on success, `false` when `onSubmit` did not run (validation failed, or a submit was already running). |

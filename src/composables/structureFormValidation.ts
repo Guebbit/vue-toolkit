@@ -126,6 +126,9 @@ export interface IApplyServerErrorsOptions<
      * Receives messages that could not be attached to a field: the API's form-level errors, and
      * any field the form does not have. Without it they go to {@link IStructureFormValidation.formLevelErrors}
      * instead.
+     *
+     * Also called with `[]` when the rejection carried nothing usable (a network failure, a bare
+     * 500): the form shows nothing then, so this is where the generic error belongs.
      */
     onUnmapped?: (messages: string[]) => void;
 }
@@ -330,7 +333,8 @@ export interface IStructureFormValidation<
      *
      * @param error   - the rejected value, exactly as caught
      * @param options - see {@link IApplyServerErrorsOptions}
-     * @returns true when something was shown to the user, on the form or through `onUnmapped`
+     * @returns false only when there is no `onUnmapped` and the rejection carried nothing; true
+     *          whenever something was handed to the user, on the form or through `onUnmapped`
      */
     applyServerErrors: (error: unknown, options?: IApplyServerErrorsOptions<T>) => boolean;
 
@@ -624,16 +628,17 @@ export const useStructureFormValidation = <
      * Attaches the errors an API rejected a submit with to the fields they belong to, and reveals
      * them: server-only rules (uniqueness, cross-record) become red text under the right input. A
      * message that names no field the form has goes to {@link formLevelErrors} instead, unless
-     * `onUnmapped` is given, which then owns displaying it.
+     * `onUnmapped` is given, which then owns displaying it — and owns a rejection that carried
+     * nothing too, receiving `[]`.
      *
      * Merges onto what is already displayed rather than replacing it: an API that answered about
      * one field said nothing about the others, and clearing them invents an all-clear.
      *
      * @param error   - the rejected value, exactly as caught
      * @param options - see {@link IApplyServerErrorsOptions}
-     * @returns true when something was shown to the user, on the form or through `onUnmapped`.
-     *          false means the rejection carried nothing at all — the caller still owes the user
-     *          a message
+     * @returns false only when there is no `onUnmapped` and the rejection carried nothing at all —
+     *          the caller still owes the user a message. true whenever something was handed to the
+     *          user, on the form or through `onUnmapped`
      */
     const applyServerErrors = (
         error: unknown,
@@ -654,12 +659,13 @@ export const useStructureFormValidation = <
             applied[target] = [...(ownValue<string[]>(applied, target) ?? []), ...messages];
         }
 
-        // onUnmapped, when given, owns displaying these; without it they go to formLevelErrors
-        // instead of being silently dropped.
-        const displayedUnmapped = unmapped.length > 0 && !onUnmapped;
-        if (onUnmapped && unmapped.length > 0) onUnmapped(unmapped);
-
         const fields = Object.keys(applied) as (keyof T)[];
+        const carriedNothing = fields.length === 0 && unmapped.length === 0;
+
+        // onUnmapped, when given, owns displaying these; without it they go to formLevelErrors
+        // instead of being silently dropped. An empty rejection reaches it too, as `[]`.
+        const displayedUnmapped = unmapped.length > 0 && !onUnmapped;
+        if (onUnmapped && (carriedNothing || unmapped.length > 0)) onUnmapped(unmapped);
 
         if (fields.length > 0) {
             formErrors.value = { ...formErrors.value, ...applied };
@@ -672,7 +678,7 @@ export const useStructureFormValidation = <
         // showFormErrors only turns on when the FORM itself displays something; onUnmapped owns
         // its own display (e.g. a toast), so it does not also reveal the (empty) form errors.
         if (displayedUnmapped || fields.length > 0) showFormErrors.value = true;
-        return fields.length > 0 || unmapped.length > 0;
+        return !carriedNothing || onUnmapped !== undefined;
     };
 
     /**

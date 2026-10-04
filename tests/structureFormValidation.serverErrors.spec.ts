@@ -203,6 +203,37 @@ describe('useStructureFormValidation server-error normalization', () => {
     });
 
     describe('onUnmapped (7.5)', () => {
+        it.each([
+            ['undefined', undefined],
+            ['an empty object', {}],
+            ['an empty list', { errors: [] }],
+            ['an empty map', { errors: {} }],
+            ['a network-style Error', new Error('Network Error')]
+        ])('is called once with [] for %s, and counts as shown', (_name, error) => {
+            const onUnmapped = jest.fn();
+
+            expect(apply(error, { onUnmapped })).toEqual({ result: true, fields: {}, level: [] });
+
+            expect(onUnmapped).toHaveBeenCalledTimes(1);
+            expect(onUnmapped).toHaveBeenCalledWith([]);
+        });
+
+        it('keeps showFormErrors off for an empty rejection: the form shows nothing', () => {
+            const c = scope.run(() => useStructureFormValidation<IContactForm>(INITIAL_CONTACT))!;
+
+            c.applyServerErrors(new Error('Network Error'), { onUnmapped: jest.fn() });
+
+            expect(c.showFormErrors.value).toBe(false);
+        });
+
+        it('still returns false for an empty rejection when there is no onUnmapped', () => {
+            expect(apply(new Error('Network Error'))).toEqual({
+                result: false,
+                fields: {},
+                level: []
+            });
+        });
+
         it('is not called with an empty list', () => {
             const onUnmapped = jest.fn();
 
