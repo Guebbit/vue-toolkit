@@ -31,6 +31,20 @@ app.use(VueQueryPlugin, { queryClient: new QueryClient() });
 See [Getting Started](https://guebbit.github.io/vue-toolkit/guide/getting-started) for what the
 client's options change.
 
+## What's inside
+
+| You want…                                        | Use                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| A whole CRUD resource (cache, optimistic writes) | `useStructureCrudApi` (built on the three below)                 |
+| Fetch / cache / mutate one REST resource         | `useStructureRestApi`, `useStructureSearchApi` (filters + pages) |
+| A normalized record store, no networking         | `useStructureDataManagement`                                     |
+| Form state + Zod validation + server errors      | `useStructureFormValidation`                                     |
+| Loading, errors and liveness for one-off calls   | `useAsyncAction`, `useUploadProgress`, `useLivenessProbe`        |
+| "Is anything loading?" across the app            | `useIsLoading`, `useCoreStore`                                   |
+| Toasts, and messages that persist until deleted  | `useNotificationsStore`                                          |
+
+Everything is exported from the package root, and every piece works on its own.
+
 ## Quick intro
 
 ### `useStructureCrudApi` — a whole resource, from the calls that reach it
@@ -208,6 +222,16 @@ import { useNotificationsStore, EToastType } from '@guebbit/vue-toolkit';
 
 const notifications = useNotificationsStore();
 notifications.addMessage('Saved successfully', EToastType.SUCCESS, 4000);
+
+// A message that outlives its toast, owned by someone else (here: a server inbox).
+// Re-adding the same id updates it; `dismissMessage` deletes it and calls `onDismiss`.
+notifications.addMessage('Your order shipped', EToastType.PRIMARY, 4000, {
+    id: row.id,
+    persistent: true,
+    onDismiss: () => api.delete(`/notifications/${row.id}`)
+});
+notifications.persistentMessages; // newest first, for a panel or a bell
+notifications.dismissMessage(row.id).catch(showError); // rolls back if onDismiss rejects
 ```
 
 ## Documentation
@@ -217,6 +241,33 @@ that matter in practice: **[guebbit.github.io/vue-toolkit](https://guebbit.githu
 
 Upgrading from 4.x? See the
 **[migration guide](https://guebbit.github.io/vue-toolkit/guide/migration)**.
+
+## Development
+
+| Command                 | What it does                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `npm run complete`      | The quality gate: lint, prettier check, build, tests, type tests, docs build |
+| `npm run complete:fix`  | Same pipeline, but lint and prettier rewrite files instead of only reporting |
+| `npm test`              | The Jest suite                                                               |
+| `npm run test:mutation` | Mutation testing (slow)                                                      |
+| `npm run docs:dev`      | The documentation site, on port 8080                                         |
+| `npm run try:frontend`  | Try an unpublished change in an app (below)                                  |
+
+### `try:frontend` — test a change in a real app before publishing
+
+```bash
+npm run try:frontend                          # installs into ../boilerplate-vue-frontend
+FRONTEND_DIR=../my-app npm run try:frontend   # or any other app
+# in the app: run its checks, then `npm ci` to go back to the published version
+```
+
+It builds the toolkit, packs it into a `.tgz` (exactly what `npm publish` would ship) and installs
+that into the app with `--no-save`, so the app's `package.json` and lockfile stay untouched. Not
+`npm link` / `file:`: a symlink resolves the peers (`vue`, `pinia`, `@tanstack/vue-query`) from this
+repo's `node_modules`, giving two Vue copies, and `inject()` / Pinia silently break.
+
+Every script is described in the
+**[Development guide](https://guebbit.github.io/vue-toolkit/guide/development)**.
 
 ## License
 
