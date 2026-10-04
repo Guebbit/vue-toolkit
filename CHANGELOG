@@ -1,3 +1,49 @@
+# 5.1.1
+
+## Fixed
+
+- `applyServerErrors`: when `onUnmapped` is given, it now also receives a rejection that carried
+  nothing — a network failure, a bare 500, a 409 with an empty body — as `onUnmapped([])`, and the
+  call returns `true`. Before, such a rejection reached nothing: `onUnmapped` stayed silent, nothing
+  landed on the form, and the only signal was a `false` return that callers using `onUnmapped` did
+  not check, so a failed submit showed no error at all. An empty array means "the rejection said
+  nothing usable; show your generic error". `showFormErrors` stays off in that case (the form
+  itself displays nothing). Without `onUnmapped` nothing changes: the toolkit has no text of its
+  own to show, so the call still returns `false`. A caller that also reports on `false` stops
+  getting that `false` when it passes `onUnmapped`, which removes a double-report rather than
+  creating one.
+
+# 5.1.0
+
+## Added
+
+- `useNotificationsStore`: persistent messages — ones that stay until the user deletes them and
+  that often belong to someone else (a server inbox, `localStorage`). One store, one `addMessage`:
+  the app decides where a message comes from and where a deletion goes.
+  - `addMessage(message, type?, timeout?, options?)` takes an optional 4th argument,
+    `IAddMessageOptions` (`id`, `persistent`, `createdAt`, `meta`, `onDismiss`), exported from the
+    package. Every existing call keeps working.
+  - A caller-owned `id` already in `history` updates that entry in place (`message`, `type`,
+    `persistent`, `meta`, `onDismiss`), keeps `visible` and `createdAt`, and does not re-arm the
+    timeout — a refetch never brings back a toast the user closed.
+  - `dismissMessage(id): Promise<void>`: the user is done with a message. It leaves `history`
+    optimistically, then calls its `onDismiss`; if that rejects, the message goes back to its
+    original index and the error is re-thrown. Unknown ids resolve as a no-op.
+  - `persistentMessages`: `history` filtered by `persistent`, newest `createdAt` first.
+  - `IToastMessage` gains `persistent`, `createdAt` and `meta`.
+  - `hideMessage` (leaves the toast stack) and `removeMessage` (the app drops it) never call
+    `onDismiss`, so a sync that finds a message gone at its source does not echo a delete back.
+  - `onDismiss` callbacks are kept outside the reactive state, so `history` stays serializable.
+- `npm run try:frontend`: builds, packs, and installs the tarball into a frontend checkout
+  (`$FRONTEND_DIR`, default `../boilerplate-vue-frontend`) with `--no-save`, to try a change before
+  publishing. See the new Development guide.
+
+## Changed
+
+- Contributor scripts: `complete:check` (the read-only gate) is now **`complete`**, and the
+  fixing pipeline that was `complete` is now **`complete:fix`**. The pre-commit hook, the release
+  workflow and `prepublishOnly` run `complete`.
+
 # 5.0.0
 
 `useStructureRestApi` is rebuilt directly on [TanStack Query](https://tanstack.com/query) as the

@@ -8,7 +8,7 @@ A published npm library (`@guebbit/vue-toolkit`): Vue 3 composables and Pinia st
 - Every user-visible change (added, changed, removed, fixed) gets a `CHANGELOG` line.
 - Every public composable or store has a page in `docs/` and an entry in the vitepress sidebar
   (`docs/.vitepress/config.mts`). Its options, return shape and defaults match the source.
-- Quality gate: `npm run complete:check` (lint, prettier, build, test, docs build) passes.
+- Quality gate: `npm run complete` (lint, prettier, build, test, docs build) passes.
 
 ## TypeScript
 

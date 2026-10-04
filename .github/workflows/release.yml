@@ -37,7 +37,7 @@ jobs:
               run: npm ci
 
             - name: Full gate (lint, prettier, build, test:package, test, test:types, docs:build)
-              run: npm run complete:check
+              run: npm run complete
 
     publish:
         needs: gate

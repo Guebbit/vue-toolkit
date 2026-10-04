@@ -22,7 +22,7 @@ This project has several layers of tests, each catching a kind of bug the others
 
 ```mermaid
 flowchart TB
-    subgraph local["npm run complete:check (and CI on every PR)"]
+    subgraph local["npm run complete (and CI on every PR)"]
         T["npm test<br/>examples · properties · model · browser"]
         TT["test:types"]
         TP["test:package"]
@@ -114,7 +114,7 @@ expectTypeOf(resource.getRecord(1)).toEqualTypeOf<IUser | undefined>();
 useStructureRestApi<IUser, number>({});
 ```
 
-Run it with `npm run test:types`. It is part of `complete`/`complete:check` and the CI `build` job.
+Run it with `npm run test:types`. It is part of `complete`/`complete:fix` and the CI `build` job.
 
 ## Built-package and peer-floor tests
 

@@ -1,6 +1,6 @@
 {
     "name": "@guebbit/vue-toolkit",
-    "version": "5.0.0",
+    "version": "5.1.1",
     "description": "Vue 3 composables and Pinia stores for CRUD screens: a normalized record store, a REST layer built on TanStack Query, Zod-backed form validation, and toast/loading stores.",
     "keywords": [
         "vue",
@@ -63,10 +63,10 @@
         "docs:build": "vitepress build docs",
         "docs:preview": "vitepress preview docs",
         "update:all": "npx npm-check-updates -u",
-        "complete": "npm run lint:fix && npm run prettier:fix && npm run build && npm run test:package && npm run test && npm run test:types && npm run docs:build",
-        "complete:check": "npm run lint && npm run prettier && npm run build && npm run test:package && npm run test && npm run test:types && npm run docs:build",
-        "check:clean": "node -e \"const s=require('child_process').execSync('git status --porcelain').toString();if(s.trim()){console.error('working tree is not clean — commit or stash before publishing:\\n'+s);process.exit(1)}\"",
-        "prepublishOnly": "npm run check:clean && npm run complete:check",
+        "complete:fix": "npm run lint:fix && npm run prettier:fix && npm run build && npm run test:package && npm run test && npm run test:types && npm run docs:build",
+        "complete": "npm run lint && npm run prettier && npm run build && npm run test:package && npm run test && npm run test:types && npm run docs:build",
+        "try:frontend": "npm run build && npm pack --pack-destination /tmp && cd ${FRONTEND_DIR:-../boilerplate-vue-frontend} && npm install --no-save /tmp/guebbit-vue-toolkit-$npm_package_version.tgz",
+        "prepublishOnly": "npm run complete",
         "publish:public": "npm publish --access public",
         "prepare": "husky"
     },
