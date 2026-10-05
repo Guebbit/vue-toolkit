@@ -15,7 +15,7 @@ interface ILoginForm {
 }
 
 const loginSchema = z.object({
-    email: z.string().email('Invalid email address'),
+    email: z.email('Invalid email address'),
     password: z.string().min(8, 'Password must be at least 8 characters')
 })
 
@@ -44,7 +44,7 @@ messages are *thunks* is resolved exactly as late as a getter would be:
 
 ```ts
 const loginSchema = z.object({
-    email: z.string().email({ error: () => t('login.email-invalid') }),
+    email: z.email({ error: () => t('login.email-invalid') }),
     password: z.string().min(8, { error: () => t('login.password-too-short') })
 })
 
@@ -69,8 +69,9 @@ const login = useStructureFormValidation<ILoginForm>({ email: '', password: '' }
 })
 ```
 
-It only fires for a form that currently has errors showing, so a pristine form does not sprout red
-text because someone changed the language. `revalidateOn` takes any `WatchSource` or array of
+It only re-parses a form that currently **has** errors (`isValid` is `false`), whether or not
+they are on display yet, so a pristine, valid form does not sprout red text because someone
+changed the language. `revalidateOn` takes any `WatchSource` or array of
 them — it is not i18n-specific, and the toolkit deliberately knows nothing about vue-i18n.
 
 It never touches an error `setFieldError` or `applyServerErrors` put on screen: those came from
@@ -86,10 +87,10 @@ them.
 does not render red text under every empty required field:
 
 ```vue
-<v-text-field
-    v-model="form.email"
-    :error-messages="showFormErrors ? formErrors.email : []"
-/>
+<input v-model="form.email" :aria-invalid="showFormErrors && !!formErrors.email" />
+<template v-if="showFormErrors">
+    <p v-for="message in formErrors.email ?? []" :key="message">{{ message }}</p>
+</template>
 ```
 
 `handleSubmit` owns it end to end. A submit that fails validation turns it on; a submit that
@@ -121,7 +122,7 @@ const login = useStructureFormValidation<ILoginForm>({ email: '', password: '' }
 Focus lands on `[aria-invalid="true"]` by default — the one invalid-field marker that is both
 standard and authored, since a component rendering its own wrapper still has to set it for screen
 readers. UI kits that mark the *wrapper* instead need their own selector, because focus has to go
-somewhere focusable:
+somewhere focusable. For Vuetify, which marks the wrapper with `.v-input--error`:
 
 ```ts
 invalidFieldSelector:
@@ -196,6 +197,7 @@ was created can replace what the form opened with, rather than dragging it along
 const edit = useStructureFormValidation<IUser>({ name: '', email: '' })
 
 fetchOne(userId).then((user) => {
+    if (!user) return // fetchOne resolves undefined when there is no such record
     edit.setInitialData(user) // new baseline; the live form is untouched
     edit.resetForm() // apply it: form now shows the fetched record, isDirty back to false
 })
@@ -263,7 +265,7 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 
 | Option                 | Type                                                | Purpose                                                                                 |
 | ---------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `revalidateOn`         | `WatchSource \| WatchSource[]`                      | Re-parses the schema over unchanged data when a source changes, but only while errors are on display; merges the result under any `setFieldError`/`applyServerErrors` errors rather than replacing them. See above. |
+| `revalidateOn`         | `WatchSource \| WatchSource[]`                      | Re-parses the schema over unchanged data when a source changes, but only while the form has errors (`isValid` is `false`), shown or not; merges the result under any `setFieldError`/`applyServerErrors` errors rather than replacing them. See above. |
 | `formElement`          | `MaybeRefOrGetter<IFieldContainer \| undefined \| null>` | The form, so `revealErrors` can focus the first invalid field. Omit it and no DOM is touched. |
 | `invalidFieldSelector` | `string`                                            | Where to look for that field. Defaults to `DEFAULT_INVALID_FIELD_SELECTOR` (`[aria-invalid="true"]`). |
 | `onInvalid`            | `(errors) => void`                                  | Called after a submit was rejected by validation, once the errors are on screen — the "please fix the highlighted fields" toast. |
@@ -278,14 +280,14 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
 | `isValid`                                | Computed — `true` when `formErrors` has no keys **and** `formLevelErrors` is empty.             |
 | `isDirty`                                | Computed — `true` when `form` differs from the baseline (compared via `stableKey`: canonical JSON, so property order is never a difference, and it sees into a Set/Map's own content). The baseline starts as `initialData`; `setInitialData`/`activateAutoHydrate` can replace it. |
 | `setForm(data)`                          | Shallow-merges partial data into `form` (top-level keys only); the result is detached (nested fields, Sets, Maps and Dates included), sharing no such object with `data`. |
-| `resetForm()`                            | Restores `form` to the current baseline and clears `formErrors`. See [The baseline](#the-baseline-reset-dirty-and-hydration). |
+| `resetForm()`                            | Restores `form` to the current baseline and clears every error: `formErrors`, `formLevelErrors`, and the ones `setFieldError`/`applyServerErrors` set. Leaves `showFormErrors` as it is. See [The baseline](#the-baseline-reset-dirty-and-hydration). |
 | `setInitialData(data)`                   | Replaces the baseline `resetForm()`/`isDirty` use. Leaves the live `form` alone — call `resetForm()` (or use `activateAutoHydrate`) to apply it. |
-| `activateAutoHydrate(source)`            | Watches `source` (e.g. `selectedRecord`); on every defined value, `setInitialData` + `resetForm`. Runs immediately if `source` already holds a value. Returns the `watch` handle. |
-| `clearErrors()`                          | Clears all `formErrors` and `formLevelErrors`.                                                   |
-| `setFieldError(field, errors)`           | Sets error message(s) for one field — accepts a string or a string array.                       |
-| `clearFieldError(field)`                 | Removes errors for one field.                                                                    |
+| `activateAutoHydrate(source)`            | Watches `source` (e.g. `selectedRecord`; a value, a Ref or a getter); on every defined value, `setInitialData` + `resetForm`. Runs immediately if `source` already holds a value. Returns the `watch` handle. |
+| `clearErrors()`                          | Clears all `formErrors` and `formLevelErrors`, server-set ones included.                         |
+| `setFieldError(field, errors)`           | Sets error message(s) for one field, replacing what it had — accepts a string or a string array. Treated as a server-set error: a `revalidateOn` re-parse keeps it. |
+| `clearFieldError(field)`                 | Removes errors for one field, schema- and server-set alike.                                      |
 | `applyServerErrors(error, options?)`     | Attaches a rejection's errors to the fields they belong to (and unmapped ones to `formLevelErrors`, unless `onUnmapped` is given) and reveals them. Returns `true` whenever something was shown, on the form or through `onUnmapped` (which also receives `[]` for an empty rejection); `false` only when there is no `onUnmapped` and the rejection carried nothing. See above. |
-| `validate()`                             | Runs `schema.safeParse(form.value)`, populates `formErrors` (and `formLevelErrors`, for root-level issues) on failure, returns a boolean. |
+| `validate()`                             | Runs `schema.safeParse(form.value)` and **replaces** `formErrors`/`formLevelErrors` with the outcome (root-level issues go to `formLevelErrors`) — server-set errors included, since a fresh validation is a fresh submit attempt. Returns a boolean. |
 | `revealErrors()`                         | Turns `showFormErrors` on, waits for the render, focuses the first invalid field, calls `onInvalid`. |
 | `handleSubmit(onSubmit, withValidation?)`| Validates (unless `withValidation` is `false`), then awaits `onSubmit(form.value)` with `isSubmitting` set around it. Owns `showFormErrors` throughout. One submit at a time: called while another runs, it resolves `false` without validating or calling `onSubmit`. Returns `true` on success, `false` when `onSubmit` did not run (validation failed, or a submit was already running). |
 
@@ -329,3 +331,8 @@ type-checking for an app that has not installed it. Any real Zod schema (`z.obje
   picker) never does either, and `isDirty` sees the change. A class-instance field IS shared by
   reference — there is no safe generic clone for one (`structuredClone` drops its prototype).
   Replace it (`form.address = new Address(...)`), don't mutate it in place.
+
+## See also
+
+- [Your first CRUD screen](/guide/first-crud-screen) — an edit form on top of `useStructureCrudApi`.
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.

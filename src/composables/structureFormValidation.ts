@@ -20,7 +20,9 @@ import {
     type WatchSource,
     type WatchStopHandle
 } from 'vue';
-import { detachedCopy, stableKey } from '../internal/plainData.js';
+import { detachedCopy, isRecord, ownValue, stableKey } from '../internal/plainData.js';
+import { promiseTry } from '../internal/promiseTry.js';
+import { partitionServerErrors, readServerErrors } from '../internal/serverErrors.js';
 
 /**
  * In practice the form element, declared structurally so this composable never names a DOM type.
@@ -72,7 +74,7 @@ export const DEFAULT_INVALID_FIELD_SELECTOR = '[aria-invalid="true"]';
  * Options for {@link useStructureFormValidation}.
  */
 export interface IStructureFormValidationOptions<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string, any> = Record<string, any>
 > {
     /**
@@ -113,7 +115,7 @@ export interface IStructureFormValidationOptions<
  * How `applyServerErrors` maps a rejection onto the form's fields.
  */
 export interface IApplyServerErrorsOptions<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string, any> = Record<string, any>
 > {
     /**
@@ -134,133 +136,13 @@ export interface IApplyServerErrorsOptions<
 }
 
 /**
- * One server-reported error: the field it belongs to (if any) and what to say about it.
- */
-interface IServerErrorEntry {
-    /** Server-side field name; absent for a form-level message. */
-    field?: string;
-    /** Non-empty message strings for that field. */
-    messages: string[];
-}
-
-/**
- * `record[key]`, own keys only: a plain object also answers for `constructor` or `toString`
- * through its prototype, and a field of that name must not read as one already there.
- *
- * @param record - the object to read, if any
- * @param key - the key to read
- * @returns the own value, or undefined
- */
-const ownValue = <V>(record: object | undefined, key: PropertyKey): V | undefined =>
-    record !== undefined && Object.hasOwn(record, key)
-        ? (record as Record<PropertyKey, V>)[key]
-        : undefined;
-
-/**
- * Narrows any value to a plain keyed object.
- *
- * @param value - anything read off a rejection
- */
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null;
-
-/**
- * Coerces a server-supplied message value — one string or a list — into a clean list.
- *
- * @param value - a message, a list of messages, or junk (which yields `[]`)
- */
-const asMessages = (value: unknown): string[] => {
-    if (typeof value === 'string') return value ? [value] : [];
-    if (Array.isArray(value))
-        return value.filter(
-            (message): message is string => typeof message === 'string' && !!message
-        );
-    return [];
-};
-
-/**
- * Reads the field name out of one entry of an array-shaped error list.
- *
- * Covers `field`, `name`, `param` (express-validator) and `path` (a string, or the array Zod
- * emits). Nested paths collapse to their root, since formErrors is keyed by top-level field —
- * the same thing validate() does with Zod issues.
- *
- * @param entry - one object from the server's error list
- */
-const readEntryField = (entry: Record<string, unknown>): string | undefined => {
-    for (const key of ['field', 'name', 'param']) {
-        const value = entry[key];
-        if (typeof value === 'string' && value) return value;
-    }
-    const { path } = entry;
-    if (typeof path === 'string' && path) return path;
-    return Array.isArray(path) && typeof path[0] === 'string' && path[0] ? path[0] : undefined;
-};
-
-/**
- * Finds the error collection inside a rejection, wherever the transport left it: the value itself
- * (a normalized envelope), `.data` (an unwrapped body), or `.response.data` (a raw axios error).
- *
- * @param error - the rejected value, exactly as caught
- */
-const findErrorCollection = (error: unknown): unknown => {
-    const containers: unknown[] = [error];
-    if (isRecord(error)) {
-        containers.push(error.data);
-        if (isRecord(error.response)) containers.push(error.response.data);
-    }
-    for (const container of containers) {
-        if (!isRecord(container)) continue;
-        if (container.errors !== undefined) return container.errors;
-        if (container.issues !== undefined) return container.issues;
-    }
-    return undefined;
-};
-
-/**
- * Keeps only entries that have something to say.
- *
- * @param entry - a normalized server error
- */
-const hasMessages = (entry: IServerErrorEntry): boolean => entry.messages.length > 0;
-
-/**
- * Flattens whichever shape the API used into a uniform entry list:
- *  - field map, `{ email: 'Taken', password: ['Too short'] }`
- *  - list of objects, `[{ field: 'email', message: 'Taken' }]`
- *  - list of strings, which carry no field and become form-level messages
- *
- * @param collection - the `errors` / `issues` value found by findErrorCollection
- */
-const normalizeServerErrors = (collection: unknown): IServerErrorEntry[] => {
-    if (Array.isArray(collection))
-        return collection
-            .map((entry): IServerErrorEntry => {
-                if (typeof entry === 'string') return { messages: asMessages(entry) };
-                if (!isRecord(entry)) return { messages: [] };
-                return {
-                    field: readEntryField(entry),
-                    messages: asMessages(entry.message ?? entry.msg)
-                };
-            })
-            .filter((entry) => hasMessages(entry));
-
-    if (isRecord(collection))
-        return Object.entries(collection)
-            .map(([field, value]): IServerErrorEntry => ({ field, messages: asMessages(value) }))
-            .filter((entry) => hasMessages(entry));
-
-    return [];
-};
-
-/**
  * Everything {@link useStructureFormValidation} returns, for consumers that need to name the
  * shape (a store that re-exports it, a component prop, a test helper). An explicit interface, not
  * `ReturnType<typeof ...>`: the inferred type reaches into Vue's own `@vue/reactivity`/
  * `@vue/shared` internals, which do not resolve under a strict (pnpm) `node_modules` layout.
  */
 export interface IStructureFormValidation<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string, any> = Record<string, any>
 > {
     /** Live form values, bound to the inputs. */
@@ -308,7 +190,7 @@ export interface IStructureFormValidation<
      * @param currentItem - reactive source to watch, e.g. selectedRecord from useStructureRestApi
      * @returns the underlying watch handle (call it to stop watching)
      */
-    activateAutoHydrate: (currentItem: WatchSource<T | undefined | null>) => WatchStopHandle;
+    activateAutoHydrate: (currentItem: MaybeRefOrGetter<T | undefined | null>) => WatchStopHandle;
 
     /** Clears all validation errors, field-level, form-level and server-tracked alike. */
     clearErrors: () => void;
@@ -383,7 +265,7 @@ export interface IStructureFormValidation<
  * @returns form state (`form`, `formErrors`, flags) and the actions that drive it
  */
 export const useStructureFormValidation = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string, any> = Record<string, any>
 >(
     initialData: T = {} as T,
@@ -480,14 +362,21 @@ export const useStructureFormValidation = <
     };
 
     /**
-     * Resets the form to the baseline and clears all errors, schema- and server-tracked alike.
+     * Clears all validation errors, field-level, form-level and server-tracked alike.
      */
-    const resetForm = () => {
-        form.value = detachedCopy(initialFormData.value);
+    const clearErrors = () => {
         formErrors.value = {};
         formLevelErrors.value = [];
         serverErrors.value = {};
         serverLevelErrors.value = [];
+    };
+
+    /**
+     * Resets the form to the baseline and clears all errors, schema- and server-tracked alike.
+     */
+    const resetForm = () => {
+        form.value = detachedCopy(initialFormData.value);
+        clearErrors();
     };
 
     /**
@@ -498,16 +387,6 @@ export const useStructureFormValidation = <
      */
     const setInitialData = (data: T) => {
         initialFormData.value = detachedCopy(data);
-    };
-
-    /**
-     * Clears all validation errors, field-level, form-level and server-tracked alike.
-     */
-    const clearErrors = () => {
-        formErrors.value = {};
-        formLevelErrors.value = [];
-        serverErrors.value = {};
-        serverLevelErrors.value = [];
     };
 
     /**
@@ -644,20 +523,11 @@ export const useStructureFormValidation = <
         error: unknown,
         { map, onUnmapped }: IApplyServerErrorsOptions<T> = {}
     ): boolean => {
-        const entries = normalizeServerErrors(findErrorCollection(error));
-        const applied: Partial<Record<keyof T, string[]>> = {};
-        const unmapped: string[] = [];
-
-        for (const { field, messages } of entries) {
-            const target =
-                field === undefined ? undefined : (ownValue<keyof T>(map, field) ?? field);
-            // A field the form does not have cannot be highlighted, so it is form-level copy
-            if (target === undefined || !Object.hasOwn(form.value, target)) {
-                unmapped.push(...messages);
-                continue;
-            }
-            applied[target] = [...(ownValue<string[]>(applied, target) ?? []), ...messages];
-        }
+        const { applied, unmapped } = partitionServerErrors<keyof T>(
+            readServerErrors(error),
+            map,
+            (field) => Object.hasOwn(form.value, field)
+        );
 
         const fields = Object.keys(applied) as (keyof T)[];
         const carriedNothing = fields.length === 0 && unmapped.length === 0;
@@ -707,10 +577,8 @@ export const useStructureFormValidation = <
         showFormErrors.value = false;
         isSubmitting.value = true;
 
-        // Promise.resolve wraps a handler that returns nothing, so a synchronous throw inside it
-        // still reaches the caller as a rejection instead of escaping this call frame
-        return Promise.resolve()
-            .then(() => onSubmit(form.value))
+        // promiseTry: a synchronous throw inside the handler still becomes a rejection
+        return promiseTry(() => onSubmit(form.value))
             .then(() => true)
             .finally(() => {
                 isSubmitting.value = false;
@@ -721,12 +589,13 @@ export const useStructureFormValidation = <
      * Auto-hydrates the form from a source (e.g. a fetched record): every defined value becomes
      * the new baseline (setInitialData) and is applied to the form (resetForm).
      *
-     * @param currentItem - reactive source to watch, e.g. selectedRecord from useStructureRestApi
+     * @param currentItem - the source, or a Ref/getter producing it, e.g. selectedRecord from
+     *                      useStructureRestApi
      * @returns the underlying watch handle (call it to stop watching)
      */
-    const activateAutoHydrate = (currentItem: WatchSource<T | undefined | null>) =>
+    const activateAutoHydrate = (currentItem: MaybeRefOrGetter<T | undefined | null>) =>
         watch(
-            currentItem,
+            () => toValue(currentItem),
             (item) => {
                 if (!item) return;
                 setInitialData(item);

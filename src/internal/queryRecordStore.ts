@@ -15,10 +15,10 @@
  *
  * @module internal/queryRecordStore
  */
-import { computed, readonly, type Ref } from 'vue';
+import { computed, readonly, type ComputedRef, type Ref } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
 import type { IRecordStore } from '../composables/structureDataManagement.js';
-import { LIST_KINDS, type IResourceKeys, type ITargetEntry } from './resourceKeys.js';
+import { LIST_KINDS, idOf, type IResourceKeys, type ITargetEntry } from './resourceKeys.js';
 import { dropQueries } from './queryRemoval.js';
 import { isNil } from './plainData.js';
 
@@ -51,12 +51,18 @@ export interface IRecordSnapshot<T> {
 
 /** The record store, plus what the REST layer needs beyond the seam. */
 export interface IQueryRecordStore<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any>,
     K extends string | number
 > extends IRecordStore<T, K> {
-    /** Runs `write` calls made inside `run` as server answers: they count as fresh. */
-    asFetched: <R>(run: () => R) => R;
+    /** Every record of the current scope: a read-only view rebuilt from the cache. */
+    dictionary: ComputedRef<Record<K, T>>;
+
+    /**
+     * Runs `write` calls made inside `run` as server answers: never a "just created" record, and
+     * fresh unless `fresh: false` (a partial answer, which keeps each record's own freshness).
+     */
+    asFetched: <R>(run: () => R, options?: { fresh?: boolean }) => R;
 
     /**
      * Runs `run` with every key this store builds (`write`, `read`, `remove`, `snapshot`,
@@ -90,7 +96,7 @@ export interface IQueryRecordStore<
  * @returns the store
  */
 export const createQueryRecordStore = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any>,
     K extends string | number
 >({
@@ -112,27 +118,33 @@ export const createQueryRecordStore = <
         const queries = queryClient.getQueryCache().findAll({ predicate: current });
         for (const query of queries) {
             const record = (query.state.data as ITargetEntry<T> | undefined)?.data;
-            if (!isNil(record)) result[query.queryKey[3] as K] = record;
+            if (!isNil(record)) result[idOf(query.queryKey) as K] = record;
         }
         return readonly(result) as Record<K, T>;
     });
 
-    /** True while `asFetched` runs: writes are server answers. */
-    let fetched = false;
+    /** True while `asFetched` runs: writes are server answers (what `isFetching` reports). */
+    let fromServer = false;
+
+    /** True while `asFetched` runs without `fresh: false`: writes stamp the record fresh. */
+    let stampFresh = false;
 
     /**
-     * Runs `run` with its writes counted as server answers.
+     * Runs `run` with its writes counted as server answers, stamped fresh unless `fresh: false`.
      *
      * @param run - the writes
+     * @param options - fresh: stamp the records fresh (default true)
+     * @param options.fresh - false keeps each record's existing freshness (a partial answer)
      * @returns what `run` returns
      */
-    const asFetched = <R>(run: () => R): R => {
-        const outer = fetched;
-        fetched = true;
+    const asFetched = <R>(run: () => R, { fresh = true }: { fresh?: boolean } = {}): R => {
+        const outer = { fromServer, stampFresh };
+        fromServer = true;
+        stampFresh = fresh;
         try {
             return run();
         } finally {
-            fetched = outer;
+            ({ fromServer, stampFresh } = outer);
         }
     };
 
@@ -161,7 +173,7 @@ export const createQueryRecordStore = <
 
     /**
      * Follows `id` to the one its record actually lives under (see IQueryRecordStore.resolve): an
-     * alias entry (fetched by an alternate key — `targetQueryFunction` in restResource.ts) holds
+     * alias entry (fetched by an alternate key — `targetQueryFunction` in resourceReads.ts) holds
      * `aliasOf` instead of `data`. Any other id, including one with no entry at all, is its own.
      * Reads the RAW (unresolved) key directly, never through `keyOf`: resolving what it is itself
      * about to resolve would be circular.
@@ -175,7 +187,7 @@ export const createQueryRecordStore = <
      * The key `id`'s record actually lives under — `id` resolved one hop, then keyed. Every
      * read/write below goes through this, so an alias (`'my-slug'`) reaches the same entry its
      * real id does, instead of writing (or reading) a second, divergent one under the alias
-     * itself — see the alias rule in restResource.ts's module header.
+     * itself — see the alias rule in resourceWrites.ts's module header.
      *
      * @param id - the record id, an alias included
      * @returns the real record's key
@@ -218,10 +230,10 @@ export const createQueryRecordStore = <
             key,
             { data: item },
             // TanStack measures staleness from `updatedAt`; 0 reads as stale.
-            { updatedAt: fetched ? Date.now() : (previous?.dataUpdatedAt ?? 0) }
+            { updatedAt: stampFresh ? Date.now() : (previous?.dataUpdatedAt ?? 0) }
         );
         // setQueryData also clears TanStack's "invalidated" flag: a guess must not undo it.
-        if (!fetched && previous?.isInvalidated) invalidate(id);
+        if (!stampFresh && previous?.isInvalidated) invalidate(id);
     };
 
     /**
@@ -295,7 +307,7 @@ export const createQueryRecordStore = <
     };
 
     /** True while `asFetched` runs. */
-    const isFetching = (): boolean => fetched;
+    const isFetching = (): boolean => fromServer;
 
     return {
         dictionary,

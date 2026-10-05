@@ -12,8 +12,8 @@ This project has several layers of tests, each catching a kind of bug the others
   generated command sequences, checked against invariants instead of hand-picked examples.
 - **Type-level tests** (`npm run test:types`) — the public types themselves, checked with `tsc`.
 - **Built-package and peer-floor tests** (`npm run test:package`, and a CI-only job) — does `dist`
-  actually load, and does the toolkit work on the oldest version of each peer it declares support
-  for?
+  actually load, do its `.d.ts` files resolve without private or optional imports, and does the toolkit work on the
+  oldest version of each peer it declares support for?
 - **A browser-mode suite** (`tests/browser/`, part of `npm test`) — behaviour TanStack only has in
   a browser (garbage collection, refetch on focus/reconnect), untestable under Jest's default Node
   environment.
@@ -67,7 +67,7 @@ fc.assert(
 );
 ```
 
-**Where:** `tests/**/*.property.spec.ts` — `npx jest property` runs just this layer.
+**Where:** spec files with `property` in their name — `npx jest property` runs just this layer.
 `tests/internal/plainData.property.spec.ts` and `tests/structureDataManagement/property.spec.ts`
 cover the pure logic (id generation, client-side pagination, the plain belongsTo relations, a
 sequence of `addRecord`/`editRecord`/`deleteRecord` calls checked against a plain `Map` model).
@@ -129,6 +129,9 @@ more checks close that gap:
   actually catches a broken `dist`. It also doubles as the **public-API guard**:
   `tests/package/exports.json` is the frozen list of runtime exports, and removing one fails this
   script, forcing a deliberate edit to that list plus a **BREAKING** CHANGELOG line.
+  `tests/package/dtsGuard.mjs` then checks the built `.d.ts` files: none imports `zod` (an optional
+  peer), and the public ones import neither Vue's internal packages (`@vue/reactivity`,
+  `@vue/shared`) nor this package's own `internal/` modules.
 - **The `test-peer-floor` CI job** (`.github/workflows/ci.yml`) installs the exact floor of each
   declared peer (`vue`, `pinia`, `@tanstack/vue-query`, `zod`) and runs the whole Jest suite against
   it. Nothing else in this repo ever runs against anything but the latest of each — dev tooling
@@ -200,7 +203,7 @@ const identifier = false ? identifiers.join(delimiter) : identifiers;
 ```
 
 ```ts
-// src/internal/restResource.ts — original
+// the maxRecords check (src/internal/) — original
 if (cached.length + incoming <= maxRecords) return; // under the bound: keep everything
 
 // mutated: the boundary moves ("what if exactly maxRecords already triggered the wipe?")
@@ -280,12 +283,9 @@ HTML report to `reports/mutation/mutation.html` — open that to see each surviv
 with the source, which is the fastest way to decide "real gap or equivalent mutant?". `reports/` is
 gitignored: the score doesn't live in git, only in the report and in this page.
 
-A full run against an early `5.0.0` snapshot scored **84.33%** (1429 killed / 2 timed out / 251
-survived, of 1699 covered mutants; 1756 total), against a `thresholds.break` of 81 — from before the
-write guard (`writeGuard.ts`, then the weakest-scoring file at 57%) was replaced by
-`recordMutations.ts`'s `canWrite`, asked directly of TanStack's own `MutationCache` (see
-`internal/resourceMutations`'s module header). Re-run locally (`npm run test:mutation`) for a
-current score; `parentRelations.ts` (76% in that same snapshot) is worth a look regardless.
+`thresholds.break` in `stryker.conf.json` is the floor: a run that scores below it fails. The
+score itself lives in the report, not in this page — run `npm run test:mutation` for the current
+one, and read the per-file table for the files that pull it down.
 
 > The full run mutates the whole `src/` tree and takes a few minutes. While iterating, scope it to
 > one file with `npx stryker run --mutate "src/composables/structureDataManagement.ts"`.

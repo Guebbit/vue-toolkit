@@ -29,7 +29,7 @@ const { down } = useLivenessProbe(getHealth)
 ```
 
 ```vue
-<v-banner v-if="down" icon="mdi-cloud-off">{{ t('api-offline') }}</v-banner>
+<div v-if="down" role="status">{{ t('api-offline') }}</div>
 ```
 
 ## Lifecycle
@@ -112,3 +112,7 @@ target.dispatchEvent(new Event('online')) // re-probes
 | ------------------------ | --------------------------------------------------- | ------------------------------------------------- |
 | `ILivenessProbeSettings` | `{ retryDelay?, immediate?, target? }`             | The options object `useLivenessProbe` takes.       |
 | `ILivenessProbe`         | `ReturnType<typeof useLivenessProbe>`              | The whole return value, for a store or component prop that needs to name it. |
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.

@@ -233,6 +233,26 @@ describe('UNIT · updateTarget mutation key', () => {
     });
 });
 
+describe('UNIT · updateTarget without an explicit id', () => {
+    it("stores an id-less response under itemData's own id, never a fabricated one", async () => {
+        const c = make();
+        await seedAlice(c);
+        const before = c.itemList.value.length;
+
+        await c.updateTarget(
+            apiResolve({ name: 'Alice Server' }),
+            { id: 1, name: 'Alice' },
+            undefined,
+            {
+                merge: true
+            }
+        );
+
+        expect(c.getRecord(1)).toEqual({ ...USERS[0], name: 'Alice Server' });
+        expect(c.itemList.value).toHaveLength(before);
+    });
+});
+
 describe('UNIT · updateTarget with an empty response', () => {
     it('keeps the optimistic patch instead of failing after the server succeeded', async () => {
         const c = make();

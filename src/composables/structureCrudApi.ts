@@ -9,8 +9,9 @@
  * @module composables/structureCrudApi
  * @see docs/composables/structure-crud-api.md
  */
-import { ref, type Ref, type WatchSource } from 'vue';
+import { ref, type MaybeRefOrGetter, type Ref } from 'vue';
 import { detachedCopy } from '../internal/plainData.js';
+import { DEFAULT_PAGE_SIZE } from '../internal/pagination.js';
 import type { TIdOf } from './structureDataManagement.js';
 import {
     useStructureSearchApi,
@@ -37,7 +38,7 @@ import type {
  * deleteOne) forward to your HTTP client (axios config, AbortSignal, ...).
  */
 export interface IStructureCrudOperations<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     F = object,
@@ -123,7 +124,7 @@ export interface IDeleteOneSettings<O> {
  * @returns the resource
  */
 export const useStructureCrudApi = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     F = object,
@@ -199,7 +200,11 @@ export const useStructureCrudApi = <
      * @param fetchSettings - forwarded to fetchPaginate
      * @returns the page's records
      */
-    const fetchPage = (page = 1, pageSize = 10, fetchSettings: IFetchSettings = {}) =>
+    const fetchPage = (
+        page = 1,
+        pageSize = DEFAULT_PAGE_SIZE,
+        fetchSettings: IFetchSettings = {}
+    ) =>
         withOperation('search', (search) =>
             api.fetchPaginate(
                 (context) => search({} as F, page, pageSize, context).then(({ items }) => items),
@@ -232,9 +237,10 @@ export const useStructureCrudApi = <
      * @returns the first page, with the search's total
      */
     const searchNow = (fetchSettings: IFetchSettings = {}) => {
-        api.pageCurrent.value = 1;
-        return withOperation('search', (search) =>
-            api.fetchSearch(
+        return withOperation('search', (search) => {
+            // Only once the operation exists: a rejected call leaves the page where it is.
+            api.pageCurrent.value = 1;
+            return api.fetchSearch(
                 // Reads the search from the context, frozen when this call started — never from
                 // live `filters`/`pageSize` — so a later re-run (TanStack re-running the last
                 // queryFn it was given, on an unrelated invalidation) asks the same question again.
@@ -243,8 +249,8 @@ export const useStructureCrudApi = <
                 1,
                 api.pageSize.value,
                 fetchSettings
-            )
-        );
+            );
+        });
     };
 
     /**
@@ -287,12 +293,12 @@ export const useStructureCrudApi = <
      * fetchOne's active counterpart: selects and keeps fetched whatever id `idSource` produces.
      * A nullish id leaves the selection as it is.
      *
-     * @param idSource - Ref, ComputedRef or getter producing the id
+     * @param idSource - the id, or a Ref/getter producing it
      * @param watchSettings - forwarded to watchTarget (forced, merge, staleTime, callbacks)
      * @returns the watcher handle
      */
     const watchOne = (
-        idSource: WatchSource<K | undefined | null>,
+        idSource: MaybeRefOrGetter<K | undefined | null>,
         watchSettings: IWatchTargetSettings<T, K> = {}
     ) =>
         api.watchTarget(
@@ -366,7 +372,7 @@ export const useStructureCrudApi = <
  * Everything `useStructureSearchApi` returns is passed through.
  */
 export interface IStructureCrudApi<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     F = object,
@@ -405,7 +411,7 @@ export interface IStructureCrudApi<
 
     /** `fetchOne`'s active counterpart: selects and keeps fetched whatever id `idSource` produces. */
     watchOne: (
-        idSource: WatchSource<K | undefined | null>,
+        idSource: MaybeRefOrGetter<K | undefined | null>,
         watchSettings?: IWatchTargetSettings<T, K>
     ) => IWatchHandle<T | undefined>;
 

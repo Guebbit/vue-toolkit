@@ -8,6 +8,7 @@
 import type { QueryClient, QueryKey } from '@tanstack/vue-query';
 import type { IFetchSettings } from '../composables/structureRestApi.js';
 import type { IResourceKeys } from './resourceKeys.js';
+import { DEFAULT_PAGE_SIZE } from './pagination.js';
 
 /** What the checks need from the resource that owns them. */
 export interface IFreshnessContext {
@@ -89,7 +90,7 @@ export const createFreshnessChecks = <K extends string | number, P extends strin
      */
     const checkPaginate = (
         page = 1,
-        pageSize = 10,
+        pageSize = DEFAULT_PAGE_SIZE,
         settings: Pick<IFetchSettings, 'key' | 'staleTime'> = {}
     ): boolean =>
         isFresh(

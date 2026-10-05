@@ -90,5 +90,33 @@ const watchHandle = resource.watchTarget(
     () => 1
 );
 
-// IWatchHandle: every watch* returns exactly stop/refetch/suspense/error, never rejects.
+// IWatchHandle: every watch* returns the same handle — stop/refetch/suspense, error, and the
+// query's state — and never rejects.
 expectTypeOf(watchHandle).toEqualTypeOf<IWatchHandle<IUser | undefined>>();
+expectTypeOf(watchHandle.data).toEqualTypeOf<ComputedRef<IUser | undefined>>();
+expectTypeOf(watchHandle.isFetching.value).toEqualTypeOf<boolean>();
+expectTypeOf(watchHandle.dataUpdatedAt.value).toEqualTypeOf<number>();
+expectTypeOf(resource.watchAll(() => Promise.resolve([])).data.value).toEqualTypeOf<
+    (IUser | undefined)[]
+>();
+
+// watchTarget takes a plain id too, not only a Ref or getter.
+resource.watchTarget(() => Promise.resolve(undefined), 1);
+
+// watchAll/watchByParent callbacks: the bucket key, or the parent id, as context.
+resource.watchAll(() => Promise.resolve([]), {
+    onSuccess: (items, key) => {
+        expectTypeOf(items).toEqualTypeOf<(IUser | undefined)[]>();
+        expectTypeOf(key).toEqualTypeOf<string[] | undefined>();
+    }
+});
+resource.watchByParent(() => Promise.resolve([]), 'team', {
+    onError: (_error, parentId) => expectTypeOf(parentId).toEqualTypeOf<string | number>()
+});
+
+// Targeted invalidation settles once the active refetches have.
+expectTypeOf(resource.invalidateTarget(1)).toEqualTypeOf<Promise<void>>();
+expectTypeOf(resource.invalidateLists()).toEqualTypeOf<Promise<void>>();
+
+// The cache views are read-only computeds.
+expectTypeOf(resource.itemDictionary).toEqualTypeOf<ComputedRef<Record<number, IUser>>>();

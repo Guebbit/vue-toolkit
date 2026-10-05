@@ -53,14 +53,18 @@ const { error } = watchList()
 ```
 
 ```vue
-<v-text-field v-model="filters.text" @keyup.enter="searchNow()" />
-<v-btn @click="searchNow()">Search</v-btn>
-<v-btn @click="resetFilters()">Reset</v-btn>
+<input v-model="filters.text" @keyup.enter="searchNow()" />
+<button @click="searchNow()">Search</button>
+<button @click="resetFilters()">Reset</button>
 
 <ProductRow v-for="item in pageItemList" :key="item.id" :item="item" />
 <span>{{ totalItems }} products</span>
-<v-pagination v-model="pageCurrent" :length="pageTotal" />
+<button :disabled="pageCurrent <= 1" @click="pageCurrent--">Previous</button>
+<span>{{ pageCurrent }} / {{ pageTotal }}</span>
+<button :disabled="pageCurrent >= pageTotal" @click="pageCurrent++">Next</button>
 ```
+
+For the whole screen, store to template, see [Your first CRUD screen](/guide/first-crud-screen).
 
 A detail screen:
 
@@ -176,7 +180,7 @@ sequenceDiagram
 - `watchList()`'s handle has its own `search()`, which applies the filters on the current page
   (see [`watchSearch`](./structure-search-api#watchsearch)).
 
-As-you-type search is the screen's choice:
+As-you-type search is the screen's choice (`watchDebounced` from `@vueuse/core`):
 
 ```ts
 watchDebounced(filters, () => searchNow(), { debounce: 300, deep: true })
@@ -206,11 +210,11 @@ explicit interface — not inferred), plus:
 | `filters`                               |                                                 | `Ref<F>`: the live filters. Read when a search is applied, never watched.          |
 | `fetchList(settings?)`                  | `IFetchSettings` (all fields)                   | `fetchAll` over `list`. Resolves the records.                                      |
 | `fetchPage(page = 1, pageSize = 10, settings?)` | `IFetchSettings` (all fields)           | `fetchPaginate` over `search({}, page, pageSize)`: one unfiltered page. Leaves the applied search alone and discards `totalItems`. |
-| `watchList(settings?)`                  | `IWatchSearchSettings<T, F>`                    | `watchSearch` over `search`. Returns `{ stop, refetch, error, search }`; never rejects. |
+| `watchList(settings?)`                  | `IWatchSearchSettings<T, F>`                    | `watchSearch` over `search`. Returns `IWatchSearchHandle<T>` (the [watcher handle](./structure-search-api#watchsearch) plus `search()`); never rejects. |
 | `searchNow(settings?)`                  | `IFetchSettings` (all fields)                   | `pageCurrent = 1`, then `fetchSearch` of the current filters. Resolves `{ items, totalItems }`; rejects on failure. |
 | `resetFilters(settings?)`               | `IFetchSettings` (all fields)                   | `filters` back to a fresh copy of `initialFilters`, then `searchNow({ forced: true, ...settings })`. |
 | `fetchOne(id, settings?)`               | `Pick<IFetchSettings, 'forced' \| 'merge' \| 'staleTime'>` | Selects `id`, then `fetchTarget` over `get`. On failure it rejects, and clears the selection if the selection is still `id`. |
-| `watchOne(idSource, settings?)`         | `IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, callbacks | `watchTarget` over `get`. Returns `{ stop, refetch, error }`.  |
+| `watchOne(idSource, settings?)`         | `IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `queryOptions`, `onSuccess`/`onError`/`onSettled` | `watchTarget` over `get`: selects the id (a value, a Ref or a getter), keeps it fetched. Returns `IWatchHandle<T \| undefined>` ([the watcher handle](./structure-rest-api#active-reads-watch)). |
 | `createOne(data, settings?)`            | `ICreateOneSettings<T, O>`: `requestOptions`, `dummyData`, `key` | `createTarget` over `create`. Resolves the stored record.        |
 | `updateOne(id, data, settings?)`        | `IUpdateOneSettings<O>`: `requestOptions`, `merge`, `applyResponse`, `key` | `updateTarget` over `update`, patching locally with `optimisticPatch(data)`. The operation's answer is stored as the record; an answer that is not a record object (`undefined`, `null`) keeps the patch. |
 | `deleteOne(id, settings?)`              | `IDeleteOneSettings<O>`: `requestOptions`, `key` | `deleteTarget` over `remove`: removed locally first, restored on failure.          |
@@ -223,8 +227,8 @@ explicit interface — not inferred), plus:
 - **`update` resolves the updated record, or nothing.** `updateOne` stores its answer as the
   record; an answer that is not a record object (`undefined`, `null`, an array) keeps the
   optimistic patch instead. If your endpoint answers with
-  something else (an acknowledgement), map it inside the operation, or call `updateTarget` with
-  `applyResponse: false`.
+  something else (an acknowledgement), map it inside the operation, or pass
+  `updateOne(id, data, { applyResponse: false })`.
 - **`pageTotal` and `totalItems` come from the `search` operation's `totalItems`**, not a local
   count, and survive a cache hit.
 - **A missing operation fails at call time, not at setup.** `{}` is a valid `operations` object.
@@ -234,3 +238,9 @@ explicit interface — not inferred), plus:
   lookup needed first.
 - Everything underneath is still there: reach for `fetchByParent`, `fetchTarget`, `searchGet` or
   `resetAll` on the same object when a screen needs something this layer does not wrap.
+
+## See also
+
+- [Your first CRUD screen](/guide/first-crud-screen) — this composable in a whole app, step by step.
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useStructureFormValidation`](./structure-form-validation) — the edit form next to it.

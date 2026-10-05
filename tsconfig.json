@@ -19,7 +19,11 @@
         "rootDir": "./src",
         "outDir": "./dist",
         "declaration": true,
-        "declarationDir": "./dist/types"
+        "declarationDir": "./dist/types",
+        // Maps from dist back to src/ (shipped alongside): a consumer's debugger and "Go to
+        // definition" land on the TypeScript source instead of compiled JS or a bare .d.ts.
+        "sourceMap": true,
+        "declarationMap": true
     },
     "include": ["src"],
     "exclude": ["node_modules", "dist"]

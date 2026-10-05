@@ -53,7 +53,9 @@ const { pageItemList, totalItems, pageCurrent, pageTotal } = storeToRefs(useProd
     <!-- the current page of the applied search -->
     <ProductRow v-for="item in pageItemList" :key="item.id" :item="item" />
     <span>{{ totalItems }} products</span>
-    <v-pagination v-model="pageCurrent" :length="pageTotal" />
+    <button :disabled="pageCurrent <= 1" @click="pageCurrent--">Previous</button>
+    <span>{{ pageCurrent }} / {{ pageTotal }}</span>
+    <button :disabled="pageCurrent >= pageTotal" @click="pageCurrent++">Next</button>
 </template>
 ```
 
@@ -144,6 +146,8 @@ The handle:
 
 | Field            | Meaning                                                                                              |
 | ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `data`           | `ComputedRef<ISearchResult<T>>`: `{ items, totalItems }` of what is on screen now — `pageItemList` and `totalItems` together. |
+| `isFetching`, `isPending`, `dataUpdatedAt` | The watched page query's state, as on every [watcher handle](./structure-rest-api#active-reads-watch). |
 | `search(forced?)` | Applies the live filters and fetches the current page. If that page is cached and fresh (and not `forced`) it settles without a fetch, `onSuccess` included. On a watcher created with `forced`, every search is forced: `search(false)` does not lift it. Resolves `{ items, totalItems }`, or `undefined` on failure. Leaves `pageCurrent` alone. |
 | `refetch()`      | Fetches the current page of the applied search now, joining a fetch already running. Resolves `{ items, totalItems }` as cached after the fetch: a failure leaves the previous page in place (and shows in `error`). Before any search is applied (`immediate: false`), resolves the empty result without calling `apiCall`. |
 | `suspense()`     | For SSR: resolves once the current page is cached — cached and fresh already, or after the fetch that gets it there. Call it in `onServerPrefetch` (see [`useStructureRestApi`'s SSR section](./structure-rest-api#ssr)). Before any search is applied (`immediate: false`), resolves the empty result without fetching. |
@@ -241,7 +245,7 @@ sequenceDiagram
 
 | Method                                                          | Purpose                                                                                     |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `searchGet(filters, page = 1, pageSize = <current pageSize>, { key? })` | The cached items of one page, without fetching. `filters` is an object; `key` must match the one the page was fetched with. |
+| `searchGet(filters, page = 1, pageSize = <current pageSize>, { key? })` | The cached items of one page, without fetching. `filters: string \| object` — the filters object, or a filters key string (see below); `key` must match the one the page was fetched with. |
 | `checkSearch(filters = {}, page = 1, pageSize = <current pageSize>, { key?, staleTime? })` | Would that `fetchSearch` be served from cache?                                   |
 | `isPageCached({ key?, staleTime? })`                            | `checkSearch` for the **live** filters and the current `pageCurrent`/`pageSize`: would applying the edited filters fetch? |
 | `isPaginateCached({ key?, staleTime? })`                        | `checkPaginate(pageCurrent, pageSize)`, for `fetchPaginate`.                                |
@@ -251,6 +255,11 @@ every value and property, the same canonicalization every cache key in the toolk
 `searchGet`/`checkSearch` the filters object itself; there is no need to (and no public way to)
 build that string by hand.
 
+`searchGet` also takes that string directly: a **string** `filters` is used as the key segment
+as-is, never canonicalized again. That is for code that already holds one — read off a cached
+search page's own query key (`query.queryKey[3]`, walking `queryClient.getQueryCache()`), say.
+Anything else passes the object.
+
 ## API
 
 `useStructureSearchApi<T, K, P, F>(filtersSource, settings)` returns `IStructureSearchApi<T, K, P,
@@ -258,7 +267,7 @@ F>` — an exported, explicit interface (not inferred).
 
 | Parameter       | Type                | Purpose                                                                                |
 | --------------- | ------------------- | -------------------------------------------------------------------------------------- |
-| `filtersSource` | `WatchSource<F>`    | Ref, computed or getter producing the live filters. Read when a search is applied (and by `isPageCached`), never watched. |
+| `filtersSource` | `MaybeRefOrGetter<F>` | The live filters: a value, a Ref, a computed or a getter. Read when a search is applied (and by `isPageCached`), never watched. |
 | `settings`      | `IStructureRestApiOptions` | The resource's options, as on [`useStructureRestApi`](./structure-rest-api#setup-options). `resourceKey` is required. |
 
 Returns everything `useStructureRestApi` returns, with these redefined or added:
@@ -269,6 +278,7 @@ Returns everything `useStructureRestApi` returns, with these redefined or added:
 | `isPlaceholder`                                                  | `ComputedRef<boolean>`: `true` exactly while `pageItemList` is showing that fallback. |
 | `pageTotal`                                                      | `ComputedRef<number>`: `Math.ceil(totalItems / pageSize)`.           |
 | `totalItems`                                                     | `ComputedRef<number>`: the applied search's server-reported total.   |
+| `resetAll()`                                                     | `useStructureRestApi`'s `resetAll()`, plus: clears `isPlaceholder`'s fallback first, so the wiped search never comes back as a placeholder (see [Gotchas](#gotchas)). |
 | `watchSearch`, `fetchSearch`                                     | See above.                                                           |
 | `searchGet`, `checkSearch`, `isPageCached`, `isPaginateCached`   | See [Reading the cache](#reading-the-cache).                         |
 
@@ -284,3 +294,10 @@ Returns everything `useStructureRestApi` returns, with these redefined or added:
   like a `dependsOn` change does — neither ever leaks a wiped or previous-scope search onto the
   screen as a placeholder.
 - **A watcher never rejects.** Read `error` or pass `onError`, or a failed search goes unnoticed.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useStructureCrudApi`](./structure-crud-api) — this composable with the filters and operations
+  wired up; most screens start there.
+- [`useStructureRestApi`](./structure-rest-api) — everything this one passes through.

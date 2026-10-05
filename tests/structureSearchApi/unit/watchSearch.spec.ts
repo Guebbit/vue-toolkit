@@ -74,6 +74,39 @@ describe('UNIT · watchSearch', () => {
         stop();
     });
 
+    it('exposes the query state and the current result as data', async () => {
+        const { searchApi } = make();
+        const handle = searchApi.watchSearch(fakeApiCall());
+
+        expect(handle.isPending.value).toBe(true);
+        expect(handle.isFetching.value).toBe(true);
+        await flush();
+
+        expect(handle.isPending.value).toBe(false);
+        expect(handle.isFetching.value).toBe(false);
+        expect(handle.dataUpdatedAt.value).toBeGreaterThan(0);
+        expect(handle.data.value).toEqual({ items: TECH, totalItems: TECH.length });
+        handle.stop();
+    });
+
+    it('accepts a plain filters value as filtersSource', () => {
+        const searchApi = runTracked(() =>
+            useStructureSearchApi<IArticle, number>(
+                { category: 'tech' },
+                {
+                    resourceKey: 'resource',
+                    staleTime: DEFAULT_STALE_TIME,
+                    queryClient: newTestClient()
+                }
+            )
+        );
+        const apiCall = fakeApiCall();
+        const { stop } = searchApi.watchSearch(apiCall);
+
+        expect(apiCall).toHaveBeenCalledWith({ category: 'tech' }, 1, 10, anyContext);
+        stop();
+    });
+
     it('skips the initial run when immediate is false', () => {
         const { searchApi } = make({});
         const apiCall = fakeApiCall();

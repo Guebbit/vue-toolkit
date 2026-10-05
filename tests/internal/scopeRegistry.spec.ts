@@ -2,14 +2,15 @@
  * UNIT · internal/scopeRegistry.ts: claims are counted per scope, a release is one-shot, and a
  * scope stays live until every claim on it is released.
  */
-import { QueryClient } from '@tanstack/vue-query';
+import type { QueryClient } from '@tanstack/vue-query';
+import { newTestClient } from './_helpers';
 import { scopeRegistryFor } from '../../src/internal/scopeRegistry';
 
 describe('UNIT · scopeRegistryFor', () => {
     let queryClient: QueryClient;
 
     beforeEach(() => {
-        queryClient = new QueryClient();
+        queryClient = newTestClient();
     });
 
     afterEach(() => {
@@ -70,7 +71,7 @@ describe('UNIT · scopeRegistryFor', () => {
     });
 
     it('registries of two resource keys, or two clients, do not share claims', () => {
-        const other = new QueryClient();
+        const other = newTestClient();
         const registry = scopeRegistryFor(queryClient, 'items');
         registry.claim(['a']);
 

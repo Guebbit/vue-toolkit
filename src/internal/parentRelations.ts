@@ -10,10 +10,10 @@
  *
  * @module internal/parentRelations
  */
-import { computed, type Ref } from 'vue';
+import { computed, type ComputedRef, type Ref } from 'vue';
 import type { Query, QueryClient, QueryKey } from '@tanstack/vue-query';
 import type { IRelationStore } from '../composables/structureDataManagement.js';
-import type { IListCacheEntry, IResourceKeys } from './resourceKeys.js';
+import { idOf, type IListCacheEntry, type IResourceKeys } from './resourceKeys.js';
 import { sameId, uniqueIds } from './idEquality.js';
 
 /** What the relation store needs from the resource that owns it. */
@@ -42,7 +42,9 @@ export const createQueryRelationStore = <K extends string | number, P extends st
     keys,
     dependsOn,
     version
-}: IParentRelationsContext): IRelationStore<P, K> => {
+}: IParentRelationsContext): IRelationStore<P, K> & {
+    dictionary: ComputedRef<Record<P, K[]>>;
+} => {
     /**
      * The ids a list entry holds.
      *
@@ -61,7 +63,7 @@ export const createQueryRelationStore = <K extends string | number, P extends st
     const bucketsOf = (parentId: P): Query[] => {
         const current = keys.inScope(dependsOn(), ['parent']);
         return queryClient.getQueryCache().findAll({
-            predicate: (query) => current(query) && query.queryKey[3] === String(parentId)
+            predicate: (query) => current(query) && idOf(query.queryKey) === String(parentId)
         });
     };
 
@@ -83,7 +85,7 @@ export const createQueryRelationStore = <K extends string | number, P extends st
         const current = keys.inScope(dependsOn(), ['parent']);
         const queries = queryClient.getQueryCache().findAll({ predicate: current });
         for (const query of queries) {
-            const parentId = query.queryKey[3] as P;
+            const parentId = idOf(query.queryKey) as P;
             result[parentId] = uniqueIds([...(result[parentId] ?? []), ...idsOf(query)]);
         }
         return result;

@@ -14,7 +14,7 @@
 import { computed, getCurrentScope, onScopeDispose, readonly, ref, type Ref } from 'vue';
 import type { QueryCacheNotifyEvent, QueryClient } from '@tanstack/vue-query';
 import { hasKeyPrefix } from './plainData.js';
-import type { TResourceKind } from './resourceKeys.js';
+import { kindOf, resourceOf, type TResourceKind } from './resourceKeys.js';
 import { recordMutationsOf } from './recordMutations.js';
 
 /**
@@ -100,11 +100,12 @@ export const useResourceActivity = (
 
     /** Ends the query-cache subscription. */
     const stopQueries = queryClient.getQueryCache().subscribe((event) => {
-        if (!STATUS_EVENTS.has(event.type) || event.query.queryKey[0] !== resourceKey) return;
+        if (!STATUS_EVENTS.has(event.type) || resourceOf(event.query.queryKey) !== resourceKey)
+            return;
         // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
         queryStatus.value++;
         // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
-        if (changesData(event)) counterOf(String(event.query.queryKey[1])).value++;
+        if (changesData(event)) counterOf(kindOf(event.query.queryKey)).value++;
     });
 
     /** Ends the mutation-cache subscription. */
@@ -148,7 +149,8 @@ export const useResourceActivity = (
         return (
             queryClient.isFetching({
                 predicate: (query) =>
-                    query.queryKey[0] === resourceKey && hasKeyPrefix(keyOf(query.meta), key)
+                    resourceOf(query.queryKey) === resourceKey &&
+                    hasKeyPrefix(keyOf(query.meta), key)
             }) > 0 ||
             queryClient.isMutating({
                 predicate: (mutation) =>
@@ -168,7 +170,7 @@ export const useResourceActivity = (
      * excluded: a record being created has no stable id of its own yet to key this by. `id` is
      * resolved first, so `isSaving('my-slug')` and `isSaving(7)` agree once 'my-slug' is a known
      * pointer to 7 — mutation keys are always built from the resolved id (see the alias rule in
-     * restResource.ts's module header).
+     * resourceWrites.ts's module header).
      *
      * @param id - the record id, an alias included
      * @returns whether a save (update or delete) of that record is in flight

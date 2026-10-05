@@ -138,9 +138,11 @@ What they share:
   `signal` is a lazy getter: reading it is what asks TanStack to abort the underlying fetch once
   nothing needs it any more (an unmounted watcher, a mutation cancelling this same record's read).
   Forward it to `fetch`/axios for a request that is genuinely cancelled, not just an answer that's
-  later discarded; ignoring it costs nothing. `fetchTarget(apiCall, id)`'s `apiCall` takes only the
-  context; `fetchByParent`/`watchByParent` and `fetchTarget`/`watchTarget`'s active counterparts
-  put it after their own id/filters argument (see the tables below for exact positions).
+  later discarded; ignoring it costs nothing. Every one-shot `apiCall` above takes **only** the
+  context — `fetchByParent`'s and `fetchTarget`'s included: close over the parent id or record id
+  yourself. The exceptions put their own argument first: `fetchMultiple`'s `apiCall(missingIds,
+  context)`, and the watchers `watchTarget` (`apiCall(id, context)`) and `watchByParent`
+  (`apiCall(parentId, context)`), which pass the id of the query that is running.
 - A cached entry that is still fresh is served without calling `apiCall`. Concurrent calls for
   the same entry join one request.
 - A failure rejects. An entry that already held data keeps it (stale data still renders); an entry
@@ -190,8 +192,9 @@ Per method:
     the update's own response then resolves it into a proper pointer to the real record (see the
     update-response rule, below).
 - **`fetchMultiple`** asks the server only when some of `ids` are missing or stale, with one call of
-  `apiCall(missingIds, context)` — `missingIds` is exactly `checkMultiple(ids).expiredIds`, so
-  building `GET /users?ids=1,2` from it never re-asks for an id already fresh. Resolves one slot
+  `apiCall(missingIds, context)` — `missingIds` is exactly `checkMultiple(ids).expiredIds` (every
+  id, with `forced`), so building `GET /users?ids=1,2` from it never re-asks for an id already
+  fresh. Resolves one slot
   per requested id, `[...expired, ...cached]` in that order, with `undefined` for an id the server
   did not return.
 - **`fetchAny`** is for answers that are not records. With `key`, a normal cached read under
@@ -205,10 +208,10 @@ component or store that created it, or with `stop()`.
 
 | Method                                         | Arguments                                                                                   | Returns                                     |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `watchTarget(apiCall, idSource, settings?)`    | `apiCall: (id, context) => Promise<T \| undefined>`. `idSource`: Ref or getter of `K \| undefined \| null`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `queryOptions`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
-| `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled`, `queryOptions` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles, and `refetch()` then resolves `[]` without calling `apiCall`). `settings: IWatchListSettings` | `IWatchHandle<(T \| undefined)[]>`          |
-| `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled?, queryOptions? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive | `IWatchHandle<F \| undefined>` plus `data: ComputedRef<F \| undefined>` |
+| `watchTarget(apiCall, idSource, settings?)`    | `apiCall: (id, context) => Promise<T \| undefined>`. `idSource`: a value, a Ref or a getter of `K \| undefined \| null`. `settings: IWatchTargetSettings<T, K>`: `forced`, `merge`, `staleTime`, `queryOptions`, `onSuccess`, `onError`, `onSettled` | `IWatchHandle<T \| undefined>` |
+| `watchAll(apiCall, settings?)`                 | `settings: IWatchListSettings<T, string[] \| undefined>`: `forced`, `merge`, `partial`, `staleTime`, `key`, `enabled`, `queryOptions`, `onSuccess`, `onError`, `onSettled` — `key`/`enabled` may be reactive | `IWatchHandle<(T \| undefined)[]>`          |
+| `watchByParent(apiCall, parentId, settings?)`  | `apiCall: (parentId, context) => Promise<(T \| undefined)[]>`. `parentId`: a value, a Ref or a getter (re-runs when it changes; nullish idles, and `refetch()` then resolves `[]` without calling `apiCall`). `settings: IWatchListSettings<T, P>`: as `watchAll`'s |  `IWatchHandle<(T \| undefined)[]>`          |
+| `watchAny(apiCall, settings)`                  | `settings: IWatchAnySettings`: `{ key, forced?, staleTime?, enabled?, queryOptions? }`. `key` is **required**: an active query needs a stable identity. `key`/`enabled` may be reactive. No callbacks | `IWatchHandle<F \| undefined>` |
 
 Each fetch sends what its own query was built from: `watchTarget`'s `apiCall` receives the id,
 and `watchByParent`'s the parent id, of the query that is running, never a live value that has
@@ -216,18 +219,23 @@ moved on since.
 
 Every watcher returns the same handle, `IWatchHandle<R>`:
 
-| Field         | Meaning                                                                                                    |
-| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| Field           | Meaning                                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------- |
+| `data`          | `ComputedRef<R>`: the watched data as cached now — the record, the list's items, `fetchAny`'s answer. Follows the watched id, parent or key. |
+| `isFetching`    | `Readonly<Ref<boolean>>`: true while the watched query fetches — its first load or a background refetch.   |
+| `isPending`     | `Readonly<Ref<boolean>>`: true while the watched query has no data yet — before its first answer, and while a watcher with nothing to watch (no id, no parent) idles. |
+| `dataUpdatedAt` | `Readonly<Ref<number>>`: when the watched query last received data (ms epoch); `0` before it ever has.     |
 | `stop()`      | Ends the watcher. Its entry stays cached (see [cache lifetime](#cache-lifetime)).                          |
 | `refetch()`   | Fetches now. Joins a fetch already running instead of restarting it. Resolves with the watched data as cached after the fetch: a failure leaves the previous data in place (and shows in `error`). **Never rejects.** |
 | `suspense()`  | For SSR: resolves once the watched data is available — cached and fresh already, or after the fetch that gets it there. Call it in `onServerPrefetch`, before the component renders, so the client hydrates with data already in the cache instead of fetching again on mount. A watcher that is not currently enabled (no id yet, `enabled: false`) resolves right away with whatever is cached, instead of waiting for `enabled` to turn true. **Never rejects.** |
 | `error`       | `Readonly<Ref<unknown>>`: the last fetch's failure, `null` after a success.                                |
 
 A watcher never rejects, so a failure shows only in `error`, and in `onError` on the watchers
-that take callbacks (`watchTarget`, and `watchSearch` on the search layer). Those three callbacks
-are `IWatchCallbacks<R, C>` — `onSuccess(result, context)`, `onError(error, context)`,
+that take callbacks (every one but `watchAny`, plus `watchSearch` on the search layer). Those three
+callbacks are `IWatchCallbacks<R, C>` — `onSuccess(result, context)`, `onError(error, context)`,
 `onSettled(result, error, context)` — where `R` is what the watcher resolves and `C` is what it
-was watching (an id for `watchTarget`, the filters for `watchSearch`). They run a microtask after
+was watching: the id for `watchTarget`, the bucket `key` for `watchAll`, the parent id for
+`watchByParent`, the applied filters for `watchSearch`. They run a microtask after
 the fetch that triggered them settles, never synchronously inside TanStack's own notification of
 it, so a callback that throws surfaces as an ordinary uncaught error and never corrupts the query
 it was reporting on.
@@ -365,18 +373,26 @@ Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'del
      id) — its answer is never stored, so it cannot undo the edit or bring a deleted record back.
      Nothing else is cancelled: a list read of the scope keeps running (see the write guarantee
      above). It then snapshots the record and applies the change locally: `updateTarget` merges
-     `itemData` into it, `deleteTarget` removes it. Both skipped if `dependsOn` changed in the
-     meantime. The snapshot is taken right here, not when the call started — a same-tick sibling
-     mutation on the same id may already have applied its own change by this point, and a later
-     rollback returns to THAT, never to a value from before either call ran.
+     `itemData` into it, `deleteTarget` removes it. Both are skipped once no instance shows the
+     `dependsOn` value the call started under any more (see [dependsOn](#dependson)). The snapshot
+     is taken right here, not when the call started — a same-tick sibling mutation on the same id
+     may already have applied its own change by this point, and a later rollback returns to THAT,
+     never to a value from before either call ran.
   3. The request runs. Once it settles, `onSuccess`/`onError` only touch the record if it still
      holds exactly this call's own change: a newer mutation on the same id owns it otherwise, so
-     neither a failed older update nor a stale older success can undo what that newer one did. On
-     failure the record goes back to its snapshot (removed, if it did not exist). Either way — a
-     rollback, or a success skipped because a newer mutation now owns the record — the record is
-     invalidated: the value left in place is a local guess, not server-confirmed, so an active
-     watcher reconciles it on its own instead of trusting the guess as fresh.
-  4. `onSettled` marks this resource's lists stale, success or failure alike.
+     neither a failed older update nor a stale older success can undo what that newer one did.
+     - Success, still the owner: the response is stored (see below). Nothing is invalidated: the
+       stored value is the server's own answer.
+     - Success, a newer mutation owns the record: the response is dropped, and the record is
+       invalidated — what is left is that newer call's local guess, so an active watcher
+       reconciles it with the server.
+     - Failure, still the owner: the record goes back to its snapshot (removed, if it did not
+       exist), and is invalidated, for the same reason.
+     - Failure, a newer mutation owns the record: nothing happens to it — the newer call's outcome
+       stands.
+  4. In the same `onSuccess`/`onError` step, this resource's lists are marked stale, success or
+     failure alike, whoever owns the record. `onSettled` only detaches the mutation's observer, so
+     the mutation leaves TanStack's `MutationCache` on its own `gcTime`.
 
   ```mermaid
   sequenceDiagram
@@ -388,18 +404,21 @@ Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'del
       TQ->>Cache: onMutate — cancel the record's own in-flight read
       TQ->>Cache: onMutate — snapshot(id), then apply the optimistic change
       TQ->>Server: send the request
-      alt still owns id when the response lands
+      alt success, this call still owns id
           Server-->>TQ: success
           TQ->>Cache: onSuccess — store the result (or keep the optimistic patch — see below)
-          TQ->>Cache: onSuccess — invalidate the record, a watcher reconciles with the server
-      else still owns id, request failed
+      else success, a NEWER mutation owns id
+          Server-->>TQ: success
+          TQ->>Cache: onSuccess — drop the result, invalidate the record (a watcher reconciles)
+      else failure, this call still owns id
           Server-->>TQ: failure
-          TQ->>Cache: onError — restore(id, snapshot)
-          TQ->>Cache: onError — invalidate the record
-      else a NEWER mutation now owns id
-          Note over TQ,Cache: this call's answer is stale either way — do nothing to the record
+          TQ->>Cache: onError — restore(id, snapshot), invalidate the record
+      else failure, a NEWER mutation owns id
+          Server-->>TQ: failure
+          Note over TQ,Cache: leave the record alone — the newer call's change stands
       end
-      TQ->>Cache: onSettled — mark this resource's lists stale, regardless of ownership
+      TQ->>Cache: onSuccess / onError — mark this resource's lists stale, whoever owns id
+      TQ->>TQ: onSettled — detach the observer (the mutation leaves on its own gcTime)
   ```
 
   A read blocked by an in-flight mutation on the same id cancels its OWN query instead of
@@ -420,11 +439,33 @@ Each runs as a TanStack mutation keyed `[resourceKey, 'create' | 'update' | 'del
   to it — the same rule a `fetchTarget` by that same slug follows (see the alternate-key note
   under [Reading](#reading), above).
 - **`mutateAny`**: a command with no record shape. Invalidates nothing; call
-  `queryClient.invalidateQueries` yourself when it changes data.
+  `invalidateTarget`/`invalidateLists` (below) or `queryClient.invalidateQueries` yourself when it
+  changes data.
 - Marking the lists stale reaches every list kind (`all`, `parent`, `page`, `search`): active list
   watchers refetch now, the others on their next read.
 - If `dependsOn` changes while a mutation runs, its result is not stored, its rollback is skipped
-  and no list is marked stale: the old scope's data never lands in the new one.
+  and no list is marked stale — unless another instance still shows the old value, in which case
+  all three happen under that OLD value, never the new one. Either way the old scope's data never
+  lands in the new one.
+
+### Invalidating by hand
+
+For data that changed behind the resource's back (a `mutateAny` command, a server push, another
+tab), mark it stale instead of reaching for raw `queryClient` keys:
+
+| Method                 | Marks stale                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `invalidateTarget(id)` | Record `id` — or the record an alias points at — and every alias of it, under the current `dependsOn`. |
+| `invalidateLists()`    | Every list of the current `dependsOn`: `fetchAll`, `fetchByParent`, `fetchPaginate` and search pages. |
+
+Both return a `Promise<void>` that settles once the watched entries have refetched; an unwatched
+entry just waits, stale, for its next read. Neither removes anything: what is cached keeps
+rendering until the fresh answer lands.
+
+```ts
+await users.mutateAny(() => axios.post('/api/users/1/recompute-stats'), { key: ['stats'] })
+void users.invalidateTarget(1) // a watchTarget(…, 1) refetches the user
+```
 
 ## Loading
 
@@ -471,16 +512,16 @@ too, backed by the cache (its `identifier` under the name `identifierKey`, liste
 
 | Member                                                         | Behaviour here                                                                                   |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `itemDictionary`, `itemList`                                   | Read-only view of the records under the current `dependsOn`. Change records through the methods, never in place. |
+| `itemDictionary`, `itemList`                                   | `ComputedRef<Record<K, T>>`, `ComputedRef<T[]>`: a read-only view of the records under the current `dependsOn`. Change records through the methods, never in place. |
 | `getRecord(...idParts)`, `getRecords(ids)`                     | Read the view.                                                                                   |
 | `addRecord(item)`, `addRecords`, `editRecord(data, id?, create?)`, `editRecords` | Local writes: stored, but a record's freshness does not move. A new record starts stale, an invalidated one stays invalidated, so the next `fetchTarget` asks the server. |
 | `setRecords(items)`                                            | Replaces every record of the current scope; none counts as fetched. Marks the scope's lists stale without refetching them. |
 | `deleteRecord(id)`                                             | Removes one record.                                                                              |
 | `resetRecords()`                                               | Removes every record of the current scope, and marks its lists stale: active list watchers refetch (and bring their records back). |
 | `selectedIdentifier`, `selectedRecord`                         | Selection. `watchTarget` sets it; `fetchTarget` does not.                                        |
-| `lastInsertedIdentifier(s)`, `lastInsertedRecord`              | Last-inserted tracking. Moves on `createTarget`'s success and on a local `addRecord`/`editRecord` create. A background write that stores what the server reported (`fetchTarget`, `fetchAll`, `watch*`, an `updateTarget` response) never moves it, even when the record was not cached before — it is new to the cache, not newly created. |
+| `lastInsertedIdentifier(s)`, `lastInsertedRecord`              | Last-inserted tracking. Moves on `createTarget`'s success and on a local `addRecord`/`editRecord` create. A background write that stores what the server reported (`fetchTarget`, `fetchAll`, `watch*`, an `updateTarget` response) never moves it, even when the record was not cached before — it is new to the cache, not newly created. Exception: a `partial: true` list fetch that brings in a record not cached yet does move it. |
 | `pageCurrent`, `pageSize`, `pageTotal`, `pageOffset`, `pageItemList` | Client-side pagination over `itemList`. The search layer redefines `pageItemList`/`pageTotal`. |
-| `parentHasMany`                                                | `ComputedRef<Record<P, K[]>>`: each parent's child ids, the union of all its `parent` buckets (see below), keyed by the parent id as a string. |
+| `parentHasMany`                                                | `ComputedRef<Record<P, K[]>>` (read-only): each parent's child ids, the union of all its `parent` buckets (see below), keyed by the parent id as a string. |
 | `addToParent(parentId, childId)`                               | Adds the child to the parent's keyless entry, unless the parent already lists it.                |
 | `removeFromParent(parentId, childId)`, `removeDuplicateChildren(parentId)` | Edit every bucket of that parent.                                                  |
 | `getRecordsByParent(parentId?)`, `getListByParent(parentId?)`  | The records of `parentHasMany[parentId]` (by id / as a list, in the relation's order); ids with no cached record are skipped. No `parentId`: none. |
@@ -594,8 +635,8 @@ sequenceDiagram
 A critical-mass backstop, not an eviction policy: records are never evicted for being old.
 
 - When a list-shaped fetch (`fetchAll`, `fetchByParent`, `fetchPaginate`, `fetchSearch`, their
-  watchers), `fetchMultiple`, or `fetchTarget`/`watchTarget` fetching a record not cached yet is
-  about to write, and the records cached under the current `dependsOn` plus the incoming **new**
+  watchers), `fetchMultiple`, or `fetchTarget` **with an id** / `watchTarget` fetching a record not
+  cached yet is about to write (`fetchTarget` without an id never checks the bound), and the records cached under the current `dependsOn` plus the incoming **new**
   ones would exceed `maxRecords`, every other entry of the current scope is dropped first (records,
   lists, searches) — one detail page at a time crosses the bound exactly like a list does.
 - Only records not cached yet count: refetching a list, or a record, that is already cached adds
@@ -611,8 +652,8 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   (an alias), with nothing telling it to refetch. The bound can be exceeded by what is on screen —
   already true for a directly-watched record, and this only extends the same rule to a watched
   list's rows and a watched alias's target.
-- The mutations and `addRecord`/`editRecord` never trigger it: they write one record you already
-  hold data for, not a batch of possibly-new ones.
+- The mutations (`createTarget` included) and `addRecord`/`editRecord` never trigger it: each
+  writes a single record you hold the data for, not a batch of possibly-new ones.
 - Harmless for server-paginated screens. An infinite-scroll screen rendering `itemList` sees the
   list collapse to the last batch: set `maxRecords: 0` and prune yourself if that matters.
 
@@ -637,3 +678,9 @@ A critical-mass backstop, not an eviction policy: records are never evicted for 
   watching sees that optimistic value until it reads again. Two mutations on the same record from
   two different call sites is not a pattern this library linearizes; a screen editing one record has
   one place doing the editing.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useStructureCrudApi`](./structure-crud-api) — this resource with the wiring done; start there.
+- [`useStructureSearchApi`](./structure-search-api) — filtered, server-paginated search on top.

@@ -106,7 +106,7 @@ These aren't renames — the name is the same, but what happens under it changed
 - **Changing `pageSize` on the search/CRUD layer now also resets `pageCurrent` to `1`**, in the
   same fetch. Unchanged on `useStructureDataManagement`'s/`useStructureRestApi`'s own client-side
   pagination.
-- **Every watcher returns `{ stop, refetch, error }`** (`IWatchHandle`), not a bare stop function
+- **Every watcher returns `{ stop, refetch, suspense, error }`** (`IWatchHandle`), not a bare stop function
   or an ad-hoc shape — see the before/after below. A watcher never rejects any more; a failure
   shows in `error` (and `onError` where offered).
 - **`useStructureCrudApi`'s `operations` parameter is required** — it no longer defaults to `{}`.
@@ -217,3 +217,8 @@ crud.updateOne(id, data, { requestOptions: axiosConfig, merge: true })
 
 Every change above has its own `CHANGELOG` entry under `# 5.0.0`, with the exact reasoning and
 migration for that one item.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — the 5.x setup from scratch.
+- [Changelog](/changelog) — every release since, with its own migration notes.

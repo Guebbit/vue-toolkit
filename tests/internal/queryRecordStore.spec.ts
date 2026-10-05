@@ -10,7 +10,7 @@ import { ref } from 'vue';
 import { QueryObserver, type QueryClient } from '@tanstack/vue-query';
 import { createQueryRecordStore } from '../../src/internal/queryRecordStore';
 import { createResourceKeys } from '../../src/internal/resourceKeys';
-import { flush, newTestClient } from '../structureRestApi/_helpers/harness';
+import { flush, newTestClient } from './_helpers';
 
 interface IItem {
     id: number;

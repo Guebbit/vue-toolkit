@@ -16,6 +16,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
+import { promiseTry } from '../internal/promiseTry.js';
 
 /**
  * Visual variant of a toast; the value is what the UI layer maps to its own styling.
@@ -244,13 +245,11 @@ export const useNotificationsStore = defineStore('notifications', () => {
         const entry = history.value[index]!;
         const callback = dismissCallbacks.get(_id);
         removeMessage(_id);
-        // Promise.resolve().then also turns a synchronous throw into a rejection
-        return Promise.resolve()
-            .then(() => callback?.())
-            .catch((error: unknown) => {
-                restoreMessage(entry, index, callback);
-                throw error;
-            });
+        // promiseTry: a synchronous throw in the callback becomes a rejection
+        return promiseTry(() => callback?.()).catch((error: unknown) => {
+            restoreMessage(entry, index, callback);
+            throw error;
+        });
     };
 
     return {

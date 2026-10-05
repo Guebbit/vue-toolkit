@@ -4,17 +4,15 @@
  * acts on the key the watcher already handled.
  */
 import { effectScope, ref, type EffectScope } from 'vue';
-import { QueryClient } from '@tanstack/vue-query';
+import type { QueryClient } from '@tanstack/vue-query';
+import { flush, newTestClient } from './_helpers';
 import { watchSettled } from '../../src/internal/settleCallbacks';
-
-/** Flushes the microtask `succeed` defers its callbacks through. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 let client: QueryClient;
 let scope: EffectScope;
 
 beforeEach(() => {
-    client = new QueryClient();
+    client = newTestClient();
     scope = effectScope();
 });
 

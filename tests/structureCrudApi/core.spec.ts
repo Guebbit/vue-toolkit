@@ -625,6 +625,13 @@ describe('useStructureCrudApi', () => {
             );
         });
 
+        it('searchNow rejecting for a missing "search" leaves the current page where it is', async () => {
+            const api = makeReadOnly();
+            api.pageCurrent.value = 3;
+            await expect(api.searchNow()).rejects.toThrow('no "search" operation');
+            expect(api.pageCurrent.value).toBe(3);
+        });
+
         it.each([
             ['search', (api: TReadOnlyApi, onError: jest.Mock) => api.watchList({ onError })],
             [

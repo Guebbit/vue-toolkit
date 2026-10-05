@@ -15,7 +15,7 @@ const isAnythingLoading = useIsLoading()
 ```
 
 ```vue
-<v-progress-linear v-if="isAccountAreaLoading" indeterminate />
+<progress v-if="isAccountAreaLoading" aria-label="Loading" />
 ```
 
 ## API
@@ -52,3 +52,8 @@ const isAnythingLoading = useIsLoading()
   Created outside any scope, that subscription is never released.
 - **Needs an injection context for the default client.** Outside a component's `setup()` or a Pinia
   setup store, pass `queryClient` explicitly.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useCoreStore`](/stores/core) — named loading flags for work that is not a request.

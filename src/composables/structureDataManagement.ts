@@ -13,8 +13,10 @@
 import { computed, customRef, ref, toRaw, type ComputedRef, type Ref } from 'vue';
 import { getUuid } from '@guebbit/js-toolkit';
 import { recordListByIds, recordsByIds } from '../internal/recordLookup.js';
-import { joinIdentifiers } from '../internal/identifierJoin.js';
+import { joinIdentifiers, readIdentifier } from '../internal/identifierJoin.js';
+import { isNil } from '../internal/plainData.js';
 import { sameId, uniqueIds } from '../internal/idEquality.js';
+import { DEFAULT_PAGE_SIZE } from '../internal/pagination.js';
 
 /**
  * The type of `T`'s own `id` field, when it has one shaped like a record identifier; `string |
@@ -29,7 +31,7 @@ export type TIdOf<T> = T extends { id: infer I extends string | number } ? I : s
  * dictionary by default, a TanStack-backed one under `useStructureRestApi`.
  */
 export interface IRecordStore<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number | symbol, any> = Record<string, any>,
     K extends string | number | symbol = TIdOf<T>
 > {
@@ -83,7 +85,7 @@ export interface IRecordStore<
  * @returns the store
  */
 const createLocalRecordStore = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number | symbol, any> = Record<string, any>,
     K extends string | number | symbol = TIdOf<T>
 >(): IRecordStore<T, K> => {
@@ -159,7 +161,7 @@ const createLocalRelationStore = <
  * own internals to describe it.
  */
 export interface IStructureDataManagementApi<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number | symbol, any> = Record<string, any>,
     K extends string | number | symbol = TIdOf<T>,
     P extends string | number | symbol = string | number | symbol
@@ -265,10 +267,11 @@ export interface IStructureDataManagementApi<
  * @param identifiers - the record field (or fields, order-sensitive) that identifies a record
  * @param delimiter - joins the values of multiple identifiers into one id
  * @param recordStore - where records are stored; a local reactive dictionary by default
+ * @param relationStore - where parent/child links are stored; a local reactive dictionary by default
  * @returns the dictionary and its operations
  */
 export const useStructureDataManagement = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number | symbol, any> = Record<string, any>,
     K extends string | number | symbol = TIdOf<T>,
     P extends string | number | symbol = string | number | symbol
@@ -309,27 +312,14 @@ export const useStructureDataManagement = <
      * @returns the id
      */
     const createIdentifier = <C = T>(itemData: C, customIdentifiers?: string | string[]): K => {
-        const _identifiers = customIdentifiers ?? identifiers;
-        if (Array.isArray(_identifiers)) {
-            const values = _identifiers.map((key) => itemData[key as keyof C]);
-            const missingKeys = _identifiers.filter((_key, index) => values[index] == undefined);
-            if (missingKeys.length > 0) {
-                fillMissingIdentifiers(itemData, missingKeys);
-                return joinIdentifiers(
-                    _identifiers.map((key) => itemData[key as keyof C]),
-                    delimiter
-                ) as K;
-            }
-            return joinIdentifiers(values, delimiter) as K;
-        }
-        // A single identifier field: the custom one when given.
-        const key = _identifiers as string;
-        const value = itemData[key as keyof C];
-        if (value === undefined || value === null) {
-            fillMissingIdentifiers(itemData, [key]);
-            return itemData[key as keyof C] as K;
-        }
-        return value as K;
+        const fields = customIdentifiers ?? identifiers;
+        const id = readIdentifier(itemData, fields, delimiter);
+        if (id !== undefined) return id as K;
+        const missingKeys = (typeof fields === 'string' ? [fields] : fields).filter((key) =>
+            isNil(itemData[key as keyof C])
+        );
+        fillMissingIdentifiers(itemData, missingKeys);
+        return readIdentifier(itemData, fields, delimiter) as K;
     };
 
     /** The identifier field name(s), joined by `delimiter` when several. */
@@ -401,6 +391,17 @@ export const useStructureDataManagement = <
     );
 
     /**
+     * Moves `lastInsertedIdentifier` to `id`, unless the write is a server answer (see
+     * IRecordStore.isFetching): that is not a "just created" record, even though it goes through
+     * the same write path.
+     *
+     * @param id - the id just written
+     */
+    const trackInserted = (id: K) => {
+        if (!recordStore.isFetching?.()) lastInsertedIdentifier.value = id;
+    };
+
+    /**
      * Stores a record, replacing any record with the same id.
      *
      * @param itemData - the record
@@ -408,9 +409,7 @@ export const useStructureDataManagement = <
      */
     const addRecord = (itemData: T) => {
         const id = createIdentifier(itemData);
-        // A server answer (see IRecordStore.isFetching) is not a "just created" record, even
-        // though it goes through this same write.
-        if (!recordStore.isFetching?.()) lastInsertedIdentifier.value = id;
+        trackInserted(id);
         recordStore.write(id, itemData);
         return itemData;
     };
@@ -424,11 +423,40 @@ export const useStructureDataManagement = <
         const ids: K[] = [];
         for (const item of itemsArray) {
             if (!item) continue;
+            // Read before the write: the id is stable once the fallback fill has happened.
+            const id = createIdentifier(item);
             addRecord(item);
-            ids.push(lastInsertedIdentifier.value as K);
+            ids.push(id);
         }
         lastInsertedIdentifiers.value = ids;
     };
+
+    /**
+     * The id `editRecord` targets: the given one (joined when several), else the one `data`
+     * carries, which only exists when the record may be created.
+     *
+     * @param data - the fields being merged
+     * @param id - the caller's id, if any
+     * @param create - whether a missing record may be created
+     * @returns the id, undefined when there is nothing to target
+     */
+    const resolveEditId = (data: Partial<T>, id: K | K[] | undefined, create: boolean) => {
+        if (Array.isArray(id)) return joinIdentifiers(id, delimiter) as K;
+        if (id !== undefined) return id;
+        return create ? createIdentifier(data) : undefined;
+    };
+
+    /**
+     * One stored record as the raw object, for merging (the view may hand out read-only
+     * proxies). Read through recordStore.read when it has one: dictionary.value is, under the REST
+     * layer, a computed that rebuilds its whole scope from the query cache on every stale read,
+     * and a single-record read must not pay for that (see IRecordStore.read).
+     *
+     * @param id - the record id
+     * @returns the record, if stored
+     */
+    const readRaw = (id: K): T | undefined =>
+        toRaw(recordStore.read ? recordStore.read(id) : (itemDictionary.value as Record<K, T>)[id]);
 
     /**
      * Merges `data` into a record. With `create` (default) a missing record is created; without
@@ -442,37 +470,16 @@ export const useStructureDataManagement = <
      * @returns the record's id if this call created it, undefined otherwise
      */
     const editRecord = (data: Partial<T> = {}, id?: K | K[], create = true): K | undefined => {
-        const _id =
-            id === undefined
-                ? create
-                    ? createIdentifier(data)
-                    : undefined
-                : Array.isArray(id)
-                  ? (joinIdentifiers(id, delimiter) as K)
-                  : id;
-        // Through recordStore.read when it has one: dictionary.value is, under the REST layer, a
-        // computed that rebuilds its whole scope from the query cache on every stale read — a
-        // single-record read must not pay for that (see IRecordStore.read).
-        const existing =
-            _id === undefined
-                ? undefined
-                : // Merged from the raw record: the view may hand out read-only proxies.
-                  toRaw(
-                      recordStore.read
-                          ? recordStore.read(_id)
-                          : (itemDictionary.value as Record<K, T>)[_id]
-                  );
-        const isNew = _id === undefined || existing === undefined;
-        if (!create && isNew) {
+        const _id = resolveEditId(data, id, create);
+        const existing = _id === undefined ? undefined : readRaw(_id);
+        if (!create && existing === undefined) {
             // eslint-disable-next-line no-console -- a caller bug worth seeing in development
             console.error('structureDataManagement - no record to edit', data);
             return;
         }
         recordStore.write(_id!, { ...existing, ...data } as T);
-        if (!isNew) return;
-        // A server answer (see IRecordStore.isFetching) is not a "just created" record, even
-        // though it goes through this same write.
-        if (!recordStore.isFetching?.()) lastInsertedIdentifier.value = _id;
+        if (existing !== undefined) return;
+        trackInserted(_id!);
         return _id;
     };
 
@@ -523,7 +530,7 @@ export const useStructureDataManagement = <
      * `Infinity`) has no page size to round to, so it is ignored and the current size stays.
      */
     const pageSize = customRef<number>((track, trigger) => {
-        let stored = 10;
+        let stored = DEFAULT_PAGE_SIZE;
         return {
             get: () => {
                 track();

@@ -24,13 +24,34 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
 };
 
 /**
- * TEMPORARY local pre-pass ahead of `canonicalize` itself handling Set/Map (tracked upstream in
- * `@guebbit/js-toolkit`): recursively replaces every Set/Map with a tagged, order-independent
- * plain shape `canonicalize` can finish normalizing (sorted key order, Date → ISO string,
- * `undefined` dropped). `canonicalize` does not know Set/Map — it walks any non-Array, non-Date
- * object through `Object.keys()`, which is `[]` for both — so every Set/Map otherwise
- * canonicalizes to `{}`, and two DIFFERENT Sets (or Maps) share one `stableKey`. Remove this
- * pre-pass, and call `canonicalize` directly again, once js-toolkit's own release lands.
+ * `record[key]`, own keys only: a plain object also answers for `constructor` or `toString`
+ * through its prototype, and a field of that name must not read as one already there.
+ *
+ * @param record - the object to read, if any
+ * @param key - the key to read
+ * @returns the own value, or undefined
+ */
+export const ownValue = <V>(record: object | undefined, key: PropertyKey): V | undefined =>
+    record !== undefined && Object.hasOwn(record, key)
+        ? (record as Record<PropertyKey, V>)[key]
+        : undefined;
+
+/**
+ * Narrows any value to a keyed object (anything non-null of type `object`).
+ *
+ * @param value - the value being tested
+ * @returns whether `value` is an object
+ */
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null;
+
+/**
+ * Pre-pass for `canonicalize`, which does not know Set/Map: it walks any non-Array, non-Date
+ * object through `Object.keys()`, which is `[]` for both, so every Set/Map would canonicalize to
+ * `{}` and two DIFFERENT Sets (or Maps) would share one `stableKey`. This replaces each one,
+ * recursively, with a tagged, order-independent plain shape `canonicalize` can finish normalizing
+ * (sorted key order, Date → ISO string, `undefined` dropped). Delete it once `canonicalize`
+ * handles Set/Map itself (`@guebbit/js-toolkit` ≤ 2.3.0 does not).
  *
  * A WeakSet guards against a reference cycle inside a Set/Map: `canonicalize` has its own cycle
  * guard for the plain structure this hands back to it, so this one only needs to stop an infinite

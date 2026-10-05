@@ -61,3 +61,12 @@ Why a tarball and not `npm link` or a `file:` dependency:
   working.
 - **`--no-save` leaves the app's `package.json` and lockfile alone**, so nothing leaks into one of
   its commits. A later plain `npm install` in the app drops the tarball: run `try:frontend` again.
+
+## The docs site
+
+The VitePress site (`docs/`) reads `version` from `package.json` at build time: the nav's version
+menu, the home page footer and every page's "last updated" line show it, so a release bump is all
+it takes. The `/changelog` page includes the root `CHANGELOG` file as-is.
+
+"Last updated" is each page's last git commit. A build from a shallow clone sees one commit for
+every page, so the docs deploy has to check out the full history (`fetch-depth: 0`).

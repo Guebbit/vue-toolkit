@@ -45,7 +45,7 @@ const submit = () =>
 ```
 
 ```vue
-<v-progress-linear v-if="isUploading" :model-value="progress" />
+<progress v-if="isUploading" :value="progress" max="100" />
 ```
 
 `track` forwards whatever `send` produced, untouched — a rejection stays a rejection with its
@@ -151,3 +151,9 @@ jumping around on a number that means nothing.
 - **It does not validate anything.** Accepted types and size limits are a separate concern, and
   checking them client-side is a UX affordance rather than a control — the server has to enforce
   them regardless.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useStructureCrudApi`](./structure-crud-api) — `createOne`/`updateOne`'s `requestOptions` is
+  where the built options go when the upload is a resource write.

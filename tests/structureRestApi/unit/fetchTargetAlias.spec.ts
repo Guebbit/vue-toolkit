@@ -73,6 +73,17 @@ describe('UNIT · writes by an alternate key', () => {
         expect(c.itemList.value).toEqual([{ id: 7, name: 'Alice Edited' }]);
     });
 
+    it('updateTarget by the alias stores an id-less response on the record, keeping the alias a pointer', async () => {
+        const c = await seeded();
+
+        await c.updateTarget(() => Promise.resolve({ name: 'Alice Server' }), {}, 'my-slug', {
+            merge: true
+        });
+
+        expect(c.itemList.value).toEqual([{ id: 7, name: 'Alice Server' }]);
+        expect(c.getRecord('my-slug')).toEqual({ id: 7, name: 'Alice Server' });
+    });
+
     it('deleteTarget by the alias removes the record it points at', async () => {
         const c = await seeded();
 

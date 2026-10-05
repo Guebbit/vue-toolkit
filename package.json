@@ -1,6 +1,6 @@
 {
     "name": "@guebbit/vue-toolkit",
-    "version": "5.1.1",
+    "version": "5.2.0",
     "description": "Vue 3 composables and Pinia stores for CRUD screens: a normalized record store, a REST layer built on TanStack Query, Zod-backed form validation, and toast/loading stores.",
     "keywords": [
         "vue",
@@ -38,6 +38,7 @@
     },
     "files": [
         "dist",
+        "src",
         "README.md",
         "LICENSE",
         "CHANGELOG"

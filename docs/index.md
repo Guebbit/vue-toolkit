@@ -11,8 +11,11 @@ hero:
           text: Getting Started
           link: /guide/getting-started
         - theme: alt
-          text: useStructureRestApi
-          link: /composables/structure-rest-api
+          text: Your first CRUD screen
+          link: /guide/first-crud-screen
+        - theme: alt
+          text: useStructureCrudApi
+          link: /composables/structure-crud-api
 
 features:
     - title: Optimistic updates, automatic rollback

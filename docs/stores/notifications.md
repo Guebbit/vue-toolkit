@@ -56,7 +56,7 @@ interface IAddMessageOptions {
 | `history`                                   | Ref — every toast ever added, including hidden ones.                                     |
 | `messages`                                  | Computed — only `visible: true` entries from `history`.                                  |
 | `persistentMessages`                        | Computed — `history` filtered by `persistent`, newest `createdAt` first. Hidden ones are included. |
-| `addMessage(message, type?, timeout?, options?)` | Adds a toast and returns its id. `type` defaults to `PRIMARY`. When `timeout > 0` (ms), it auto-hides via `hideMessage` after that delay; the default `-1` means it persists until hidden/removed manually. `options` is `IAddMessageOptions`; see below. |
+| `addMessage(message, type?, timeout?, options?)` | Adds a toast and returns its id. `type` defaults to `PRIMARY`. When `timeout > 0` (ms), it auto-hides via `hideMessage` after that delay; `0` or a negative value (the default `-1`) means no auto-hide — it stays visible until hidden or removed. Unrelated to `persistent`, which only decides whether `persistentMessages` lists it. `options` is `IAddMessageOptions`; see below. |
 | `findMessage(id)`                           | Finds a toast in `history` by id.                                                        |
 | `hideMessage(id)`                           | Sets `visible = false` — the toast stays in `history`.                                   |
 | `showMessage(id)`                           | Sets `visible = true`.                                                                    |
@@ -145,7 +145,12 @@ for (const saved of readSavedMessages())
 
 - **`history` grows unbounded unless you call `removeMessage`.** `hideMessage` only toggles
   visibility — it doesn't free anything. If you want toasts to actually disappear from memory
-  after they're dismissed, call `removeMessage(id)` (you can do this in the same `setTimeout` you'd
+  after they're hidden, call `removeMessage(id)` (you can do this in the same `setTimeout` you'd
   otherwise use for auto-hide, or right after `hideMessage`).
-- **`addMessage`'s `timeout` default is `-1`** (persist forever) — pass a positive number
-  explicitly for auto-dismissing toasts.
+- **`addMessage`'s `timeout` default is `-1`** (no auto-hide: the toast stays visible until
+  something hides it) — pass a positive number explicitly for toasts that hide themselves. This is
+  about the toast only; whether a message stays listed after it is hidden is `persistent`'s job.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.

@@ -3,7 +3,7 @@
  * of one scope. Pins down which buckets an edit touches and that linking is idempotent.
  */
 import { ref } from 'vue';
-import { QueryClient } from '@tanstack/vue-query';
+import { newTestClient } from './_helpers';
 import { createQueryRelationStore } from '../../src/internal/parentRelations';
 import { createResourceKeys, type IListCacheEntry } from '../../src/internal/resourceKeys';
 
@@ -13,7 +13,7 @@ import { createResourceKeys, type IListCacheEntry } from '../../src/internal/res
  * @returns the store plus helpers
  */
 const build = () => {
-    const queryClient = new QueryClient();
+    const queryClient = newTestClient();
     const scope = ref<unknown[]>(['s1']);
     const version = ref(0);
     const keys = createResourceKeys('items', () => scope.value);

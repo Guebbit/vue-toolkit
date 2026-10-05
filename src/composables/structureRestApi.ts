@@ -9,7 +9,7 @@
  * @module composables/structureRestApi
  * @see docs/composables/structure-rest-api.md
  */
-import type { ComputedRef, MaybeRefOrGetter, Ref, WatchSource, WatchStopHandle } from 'vue';
+import type { ComputedRef, MaybeRefOrGetter, Ref, WatchStopHandle } from 'vue';
 import type { QueryClient } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 import type { TIdOf } from './structureDataManagement.js';
@@ -183,9 +183,24 @@ export interface IWatchCallbacks<R, C> {
 
 /**
  * What every `watch*` returns. A watcher never rejects: a failure shows in `error` (and
- * `onError`, where offered), and `refetch()` resolves with whatever is cached.
+ * `onError`), and `refetch()` resolves with whatever is cached.
  */
 export interface IWatchHandle<R> {
+    /** The watched data, as cached now. Follows the watched id, parent, key or search. */
+    data: ComputedRef<R>;
+
+    /** True while the watched query is fetching — the first load or a background refetch. */
+    isFetching: Readonly<Ref<boolean>>;
+
+    /**
+     * True while the watched query has no data yet: before its first answer, and while a watcher
+     * with nothing to watch (no id, no parent) idles.
+     */
+    isPending: Readonly<Ref<boolean>>;
+
+    /** When the watched query last received data (ms epoch); 0 before it ever has. */
+    dataUpdatedAt: Readonly<Ref<number>>;
+
     /** Stops the watcher; its query stays cached. */
     stop: WatchStopHandle;
 
@@ -221,9 +236,11 @@ export interface IWatchTargetSettings<T, K>
 /**
  * watchAll's/watchByParent's settings: `IFetchSettings`, but `key` and `enabled` may be reactive
  * (a Ref, a ComputedRef or a getter) — a change re-runs the watcher just like a key or id switch
- * does.
+ * does — plus the callbacks it reports through. `T` is the record, `C` the callbacks' context:
+ * the bucket `key` for watchAll, the parent id for watchByParent.
  */
-export interface IWatchListSettings extends Omit<IFetchSettings, 'key'> {
+export interface IWatchListSettings<T = unknown, C = unknown>
+    extends Omit<IFetchSettings, 'key'>, IWatchCallbacks<(T | undefined)[], C> {
     /**
      * Extra cache-key segments, and what `isLoading(key)` matches the query by. May be reactive.
      */
@@ -256,7 +273,7 @@ export interface IWatchAnySettings extends Pick<IFetchSettings, 'forced' | 'stal
  * `.d.ts` never has to reference this package's own internals to describe it.
  */
 export interface IStructureRestApi<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     P extends string | number = string | number
@@ -276,8 +293,8 @@ export interface IStructureRestApi<
     /** The `QueryClient` this resource lives on. */
     queryClient: QueryClient;
 
-    /** Every record cached under the current `dependsOn`, by id. */
-    itemDictionary: Ref<Record<K, T>>;
+    /** Every record cached under the current `dependsOn`, by id. A read-only view of the cache. */
+    itemDictionary: ComputedRef<Record<K, T>>;
 
     /** Every record cached under the current `dependsOn`, as a list. */
     itemList: ComputedRef<T[]>;
@@ -342,8 +359,11 @@ export interface IStructureRestApi<
     /** The current page's records. */
     pageItemList: ComputedRef<T[]>;
 
-    /** Every parent's child ids under the current scope: the union of its `fetchByParent` buckets. */
-    parentHasMany: Ref<Record<P, K[]>>;
+    /**
+     * Every parent's child ids under the current scope: the union of its `fetchByParent` buckets.
+     * A read-only view of the cache.
+     */
+    parentHasMany: ComputedRef<Record<P, K[]>>;
 
     /** Links a child to a parent, once, into the parent's plain (keyless) entry. */
     addToParent: (parentId: P, childId: K) => void;
@@ -414,28 +434,43 @@ export interface IStructureRestApi<
     /** fetchTarget's active counterpart: selects the id and keeps its record fetched. */
     watchTarget: (
         apiCall: (id: K, context: IFetchContext) => Promise<T | undefined>,
-        idSource: WatchSource<K | undefined | null>,
+        idSource: MaybeRefOrGetter<K | undefined | null>,
         settings?: IWatchTargetSettings<T, K>
     ) => IWatchHandle<T | undefined>;
 
-    /** fetchAll's active counterpart. */
+    /** fetchAll's active counterpart. Its callbacks receive the bucket `key` as context. */
     watchAll: (
         apiCall: TListCall<T>,
-        settings?: IWatchListSettings
+        settings?: IWatchListSettings<T, string[] | undefined>
     ) => IWatchHandle<(T | undefined)[]>;
 
-    /** fetchByParent's active counterpart: also re-runs when the parent id changes. */
+    /**
+     * fetchByParent's active counterpart: also re-runs when the parent id changes. Its callbacks
+     * receive the parent id as context.
+     */
     watchByParent: (
         apiCall: (parentId: P, context: IFetchContext) => Promise<(T | undefined)[]>,
         parentId: MaybeRefOrGetter<P | undefined | null>,
-        settings?: IWatchListSettings
+        settings?: IWatchListSettings<T, P>
     ) => IWatchHandle<(T | undefined)[]>;
 
-    /** fetchAny's active counterpart. Also returns `data`, since the answer is not a record. */
+    /** fetchAny's active counterpart. */
     watchAny: <F = unknown>(
         apiCall: (context: IFetchContext) => Promise<F>,
         settings: IWatchAnySettings
-    ) => IWatchHandle<F | undefined> & { data: ComputedRef<F | undefined> };
+    ) => IWatchHandle<F | undefined>;
+
+    /**
+     * Marks record `id` (or the record an alias points at) and every alias of it stale, under
+     * the current `dependsOn`; a watched one refetches. Settles once those refetches have.
+     */
+    invalidateTarget: (id: K) => Promise<void>;
+
+    /**
+     * Marks every list of the current `dependsOn` stale — `fetchAll`, `fetchByParent`,
+     * `fetchPaginate` and search pages; watched ones refetch. Settles once those refetches have.
+     */
+    invalidateLists: () => Promise<void>;
 
     /** A command that fits no record shape, run as a one-shot mutation. */
     mutateAny: <F = unknown>(
@@ -499,7 +534,7 @@ export interface IStructureRestApi<
  * @returns the resource
  */
 export const useStructureRestApi = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     P extends string | number = string | number

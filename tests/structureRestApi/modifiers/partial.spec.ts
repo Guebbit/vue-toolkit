@@ -8,7 +8,8 @@
  *   - the record keeps its EXISTING freshness instead of being stamped "just fetched". A record
  *     new to the cache has none, so it stays stale and a later fetchTarget(id) still asks the
  *     server; a record already fresh stays fresh (an invalidated one stays stale — see
- *     partial-invalidation.spec.ts).
+ *     partial-invalidation.spec.ts);
+ *   - it is still a server answer: a record new to the cache does not move lastInsertedIdentifier.
  *
  * Contrasted against the default (no partial) behaviour in each case.
  */
@@ -20,6 +21,18 @@ import { USERS, FULL_USER, type IUser } from '../_helpers/fixtures';
 afterEach(clearAllInstances);
 
 describe('MODIFIER · partial', () => {
+    describe('last-inserted tracking', () => {
+        it('a record new to the cache is a server answer, not a created record', async () => {
+            const c = makeComposable<IUser, number>();
+            c.addRecord(USERS[0]);
+
+            await c.fetchAll(apiResolve([USERS[1], USERS[2]]), { partial: true });
+
+            expect(c.lastInsertedIdentifier.value).toBe(USERS[0].id);
+            expect(c.checkTarget(USERS[1].id)).toBe(false); // still stale: freshness kept
+        });
+    });
+
     describe('fetchAll seeding', () => {
         it('default: seeds target cache fresh → later fetchTarget is a cache hit', async () => {
             const c = makeComposable<IUser, number>();

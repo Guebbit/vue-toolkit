@@ -1,3 +1,51 @@
+# 5.2.0
+
+## Added
+
+- Every `watch*` handle (`watchTarget`, `watchAll`, `watchByParent`, `watchAny`, `watchSearch`, and
+  CRUD's `watchOne`/`watchList`) exposes its query's state: `data` (the watched data as cached now,
+  following local edits), `isFetching`, `isPending` and `dataUpdatedAt`. A per-watcher spinner no
+  longer needs an `isLoading` key of its own. `IWatchHandle` carries the four new fields.
+- `watchAll` and `watchByParent` take `onSuccess` / `onError` / `onSettled`, like `watchTarget` and
+  `watchSearch`. The context they receive is the bucket `key` (`watchAll`) or the parent id
+  (`watchByParent`). `IWatchListSettings` gains two optional type parameters for them,
+  `<T, C>`; its bare form keeps working.
+- `invalidateTarget(id)` and `invalidateLists()`: mark one record (an alias reaches the record it
+  points at, and every other alias of it) or every list of the current `dependsOn` stale. Watched
+  ones refetch; the promise settles once they have.
+- `watchTarget`, CRUD's `watchOne`, `useStructureSearchApi`'s filters source and
+  `activateAutoHydrate` accept a plain value as well as a Ref or a getter (`MaybeRefOrGetter`),
+  like `watchByParent` already did.
+- The package ships source maps and declaration maps, with `src/`: debuggers and "Go to
+  definition" land on the TypeScript source.
+- Docs: the site shows the version it documents and each page's last update, has local search,
+  "edit this page" links, a changelog page, and a "Your first CRUD screen" guide.
+
+## Changed
+
+- `itemDictionary` and `parentHasMany` of `useStructureRestApi` / `useStructureSearchApi` /
+  `useStructureCrudApi` are typed `ComputedRef` (read-only views of the cache, as they always were
+  at runtime) instead of `Ref`. Code that only reads them is unaffected; a write to them never had
+  any effect and is now a type error.
+- `watchAny`'s return type is `IWatchHandle<F | undefined>`, which now includes `data`; the
+  separate `& { data }` intersection is gone. Same shape as before.
+- `handleSubmit` (`useStructureFormValidation`) and `dismissMessage` (`useNotificationsStore`) now
+  call their handler synchronously instead of one microtask later. The handler gets `form.value` as
+  it is when `handleSubmit` is called; a synchronous throw still becomes a rejection.
+
+## Fixed
+
+- `searchNow` (`useStructureCrudApi`) without a `search` operation rejected, but still reset the
+  current page to 1. It now leaves the page alone.
+- `updateTarget` without an explicit `id` stored an id-less response (an acknowledgement, a
+  `merge: true` partial) under a fabricated id — a phantom record, with a console warning — instead
+  of on the record being updated (`itemData`'s own id). The response now always lands on the
+  resolved id the update addressed.
+- A `partial: true` list fetch (`fetchAll`, `fetchByParent`, `fetchPaginate`, `fetchSearch` and
+  their watchers) that brought in a record not cached yet moved `lastInsertedIdentifier`, as if the
+  record had just been created. It is a server answer like any other fetch, so it no longer does.
+  Freshness is unchanged: a partial record still keeps its own (a new one stays stale).
+
 # 5.1.1
 
 ## Fixed

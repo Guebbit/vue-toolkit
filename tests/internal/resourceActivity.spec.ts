@@ -4,7 +4,8 @@
  * Status counters are observed through a computed that counts how often it re-evaluates.
  */
 import { computed, effectScope, type EffectScope } from 'vue';
-import { dehydrate, hydrate, QueryClient } from '@tanstack/vue-query';
+import { dehydrate, hydrate, type QueryClient } from '@tanstack/vue-query';
+import { newTestClient } from './_helpers';
 import { useResourceActivity } from '../../src/internal/resourceActivity';
 
 describe('UNIT · useResourceActivity', () => {
@@ -26,7 +27,7 @@ describe('UNIT · useResourceActivity', () => {
     };
 
     beforeEach(() => {
-        queryClient = new QueryClient();
+        queryClient = newTestClient();
         scope = effectScope();
         activity = scope.run(() => useResourceActivity(queryClient, 'items', (id) => id))!;
         evaluations = 0;
@@ -44,7 +45,7 @@ describe('UNIT · useResourceActivity', () => {
     });
 
     it('5.1 a query added already holding data (hydrate) bumps the data counter', () => {
-        const source = new QueryClient();
+        const source = newTestClient();
         source.setQueryData(['items', 'target', [], '1'], { data: 'x' });
         const before = activity.version('target').value;
 

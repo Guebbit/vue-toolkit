@@ -8,7 +8,9 @@
  *     as an empty page;
  *   - a fetchSearch cut short by the switch never pairs its items with the new scope's total;
  *   - resetAll() drops every search page of the current scope: the view empties and
- *     checkSearch() reports a miss.
+ *     checkSearch() reports a miss;
+ *   - the kept-previous-page placeholder never leaks across either: after a dependsOn switch or a
+ *     resetAll(), rows a sibling instance still (or again) has cached are not shown.
  */
 
 import { ref } from 'vue';
@@ -118,5 +120,52 @@ describe('LIFECYCLE · search and resetAll', () => {
         expect(searchApi.searchGet({ c: 'tech' }, 1)).toEqual([]);
         expect(searchApi.pageItemList.value).toEqual([]);
         expect(searchApi.totalItems.value).toBe(0);
+    });
+});
+
+describe('LIFECYCLE · the placeholder never leaks a page across a scope switch or a reset', () => {
+    it('after a dependsOn switch, pageItemList shows no rows of the old scope its sibling still caches', async () => {
+        const queryClient = newTestClient();
+        const locale = ref('en');
+        const { searchApi: a } = makeSearchComposable<IArticle, number>({
+            queryClient,
+            dependsOn: () => [locale.value]
+        });
+        // The sibling keeps the 'en' scope (and its cached page) alive.
+        makeSearchComposable<IArticle, number>({ queryClient, dependsOn: () => ['en'] });
+        await a.fetchSearch(
+            apiResolve({ items: buildArticles(2, 'en'), totalItems: 2 }),
+            { c: 'tech' },
+            1
+        );
+        expect(a.pageItemList.value).toHaveLength(2);
+
+        locale.value = 'fr';
+        await flush();
+
+        expect(a.pageItemList.value).toEqual([]);
+        expect(a.isPlaceholder.value).toBe(false);
+        expect(a.totalItems.value).toBe(0);
+    });
+
+    it('after resetAll(), a sibling re-fetching the remembered page does not bring its rows back', async () => {
+        const queryClient = newTestClient();
+        const { searchApi: a } = makeSearchComposable<IArticle, number>({ queryClient });
+        const { searchApi: b } = makeSearchComposable<IArticle, number>({ queryClient });
+        const tech = buildArticles(2, 'tech');
+        await a.fetchSearch(apiResolve({ items: tech, totalItems: 2 }), { c: 'tech' }, 1);
+        // New filters, never answered: the old page stays up as a placeholder.
+        const never = deferred<ISearchResult<IArticle>>();
+        void a.fetchSearch(() => never.promise, { c: 'news' }, 1).catch(() => {});
+        await flush();
+        expect(a.isPlaceholder.value).toBe(true);
+
+        a.resetAll();
+        await b.fetchSearch(apiResolve({ items: tech, totalItems: 2 }), { c: 'tech' }, 1);
+        await flush();
+
+        expect(a.pageItemList.value).toEqual([]);
+        expect(a.isPlaceholder.value).toBe(false);
+        never.resolve({ items: [], totalItems: 0 });
     });
 });

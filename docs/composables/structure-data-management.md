@@ -16,8 +16,8 @@ interface IUser {
     name: string
 }
 
-// <record type, id type>: K would otherwise default to the record's keys ('id' | 'name')
-const users = useStructureDataManagement<IUser, number>('id')
+// K (the id type) is inferred from IUser['id']: number. Pass it explicitly for a composite id.
+const users = useStructureDataManagement<IUser>()
 
 users.addRecord({ id: 1, name: 'Alice' })
 users.getRecord(1) // { id: 1, name: 'Alice' }
@@ -146,7 +146,7 @@ over the same query cache the records live in, not a second copy this composable
 
 | Method / property                     | Purpose                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------------- |
-| `parentHasMany`                        | Ref — `Record<P, id[]>` mapping a parent id to its child ids.       |
+| `parentHasMany`                        | `Ref<Record<P, K[]>>` mapping a parent id to its child ids (a read-only computed view under `useStructureRestApi`). |
 | `addToParent(parentId, childId)`       | Appends a child id under a parent (lazily creates the list); a no-op if it is already there. |
 | `removeFromParent(parentId, childId)`  | Removes a child id from a parent's list. `'1'` removes a linked `1`. |
 | `removeDuplicateChildren(parentId)`    | Dedupes a parent's child-id list (`1` and `'1'` count as one).       |
@@ -175,3 +175,9 @@ ids. Import it from
 - **Nothing here evicts by age.** The dictionary is only cleared by `resetRecords()` (or, on
   `useStructureRestApi`, by `resetAll()`, a `dependsOn` change or the `maxRecords` critical-mass
   wipe). Stale data is treated as useful data, not garbage.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useStructureRestApi`](./structure-rest-api) — the same API, backed by a server and a shared
+  cache.

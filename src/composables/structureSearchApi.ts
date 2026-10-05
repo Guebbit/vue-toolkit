@@ -10,11 +10,20 @@
  * @module composables/structureSearchApi
  * @see docs/composables/structure-search-api.md
  */
-import { computed, ref, shallowRef, toValue, watch, type ComputedRef, type WatchSource } from 'vue';
+import {
+    computed,
+    ref,
+    shallowRef,
+    toValue,
+    watch,
+    type ComputedRef,
+    type MaybeRefOrGetter
+} from 'vue';
 import type { Query } from '@tanstack/vue-query';
 import { createRestResource } from '../internal/restResource.js';
 import { detachedCopy, stableKey } from '../internal/plainData.js';
-import type { IListCacheEntry } from '../internal/resourceKeys.js';
+import { keepPrevious } from '../internal/keepPrevious.js';
+import { idOf, partsOf, type IListCacheEntry } from '../internal/resourceKeys.js';
 import { watchSettled } from '../internal/settleCallbacks.js';
 import type { TIdOf } from './structureDataManagement.js';
 import type {
@@ -58,7 +67,7 @@ export interface ISearchFetchContext<F> extends IFetchContext {
 
 /** watchSearch's settings: the fetch settings, `immediate`, and the settle callbacks. */
 export interface IWatchSearchSettings<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     F = object
 >
@@ -96,20 +105,6 @@ interface IAppliedSearch<F> {
 }
 
 /**
- * The last entry actually shown on screen, kept as a placeholder across ANY change (page, size or
- * filters) while the next one loads — see `shownEntry`. Tagged with the scope it was shown under
- * (`dependsOn` plus the reset generation), so a `dependsOn` change or a `resetAll()` starts the
- * placeholder over instead of leaking a previous scope's rows onto a new one.
- */
-interface IShownEntry<K> {
-    /** The scope this was shown under — see `placeholderScope`. */
-    scope: string;
-
-    /** The entry itself. */
-    entry: ISearchCacheEntry<K>;
-}
-
-/**
  * Resolves a watcher's fetch into its result: the current page, or undefined when it failed.
  *
  * @param failed - whether the fetch failed
@@ -125,7 +120,7 @@ const settledResult = <R>(failed: boolean, current: () => R): R | undefined =>
  * follow the applied search instead of client-side pagination over the whole dictionary.
  */
 export interface IStructureSearchApi<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     P extends string | number = string | number,
@@ -202,18 +197,18 @@ export interface IStructureSearchApi<
  * returns is passed through; `pageItemList`, `pageTotal` and `totalItems` follow the applied
  * search.
  *
- * @param filtersSource - Ref, ComputedRef or getter producing the live filters
+ * @param filtersSource - the live filters, or a Ref/getter producing them
  * @param settings - the resource's options (see IStructureRestApiOptions)
  * @returns the resource, with search
  */
 export const useStructureSearchApi = <
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the record constraint (see CLAUDE.md)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- record constraint: unknown rejects interfaces without an index signature
     T extends Record<string | number, any> = Record<string, any>,
     K extends string | number = TIdOf<T>,
     P extends string | number = string | number,
     F = object
 >(
-    filtersSource: WatchSource<F>,
+    filtersSource: MaybeRefOrGetter<F>,
     settings: IStructureRestApiOptions
 ): IStructureSearchApi<T, K, P, F> => {
     /** The resource, and the machinery its lists run on. */
@@ -299,8 +294,8 @@ export const useStructureSearchApi = <
         const inCurrent = keys.inScope(dependsOn(), ['search']);
         const filtersKey = stableKey(search.filters as object);
         return (query: Query): boolean => {
-            if (!inCurrent(query) || query.queryKey[3] !== filtersKey) return false;
-            const [size, page] = query.queryKey.slice(4, 6);
+            if (!inCurrent(query) || idOf(query.queryKey) !== filtersKey) return false;
+            const [, size, page] = partsOf(query.queryKey, 3);
             const expected = searchQueryKey(filtersKey, size as number, page as number, search.key);
             return (
                 query.state.data !== undefined && stableKey(query.queryKey) === stableKey(expected)
@@ -316,8 +311,7 @@ export const useStructureSearchApi = <
     const latestKnownEntry = computed<ISearchCacheEntry<K> | undefined>(() => {
         void searchVersion.value;
         if (!applied.value) return;
-        // Single-pass max, not .toSorted(...)[0]: toSorted needs Safari 16+ (2022), and every
-        // caller here only wants the single freshest page anyway.
+        // Single-pass max, not .toSorted(...)[0]: only the single freshest page is wanted.
         let latest: Query | undefined;
         const pages = queryClient.getQueryCache().findAll({ predicate: isPageOf(applied.value) });
         for (const query of pages)
@@ -326,59 +320,19 @@ export const useStructureSearchApi = <
     });
 
     /**
-     * Bumped by `resetAll()` (see below) to start `shownEntry`'s placeholder over even when
-     * `dependsOn` itself did not change — a plain cache wipe on the SAME scope, which otherwise
-     * looks identical to `shownEntry` and would keep leaking the wiped rows onto the screen.
+     * Keeps the last shown page on screen while the next one loads, across any page, size or
+     * filters change; never across a `dependsOn` change or `resetAll()` (see ../internal/keepPrevious).
      */
-    const resetGeneration = ref(0);
-
-    /**
-     * The scope a shown entry is tagged with: `dependsOn` plus the reset generation, folded into
-     * one string. Two entries tagged with a different one must never be shown as if they were the
-     * same search — see `IShownEntry`.
-     */
-    const placeholderScope = (): string => stableKey([dependsOn(), resetGeneration.value]);
-
-    /**
-     * The query key behind the last `currentSearchEntry` actually seen — a key, not the entry
-     * itself, so `shownEntry` below can tell "superseded by a different applied search, but still
-     * sitting in the cache" (show it) apart from "gone from the cache outright" (a `maxRecords`
-     * wipe: do not go on reporting a total the resource no longer has). Remembered EAGERLY by a
-     * watcher, not merely whatever `pageItemList` happened to be read while it was current, so the
-     * placeholder survives even when nothing read it in between. `sync` flush: updated in the same
-     * tick `currentSearchEntry` changes, so a synchronous read right after a key change (no
-     * `await` in between) sees the same thing a `flush: 'pre'`/next-render read would.
-     */
-    const lastShownKey = shallowRef<{ scope: string; queryKey: unknown[] }>();
-    watch(
-        currentSearchEntry,
-        (entry) => {
-            if (entry)
-                lastShownKey.value = {
-                    scope: placeholderScope(),
-                    queryKey: currentSearchQueryKey.value!
-                };
+    const { shownEntry, isPlaceholder, restart } = keepPrevious<ISearchCacheEntry<K>>({
+        currentKey: () => currentSearchQueryKey.value,
+        currentEntry: () => currentSearchEntry.value,
+        fallback: () => latestKnownEntry.value,
+        // Reads the cache version first, so a computed calling this re-runs on every cache change.
+        readEntry: (queryKey) => {
+            void searchVersion.value;
+            return queryClient.getQueryData<ISearchCacheEntry<K>>(queryKey);
         },
-        { immediate: true, flush: 'sync' }
-    );
-
-    /**
-     * The entry `pageItemList`/`isPlaceholder`/`totalItems`'s placeholder fallback shows: the
-     * current page when cached, else whatever was shown a moment ago and is STILL in the cache
-     * (any page, size OR filters — TanStack's own `keepPreviousData` idea, via `lastShownKey`),
-     * else any cached page of the applied search. `lastShownKey`'s scope tag keeps a `dependsOn`
-     * change or a `resetAll()` from leaking a previous scope's rows onto a new one; re-reading it
-     * through the cache (not the remembered entry) keeps a `maxRecords` wipe from doing the same.
-     */
-    const shownEntry = computed<IShownEntry<K> | undefined>(() => {
-        void searchVersion.value;
-        let remembered: ISearchCacheEntry<K> | undefined;
-        if (lastShownKey.value?.scope === placeholderScope())
-            remembered = queryClient.getQueryData<ISearchCacheEntry<K>>(
-                lastShownKey.value.queryKey
-            );
-        const entry = currentSearchEntry.value ?? remembered ?? latestKnownEntry.value;
-        return entry ? { scope: placeholderScope(), entry } : undefined;
+        scope: dependsOn
     });
 
     /**
@@ -390,7 +344,7 @@ export const useStructureSearchApi = <
         () =>
             currentSearchEntry.value?.totalItems ??
             latestKnownEntry.value?.totalItems ??
-            shownEntry.value?.entry.totalItems ??
+            shownEntry.value?.totalItems ??
             0
     );
 
@@ -403,17 +357,7 @@ export const useStructureSearchApi = <
      * instead of dropping to `[]` — see `isPlaceholder` to tell the two apart.
      */
     const pageItemList = computed<T[]>(() =>
-        getRecords(currentSearchEntry.value?.ids ?? shownEntry.value?.entry.ids ?? [])
-    );
-
-    /**
-     * True while `pageItemList` is showing a placeholder — something shown a moment ago, kept on
-     * screen because the current page/size/filters combination has not landed yet. `false` once
-     * the current page is cached (including an empty one), and `false` on a genuinely empty first
-     * load (nothing shown yet to fall back on).
-     */
-    const isPlaceholder = computed<boolean>(
-        () => currentSearchEntry.value === undefined && shownEntry.value !== undefined
+        getRecords(currentSearchEntry.value?.ids ?? shownEntry.value?.ids ?? [])
     );
 
     /** The applied search's current page, as a search result. */
@@ -599,7 +543,7 @@ export const useStructureSearchApi = <
                 current().key
             );
 
-        const { query, scope, refetch, suspense } = engine.watchQuery<ISearchCacheEntry<K>>({
+        const { scope, state, refetch, suspense } = engine.watchQuery<ISearchCacheEntry<K>>({
             queryKey,
             meta: () => ({
                 filters: current().filters,
@@ -674,13 +618,14 @@ export const useStructureSearchApi = <
         };
 
         return {
+            ...state,
+            data: computed(currentResult),
             stop: () => scope.stop(),
             // Before any search there is nothing shown, so nothing to fetch again.
             refetch: () =>
                 applied.value ? refetch().then(currentResult) : Promise.resolve(currentResult()),
             suspense: () =>
                 applied.value ? suspense().then(currentResult) : Promise.resolve(currentResult()),
-            error: query.error,
             search
         };
     };
@@ -700,13 +645,12 @@ export const useStructureSearchApi = <
     );
 
     /**
-     * `resetAll`, wrapped: bumps `resetGeneration` first, so `shownEntry`'s placeholder never
-     * survives a full cache wipe on the SAME scope (the cross-user/cross-search leak class this
-     * composable otherwise guards against).
+     * `resetAll`, wrapped: restarts the placeholder first, so it never survives a full cache wipe
+     * on the SAME scope (the cross-user/cross-search leak class this composable otherwise guards
+     * against).
      */
     const resetAll = (): void => {
-        // Stryker disable next-line UpdateOperator: a generation token — only the change matters, not the direction.
-        resetGeneration.value++;
+        restart();
         api.resetAll();
     };
 

@@ -11,6 +11,7 @@
 import { computed, type ComputedRef } from 'vue';
 import { useIsFetching, useIsMutating, type QueryClient } from '@tanstack/vue-query';
 import { matchesAnyPrefix } from '../internal/plainData.js';
+import { resourceOf } from '../internal/resourceKeys.js';
 
 /**
  * True while any query or mutation of the matching resources is in flight. A layout-level
@@ -37,7 +38,7 @@ export const useIsLoading = (
 
     /** How many matching queries are fetching. */
     const fetchingCount = useIsFetching(
-        { predicate: (query) => matchesPrefix(query.queryKey[0]) },
+        { predicate: (query) => matchesPrefix(resourceOf(query.queryKey)) },
         queryClient
     );
 

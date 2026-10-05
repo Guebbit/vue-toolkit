@@ -51,9 +51,9 @@ const {
 ```
 
 ```vue
-<v-skeleton-loader v-if="loadingHealth" />
-<v-alert v-else-if="errorHealth" type="error">{{ errorHealth }}</v-alert>
-<health-panel v-else :health="health" />
+<p v-if="loadingHealth">Loading…</p>
+<p v-else-if="errorHealth" role="alert">{{ errorHealth }}</p>
+<HealthPanel v-else :health="health" />
 ```
 
 `run` forwards its arguments to the action, so a filtered call needs no closure:
@@ -81,7 +81,7 @@ fetchAuditLogs({ actor: 'admin', limit: 50 })
 | `data`    | `Ref<T \| undefined>`                      | The last successful payload.                        |
 | `error`   | `Ref<string \| undefined>`                 | The last failure's message.                         |
 | `loading` | `Ref<boolean>`                             | True while the newest run is in flight.             |
-| `run`     | `(...args) => Promise<T \| undefined>`     | Runs the action. Resolves with the payload, or `undefined` on failure. |
+| `run`     | `(...args) => Promise<T \| undefined>`     | Runs the action. Resolves with the payload; `undefined` when it failed, or when a newer `run()` (or a `reset()`) overtook it before it settled. Never rejects. |
 | `reset`   | `() => void`                               | Back to the pre-run state.                          |
 
 ## Error messages
@@ -151,3 +151,9 @@ sequenceDiagram
   failed. Check `loading` transitioning to `false` alongside `data` being unchanged if you need to
   detect failure without relying on `error`'s truthiness, or set `fallbackErrorMessage` (or a
   `resolveError` that never returns `''`) so `error` is always a non-empty message on failure.
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useStructureRestApi`'s `fetchAny`/`watchAny`](./structure-rest-api#reading) — the cached
+  alternative, for a call that belongs to a resource.

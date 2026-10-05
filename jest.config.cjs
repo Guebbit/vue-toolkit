@@ -3,6 +3,10 @@ module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
     testMatch: ['**/tests/**/*.spec.ts', '**/__tests__/**/*.spec.ts'],
+    // Git worktrees under .claude/worktrees/ are full checkouts: without this, every spec in them
+    // runs a second time (against that checkout's own src/).
+    testPathIgnorePatterns: ['/node_modules/', '<rootDir>/.claude/'],
+    modulePathIgnorePatterns: ['<rootDir>/.claude/'],
     restoreMocks: true,
     moduleFileExtensions: ['ts', 'tsx', 'js', 'mjs', 'jsx', 'json'],
     // Configures fast-check (numRuns, seed) before any *.property.spec.ts imports it.

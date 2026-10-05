@@ -7,15 +7,26 @@ Vue 3 composables and Pinia stores for CRUD screens: a normalized record store, 
 directly on [TanStack Query](https://tanstack.com/query) — one shared cache, optimistic updates
 rolled back automatically on failure — Zod-backed form validation, and toast/loading stores.
 
+**Documentation: [guebbit.github.io/vue-toolkit](https://guebbit.github.io/vue-toolkit/)**
+
 ## Install
 
 ```bash
 npm install @guebbit/vue-toolkit @tanstack/vue-query pinia
+npm install zod # optional: only useStructureFormValidation needs it
 ```
 
-Peer dependencies: `vue ^3.4`, `pinia ^2.1 || ^3 || ^4`, `@tanstack/vue-query ^5.103`, and optionally
-`zod ^4.4.3` (only `useStructureFormValidation` needs it). Install `@tanstack/vue-query` yourself
-(not `@tanstack/query-core`), and give the app one `QueryClient`:
+| Peer                  | Version                |
+| --------------------- | ---------------------- |
+| `vue`                 | `^3.4`                 |
+| `pinia`               | `^2.1 \|\| ^3 \|\| ^4` |
+| `@tanstack/vue-query` | `^5.103`               |
+| `zod` (optional)      | `^4.4.3`               |
+
+Install `@tanstack/vue-query`, never `@tanstack/query-core` next to it. The package ships ES2023:
+Chrome/Edge 110+, Firefox 115+, Safari 16+, Node 22+.
+
+## Setup
 
 ```ts
 import { createApp } from 'vue';
@@ -28,246 +39,69 @@ app.use(createPinia());
 app.use(VueQueryPlugin, { queryClient: new QueryClient() });
 ```
 
-See [Getting Started](https://guebbit.github.io/vue-toolkit/guide/getting-started) for what the
-client's options change.
+## What to use
 
-## What's inside
+| You want…                                                             | Use                                |
+| --------------------------------------------------------------------- | ---------------------------------- |
+| A whole resource: list, filtered search, read, create, update, delete | `useStructureCrudApi` (start here) |
+| Filtered, server-paginated search, wiring the calls yourself          | `useStructureSearchApi`            |
+| One fetch, watcher or optimistic write at a time                      | `useStructureRestApi`              |
+| A normalized record store for data you already have                   | `useStructureDataManagement`       |
+| Form state, Zod validation, errors the server found                   | `useStructureFormValidation`       |
+| A progress bar for one upload                                         | `useUploadProgress`                |
+| `data` / `error` / `loading` for one call that is not a resource      | `useAsyncAction`                   |
+| A "the API is unreachable" banner                                     | `useLivenessProbe`                 |
+| "Is anything loading?" across the app                                 | `useIsLoading`, `useCoreStore`     |
+| Toasts, and messages that stay until the user deletes them            | `useNotificationsStore`            |
 
-| You want…                                        | Use                                                              |
-| ------------------------------------------------ | ---------------------------------------------------------------- |
-| A whole CRUD resource (cache, optimistic writes) | `useStructureCrudApi` (built on the three below)                 |
-| Fetch / cache / mutate one REST resource         | `useStructureRestApi`, `useStructureSearchApi` (filters + pages) |
-| A normalized record store, no networking         | `useStructureDataManagement`                                     |
-| Form state + Zod validation + server errors      | `useStructureFormValidation`                                     |
-| Loading, errors and liveness for one-off calls   | `useAsyncAction`, `useUploadProgress`, `useLivenessProbe`        |
-| "Is anything loading?" across the app            | `useIsLoading`, `useCoreStore`                                   |
-| Toasts, and messages that persist until deleted  | `useNotificationsStore`                                          |
-
-Everything is exported from the package root, and every piece works on its own.
-
-## Quick intro
-
-### `useStructureCrudApi` — a whole resource, from the calls that reach it
-
-The highest-level entry point, and the one to start from. Everything below is still available
-through it, so it is a convenience and never a ceiling.
+## A CRUD resource in one store
 
 ```ts
 import { defineStore, storeToRefs } from 'pinia';
 import { useStructureCrudApi } from '@guebbit/vue-toolkit';
 
 export const useProductsStore = defineStore('products', () => ({
+    // <record, id, filters>
     ...useStructureCrudApi<IProduct, string, IProductFilters>(
         {
-            list: () => listProducts().then((r) => r.data.items),
+            list: () => listProducts(),
             search: (filters, page, pageSize) =>
-                listProducts({ ...filters, page, pageSize }).then((r) => ({
-                    items: r.data.items,
-                    totalItems: r.data.total
+                searchProducts(filters, page, pageSize).then((r) => ({
+                    items: r.items,
+                    totalItems: r.total
                 })),
-            get: (id) => getProductById(id).then((r) => r.data),
-            create: (data) => createProduct(data).then((r) => r.data),
-            update: (id, data) => updateProductById(id, data).then((r) => r.data),
-            remove: (id) => deleteProductById(id)
+            get: (id) => getProduct(id),
+            create: (data) => createProduct(data),
+            update: (id, data) => updateProduct(id, data),
+            remove: (id) => deleteProduct(id)
         },
-        { resourceKey: 'products' }
+        // resourceKey: the first segment of every cache key this resource makes
+        { resourceKey: 'products', initialFilters: { text: '' } }
     )
 }));
 
-// …and the store is done: filters, pagination, caching, optimistic updates and rollback included.
-// In a component: state through storeToRefs (keeps it reactive), methods from the store itself.
+// In a component: state through storeToRefs, methods from the store itself.
 const store = useProductsStore();
-const { filters, pageItemList, pageCurrent } = storeToRefs(store);
-const { error } = store.watchList({ onError: notifyError });
+const { filters, pageItemList, pageCurrent, pageTotal, totalItems } = storeToRefs(store);
+const { error } = store.watchList(); // the active search; never rejects
+store.updateOne('42', { title: 'New title' }).catch(showError); // optimistic, rolled back on failure
 ```
 
-Every operation is optional — a read-only resource supplies `list` and `get` and nothing else —
-but the operations object itself is required. `resourceKey` is required too: it's the prefix every
-query and mutation this resource makes starts with, which is what makes invalidating it from
-another store possible.
+Every operation is optional (a read-only resource supplies `list` and `get`). Everything the lower
+layers offer stays reachable on the same object.
 
-### `useStructureRestApi` — fetch, cache, and mutate against a REST API
+## Learn more
 
-```ts
-import { useStructureRestApi } from '@guebbit/vue-toolkit';
-
-// in a component's setup() or a Pinia setup store (where VueQueryPlugin's client is injected)
-const users = useStructureRestApi<IUser, number>({ resourceKey: 'users' });
-
-await users.fetchAll(() => axios.get<IUser[]>('/api/users').then((r) => r.data));
-users.itemList.value; // IUser[], cached and deduplicated across callers
-users.loading.value; // true while anything of this resource is in flight
-
-// Optimistic — updates locally right away, rolls back automatically on failure
-await users.updateTarget(
-    () => axios.put<IUser>('/api/users/1', { name: 'New name' }).then((r) => r.data),
-    { name: 'New name' },
-    1
-);
-```
-
-### `useStructureSearchApi` — the same, plus filtered pagination
-
-```ts
-import { useStructureSearchApi } from '@guebbit/vue-toolkit';
-
-const filters = ref({ text: '' });
-const products = useStructureSearchApi<IProduct, string, string, typeof filters.value>(
-    () => filters.value,
-    { resourceKey: 'products' }
-);
-
-// fetches on every pageCurrent/pageSize change; editing `filters` does nothing until search()
-const { search, error } = products.watchSearch((appliedFilters, page, pageSize) =>
-    listProducts({ ...appliedFilters, page, pageSize }).then((r) => ({
-        items: r.data.items,
-        totalItems: r.data.total
-    }))
-);
-
-products.pageItemList.value; // the applied search's current page
-products.totalItems.value; // the server-reported total — survives a cache hit and a page change
-```
-
-### `useStructureDataManagement` — normalized store, no networking
-
-```ts
-import { useStructureDataManagement } from '@guebbit/vue-toolkit';
-
-const users = useStructureDataManagement<IUser, number>('id');
-users.addRecord({ id: 1, name: 'Alice' });
-users.getRecord(1); // { id: 1, name: 'Alice' }
-```
-
-### `useStructureFormValidation` — reactive form state + Zod validation
-
-```ts
-import { z } from 'zod';
-import { useStructureFormValidation } from '@guebbit/vue-toolkit';
-
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(8) });
-const login = useStructureFormValidation({ email: '', password: '' }, loginSchema, { formElement });
-
-// Owns `showFormErrors`: a rejected submit reveals the errors and focuses the first invalid field
-await login
-    .handleSubmit(async (data) => {
-        await api.post('/login', data);
-    })
-    .catch((error) => {
-        // and the errors only the server can find go under the right input too
-        if (!login.applyServerErrors(error)) notifications.addMessage('Something went wrong');
-    });
-```
-
-### `useUploadProgress` — a progress bar for one upload, without an HTTP client
-
-```ts
-import { useUploadProgress } from '@guebbit/vue-toolkit';
-
-// the one client-specific line, written once per app
-const { progress, isUploading, track } = useUploadProgress<AxiosRequestConfig>((onProgress) => ({
-    onUploadProgress: (event) => onProgress(event.progress ?? 0)
-}));
-
-// `enabled` off means no options are passed at all — no bar flashing for a payload with no file
-await track((options) => updateProduct(id, data, options), { enabled: !!file.value });
-```
-
-### `useAsyncAction` — `data`/`error`/`loading` for one call that isn't a whole REST resource
-
-```ts
-import { useAsyncAction } from '@guebbit/vue-toolkit';
-
-const {
-    data: health,
-    error,
-    loading,
-    run
-} = useAsyncAction(() => getObservabilityHealth().then((response) => response.data));
-// never rejects: a failed run resolves into `error`, so one dead panel doesn't take the page down
-```
-
-### `useLivenessProbe` — a `down` flag for something the app depends on
-
-```ts
-import { useLivenessProbe } from '@guebbit/vue-toolkit';
-
-// probes on creation, on the browser's `online` event, and on a slow retry loop only while down
-const { down } = useLivenessProbe(getHealth);
-```
-
-### `useIsLoading` — "is any of these resources busy?", across the whole app
-
-```ts
-import { useIsLoading } from '@guebbit/vue-toolkit';
-
-// true while any query or mutation whose resourceKey starts with 'account' or 'cart' is in flight
-const isAccountAreaLoading = useIsLoading(['account', 'cart']);
-```
-
-### `useCoreStore` — a Pinia store for your own (non-server) named loading flags
-
-```ts
-import { useCoreStore } from '@guebbit/vue-toolkit';
-
-const core = useCoreStore();
-core.setLoading('onboardingWizard', true);
-core.isLoading(['onboardingWizard']); // true
-```
-
-### `useNotificationsStore` — toasts, as a Pinia store
-
-```ts
-import { useNotificationsStore, EToastType } from '@guebbit/vue-toolkit';
-
-const notifications = useNotificationsStore();
-notifications.addMessage('Saved successfully', EToastType.SUCCESS, 4000);
-
-// A message that outlives its toast, owned by someone else (here: a server inbox).
-// Re-adding the same id updates it; `dismissMessage` deletes it and calls `onDismiss`.
-notifications.addMessage('Your order shipped', EToastType.PRIMARY, 4000, {
-    id: row.id,
-    persistent: true,
-    onDismiss: () => api.delete(`/notifications/${row.id}`)
-});
-notifications.persistentMessages; // newest first, for a panel or a bell
-notifications.dismissMessage(row.id).catch(showError); // rolls back if onDismiss rejects
-```
-
-## Documentation
-
-The snippets above are just the entry point. Full API reference, setup options, and the gotchas
-that matter in practice: **[guebbit.github.io/vue-toolkit](https://guebbit.github.io/vue-toolkit/)**
-
-Upgrading from 4.x? See the
-**[migration guide](https://guebbit.github.io/vue-toolkit/guide/migration)**.
-
-## Development
-
-| Command                 | What it does                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------- |
-| `npm run complete`      | The quality gate: lint, prettier check, build, tests, type tests, docs build |
-| `npm run complete:fix`  | Same pipeline, but lint and prettier rewrite files instead of only reporting |
-| `npm test`              | The Jest suite                                                               |
-| `npm run test:mutation` | Mutation testing (slow)                                                      |
-| `npm run docs:dev`      | The documentation site, on port 8080                                         |
-| `npm run try:frontend`  | Try an unpublished change in an app (below)                                  |
-
-### `try:frontend` — test a change in a real app before publishing
-
-```bash
-npm run try:frontend                          # installs into ../boilerplate-vue-frontend
-FRONTEND_DIR=../my-app npm run try:frontend   # or any other app
-# in the app: run its checks, then `npm ci` to go back to the published version
-```
-
-It builds the toolkit, packs it into a `.tgz` (exactly what `npm publish` would ship) and installs
-that into the app with `--no-save`, so the app's `package.json` and lockfile stay untouched. Not
-`npm link` / `file:`: a symlink resolves the peers (`vue`, `pinia`, `@tanstack/vue-query`) from this
-repo's `node_modules`, giving two Vue copies, and `inject()` / Pinia silently break.
-
-Every script is described in the
-**[Development guide](https://guebbit.github.io/vue-toolkit/guide/development)**.
+- [Getting Started](https://guebbit.github.io/vue-toolkit/guide/getting-started) — setup and the
+  client options that matter.
+- [Your first CRUD screen](https://guebbit.github.io/vue-toolkit/guide/first-crud-screen) — store,
+  list and edit form, step by step.
+- [Reference](https://guebbit.github.io/vue-toolkit/composables/structure-crud-api) — every
+  composable and store.
+- [Migrating from 4.x](https://guebbit.github.io/vue-toolkit/guide/migration) and the
+  [Changelog](https://guebbit.github.io/vue-toolkit/changelog).
+- [Contributing](https://guebbit.github.io/vue-toolkit/guide/development) — scripts, the quality
+  gate (`npm run complete`) and trying a change in an app before publishing.
 
 ## License
 

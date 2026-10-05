@@ -51,3 +51,8 @@ take it from the store itself, and call it inside a `computed` to stay reactive.
 | `setLoading(key, value)` | Sets one key's loading state. Returns the value stored.                                           |
 | `getLoading(key)`        | Reads one key's loading state; an unknown key reads `false`.                                      |
 | `resetLoadings()`        | Clears every tracked key.                                                                         |
+
+## See also
+
+- [Getting Started](/guide/getting-started) — app setup and which composable to pick.
+- [`useIsLoading`](/composables/is-loading) — the same question, for requests.

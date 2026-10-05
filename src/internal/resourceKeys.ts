@@ -69,6 +69,42 @@ export interface IKeyed {
 export const scopeOf = (queryKey: readonly unknown[]): unknown[] => queryKey[2] as unknown[];
 
 /**
+ * The resource segment of a query key (`queryKey[0]`).
+ *
+ * @param queryKey - a query key this resource built
+ * @returns the resource key
+ */
+export const resourceOf = (queryKey: readonly unknown[]): unknown => queryKey[0];
+
+/**
+ * The kind segment of a query key (`queryKey[1]`).
+ *
+ * @param queryKey - a query key this resource built
+ * @returns what the entry holds
+ */
+export const kindOf = (queryKey: readonly unknown[]): TResourceKind => queryKey[1] as TResourceKind;
+
+/**
+ * The first identity segment of a query key (`queryKey[3]`): a record id (`target`), a parent id
+ * (`parent`) or a filters key (`search`).
+ *
+ * @param queryKey - a query key this resource built
+ * @returns the id segment
+ */
+export const idOf = (queryKey: readonly unknown[]): unknown => queryKey[3];
+
+/**
+ * The call's own identity segments: the `count` segments after the scope. How many there are
+ * depends on the kind (`target`/`parent` 1, `page` 2, `search` 3), so the caller says.
+ *
+ * @param queryKey - a query key this resource built
+ * @param count - how many identity segments the kind has
+ * @returns those segments
+ */
+export const partsOf = (queryKey: readonly unknown[], count: number): unknown[] =>
+    queryKey.slice(3, 3 + count);
+
+/**
  * Key builders and scope predicates for one resource.
  *
  * @param resourceKey - first segment of every key the resource makes
@@ -141,8 +177,8 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
     const inScope = (scope: unknown[], kinds?: readonly TResourceKind[]) => {
         const expected = stableKey(scope);
         return (query: IKeyed): boolean =>
-            query.queryKey[0] === resourceKey &&
-            (kinds === undefined || kinds.includes(query.queryKey[1] as TResourceKind)) &&
+            resourceOf(query.queryKey) === resourceKey &&
+            (kinds === undefined || kinds.includes(kindOf(query.queryKey))) &&
             stableKey(query.queryKey[2]) === expected;
     };
 
@@ -151,7 +187,7 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
      * pointing at it — "does this entry refer to id, directly or through one alias hop". Reaches
      * every pointer to a record when it changes: an update/delete by an alternate key, a removal,
      * or an invalidation must also touch the aliases that resolve to the same record (see the
-     * alias rule in `restResource.ts`'s module header).
+     * alias rule in `resourceWrites.ts`'s module header).
      *
      * @param id - the record's own (already resolved) id — never an alias itself
      * @param scope - the scope snapshot to match
@@ -162,7 +198,7 @@ export const createResourceKeys = (resourceKey: string, dependsOn: () => unknown
         const key = String(id);
         return (query: Query): boolean =>
             matchesScope(query) &&
-            (query.queryKey[3] === key ||
+            (idOf(query.queryKey) === key ||
                 (query.state.data as ITargetEntry<unknown> | undefined)?.aliasOf === key);
     };
 

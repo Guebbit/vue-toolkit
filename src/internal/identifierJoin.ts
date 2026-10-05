@@ -1,5 +1,6 @@
 /**
- * Joining identifier values into one composite id without collisions.
+ * Reading a record's id off its identifier field(s), and joining several values into one
+ * composite id without collisions.
  *
  * A plain `.join(delimiter)` conflates different splits of the same joined string: `['a', 'b']`
  * joining `['x|y', 'z']` and `['x', 'y|z']` both produce `'x|y|z'`. So each value is escaped
@@ -61,4 +62,25 @@ export const joinIdentifiers = (values: readonly unknown[], delimiter: string): 
     if (values.length <= 1) return values.map((value) => segmentOf(value)).join(delimiter);
     const escape = escapeCharacterFor(delimiter);
     return values.map((value) => escapeSegment(value, delimiter, escape)).join(delimiter);
+};
+
+/**
+ * A record's id, read off its identifier field(s), or `undefined` when any of them is missing —
+ * never a fabricated one. A single field (a string) yields its raw value; a list of fields yields
+ * their values joined (see joinIdentifiers), even when the list holds one field.
+ *
+ * @param item - the record
+ * @param identifiers - the identifier field, or fields in order
+ * @param delimiter - the separator joining several values
+ * @returns the id, or undefined when an identifier field is null or undefined
+ */
+export const readIdentifier = (
+    item: unknown,
+    identifiers: string | readonly string[],
+    delimiter: string
+): unknown => {
+    const fields = typeof identifiers === 'string' ? [identifiers] : identifiers;
+    const values = fields.map((field) => (item as Record<string, unknown> | undefined)?.[field]);
+    if (values.some((value) => value === undefined || value === null)) return undefined;
+    return typeof identifiers === 'string' ? values[0] : joinIdentifiers(values, delimiter);
 };
